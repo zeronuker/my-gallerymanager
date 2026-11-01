@@ -76,7 +76,7 @@ fun GalleryRoot() {
                 )
             },
         )
-        items != null -> PhotosScreen(items!!)
+        items != null -> MainScaffold(items!!)
     }
 }
 

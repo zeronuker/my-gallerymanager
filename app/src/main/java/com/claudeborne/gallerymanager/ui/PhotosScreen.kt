@@ -7,20 +7,15 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,7 +30,6 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -62,20 +56,20 @@ private fun duration(ms: Long): String {
     return "%d:%02d".format(s / 60, s % 60)
 }
 
+/** Date-grouped grid of [items]. Used for the Photos tab and for a single album ([onBack] set). */
 @Composable
-fun PhotosScreen(items: List<MediaItem>) {
+fun PhotosScreen(
+    items: List<MediaItem>,
+    title: String,
+    gridState: LazyGridState = rememberLazyGridState(),
+    onBack: (() -> Unit)? = null,
+) {
     val cb = LocalCb.current
     var cols by rememberSaveable { mutableIntStateOf(4) }
     val groups = remember(items) { items.groupBy { dayLabel(it.takenMs) }.toList() }
 
-    Column(Modifier.fillMaxSize().cbGrid(cb).systemBarsPadding()) {
-        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp)) {
-            Text("CLAUDEBORNE", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.6.sp, color = cb.mint))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("PHOTOS", style = TextStyle(fontFamily = Tourney, fontWeight = FontWeight.Bold, fontSize = 28.sp, brush = cb.grad))
-                Text("${items.size} ITEMS", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 1.sp, color = cb.inkDim))
-            }
-        }
+    Column(Modifier.fillMaxSize()) {
+        ScreenHeader(title, "${items.size} ITEMS", onBack, backLabel = "ALBUMS")
 
         if (items.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -86,8 +80,8 @@ fun PhotosScreen(items: List<MediaItem>) {
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(cols),
+            state = gridState,
             modifier = Modifier.fillMaxSize().pinchToResize(cols) { cols = it },
-            contentPadding = WindowInsets.navigationBars.asPaddingValues(),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
