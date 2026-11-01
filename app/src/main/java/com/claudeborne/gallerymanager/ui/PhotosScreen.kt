@@ -1,6 +1,7 @@
 package com.claudeborne.gallerymanager.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
@@ -63,6 +64,7 @@ fun PhotosScreen(
     title: String,
     gridState: LazyGridState = rememberLazyGridState(),
     onBack: (() -> Unit)? = null,
+    onOpen: (MediaItem) -> Unit,
 ) {
     val cb = LocalCb.current
     var cols by rememberSaveable { mutableIntStateOf(4) }
@@ -93,16 +95,16 @@ fun PhotosScreen(
                         style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.4.sp, color = cb.mint),
                     )
                 }
-                items(day, key = { it.id }) { Tile(it) }
+                items(day, key = { it.id }) { Tile(it) { onOpen(it) } }
             }
         }
     }
 }
 
 @Composable
-private fun Tile(item: MediaItem) {
+private fun Tile(item: MediaItem, onClick: () -> Unit) {
     val cb = LocalCb.current
-    Box(Modifier.aspectRatio(1f).background(cb.surface2)) {
+    Box(Modifier.aspectRatio(1f).background(cb.surface2).clickable(onClick = onClick)) {
         AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         if (item.isVideo) {
             Text(

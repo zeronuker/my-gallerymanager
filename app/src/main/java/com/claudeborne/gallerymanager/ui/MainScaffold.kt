@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,9 +22,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -37,26 +38,35 @@ fun MainScaffold(items: List<MediaItem>) {
     val cb = LocalCb.current
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var openAlbum by rememberSaveable { mutableStateOf<Long?>(null) }
+    var viewerId by rememberSaveable { mutableStateOf<Long?>(null) }
     val photosGrid = rememberLazyGridState() // kept here so the Photos scroll position survives tab switches
 
-    BackHandler(enabled = openAlbum != null) { openAlbum = null }
+    val album = openAlbum
+    val inAlbum = remember(items, album) { album?.let { a -> items.filter { it.bucketId == a } }.orEmpty() }
+    // the viewer swipes through whatever list the user opened it from
+    val viewerItems = if (tab == 0) items else inAlbum
 
-    Column(Modifier.fillMaxSize().cbGrid(cb).statusBarsPadding()) {
-        Box(Modifier.weight(1f)) {
-            val album = openAlbum
-            when {
-                tab == 0 -> PhotosScreen(items, "PHOTOS", photosGrid)
-                album != null -> {
-                    val inAlbum = remember(items, album) { items.filter { it.bucketId == album } }
-                    key(album) {
-                        PhotosScreen(inAlbum, inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM", onBack = { openAlbum = null })
+    BackHandler(enabled = album != null) { openAlbum = null }
+    BackHandler(enabled = viewerId != null) { viewerId = null }
+
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().cbGrid(cb).statusBarsPadding()) {
+            Box(Modifier.weight(1f)) {
+                when {
+                    tab == 0 -> PhotosScreen(items, "PHOTOS", photosGrid) { viewerId = it.id }
+                    album != null -> key(album) {
+                        PhotosScreen(inAlbum, inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM", onBack = { openAlbum = null }) { viewerId = it.id }
                     }
+                    else -> AlbumsScreen(items) { openAlbum = it }
                 }
-                else -> AlbumsScreen(items) { openAlbum = it }
+            }
+            Row(Modifier.fillMaxWidth().background(cb.surface1).navigationBarsPadding()) {
+                tabs.forEachIndexed { i, label -> TabButton(label, selected = tab == i) { tab = i; openAlbum = null } }
             }
         }
-        Row(Modifier.fillMaxWidth().background(cb.surface1).navigationBarsPadding()) {
-            tabs.forEachIndexed { i, label -> TabButton(label, selected = tab == i) { tab = i; openAlbum = null } }
+
+        viewerId?.let { id ->
+            Viewer(viewerItems, id, onPageChange = { viewerId = it }, onClose = { viewerId = null })
         }
     }
 }
@@ -65,7 +75,7 @@ fun MainScaffold(items: List<MediaItem>) {
 private fun RowScope.TabButton(label: String, selected: Boolean, onClick: () -> Unit) {
     val cb = LocalCb.current
     Column(Modifier.weight(1f).height(52.dp).clickable(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.fillMaxWidth().height(2.dp).background(if (selected) cb.grad else androidx.compose.ui.graphics.SolidColor(cb.line)))
+        Box(Modifier.fillMaxWidth().height(2.dp).background(if (selected) cb.grad else SolidColor(cb.line)))
         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
             Text(
                 label,
