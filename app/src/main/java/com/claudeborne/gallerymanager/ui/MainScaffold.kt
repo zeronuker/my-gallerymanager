@@ -37,11 +37,11 @@ import com.claudeborne.gallerymanager.data.EXTERNAL_ID
 import com.claudeborne.gallerymanager.data.MediaItem
 import com.claudeborne.gallerymanager.data.externalItem
 
-private val tabs = listOf("PHOTOS", "ALBUMS")
+private val tabs = listOf("PHOTOS", "ALBUMS", "TRASH")
 
 /** [openUri] is set when another app opened a photo/video with us ("Open with"); closing the viewer then returns to that app. */
 @Composable
-fun MainScaffold(items: List<MediaItem>, openUri: Uri?, onChanged: () -> Unit) {
+fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, onChanged: () -> Unit) {
     val cb = LocalCb.current
     val context = LocalContext.current
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -71,6 +71,7 @@ fun MainScaffold(items: List<MediaItem>, openUri: Uri?, onChanged: () -> Unit) {
             Box(Modifier.weight(1f)) {
                 when {
                     tab == 0 -> PhotosScreen(items, "PHOTOS", photosGrid) { viewerId = it.id }
+                    tab == 2 -> TrashScreen(trash, onChanged)
                     album != null -> key(album) {
                         PhotosScreen(inAlbum, inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM", onBack = { openAlbum = null }) { viewerId = it.id }
                     }

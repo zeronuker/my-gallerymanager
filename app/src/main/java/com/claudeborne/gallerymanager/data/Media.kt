@@ -1,8 +1,10 @@
 package com.claudeborne.gallerymanager.data
 
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
+import android.os.Bundle
 import android.provider.MediaStore
 import android.provider.MediaStore.MediaColumns as C
 import androidx.exifinterface.media.ExifInterface
@@ -26,22 +28,25 @@ data class MediaItem(
     val bucketId: Long,
     val bucketName: String,
     val path: String,
+    val expiresMs: Long = 0, // when a trashed item is removed for good; 0 for normal items
 )
 
 private const val IMAGE = MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
 private const val VIDEO = MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
 
-/** All photos and videos on every storage volume, newest first. Trashed items are excluded by MediaStore. */
-suspend fun loadMedia(context: Context): List<MediaItem> = withContext(Dispatchers.IO) {
+/** All photos and videos on every storage volume, newest first; with [trashed] only what is in the system trash instead. */
+suspend fun loadMedia(context: Context, trashed: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
     val projection = arrayOf(
         C._ID, C.DISPLAY_NAME, MediaStore.Files.FileColumns.MEDIA_TYPE, C.DATE_TAKEN, C.DATE_MODIFIED,
         C.SIZE, C.DURATION, C.BUCKET_ID, C.BUCKET_DISPLAY_NAME, C.MIME_TYPE, C.WIDTH, C.HEIGHT, C.RELATIVE_PATH,
+        C.DATE_EXPIRES,
     )
-    val selection = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN ($IMAGE, $VIDEO)"
+    val args = Bundle().apply {
+        putString(ContentResolver.QUERY_ARG_SQL_SELECTION, "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN ($IMAGE, $VIDEO)")
+        putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, if (trashed) MediaStore.MATCH_ONLY else MediaStore.MATCH_EXCLUDE)
+    }
     val items = mutableListOf<MediaItem>()
-    context.contentResolver.query(
-        MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), projection, selection, null, null,
-    )?.use { c ->
+    context.contentResolver.query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), projection, args, null)?.use { c ->
         while (c.moveToNext()) {
             val id = c.getLong(0)
             val isVideo = c.getInt(2) == VIDEO
@@ -50,7 +55,7 @@ suspend fun loadMedia(context: Context): List<MediaItem> = withContext(Dispatche
             val taken = c.getLong(3).takeIf { it > 0 } ?: (c.getLong(4) * 1000)
             items += MediaItem(
                 id = id,
-                uri = ContentUris.withAppendedId(base, id),
+                uri = ContentUris.withAppendedId(base, id).let { if (trashed) it.buildUpon().appendQueryParameter("includeTrashed", "1").build() else it }, // MediaStore hides trashed rows from direct reads otherwise
                 name = c.getString(1).orEmpty(),
                 mime = c.getString(9).orEmpty(),
                 isVideo = isVideo,
@@ -62,6 +67,7 @@ suspend fun loadMedia(context: Context): List<MediaItem> = withContext(Dispatche
                 bucketId = c.getLong(7),
                 bucketName = c.getString(8).orEmpty(),
                 path = c.getString(12).orEmpty(),
+                expiresMs = c.getLong(13) * 1000,
             )
         }
     }

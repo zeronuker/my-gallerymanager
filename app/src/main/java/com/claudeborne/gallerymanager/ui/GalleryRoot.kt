@@ -53,6 +53,7 @@ fun GalleryRoot(openUri: Uri? = null) {
     var hasAccess by remember { mutableStateOf(granted()) }
     var askedAndDenied by remember { mutableStateOf(false) }
     var items by remember { mutableStateOf<List<MediaItem>?>(null) }
+    var trash by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var reload by remember { mutableIntStateOf(0) }
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -66,7 +67,10 @@ fun GalleryRoot(openUri: Uri? = null) {
         reload++
     }
     LaunchedEffect(hasAccess, reload) {
-        if (hasAccess) items = loadMedia(context)
+        if (hasAccess) {
+            items = loadMedia(context)
+            trash = loadMedia(context, trashed = true)
+        }
     }
 
     when {
@@ -79,7 +83,7 @@ fun GalleryRoot(openUri: Uri? = null) {
                 )
             },
         )
-        items != null -> MainScaffold(items!!, openUri) { reload++ }
+        items != null -> MainScaffold(items!!, trash, openUri) { reload++ }
     }
 }
 
