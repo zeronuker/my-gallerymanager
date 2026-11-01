@@ -5,19 +5,27 @@ import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
 import android.provider.MediaStore.MediaColumns as C
+import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+/** id of an item opened from another app that is not in MediaStore (no trash, single-item viewer) */
+const val EXTERNAL_ID = -1L
 
 data class MediaItem(
     val id: Long,
     val uri: Uri,
     val name: String,
+    val mime: String,
     val isVideo: Boolean,
     val takenMs: Long,
     val size: Long,
     val durationMs: Long,
+    val width: Int,
+    val height: Int,
     val bucketId: Long,
     val bucketName: String,
+    val path: String,
 )
 
 private const val IMAGE = MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
@@ -27,7 +35,7 @@ private const val VIDEO = MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
 suspend fun loadMedia(context: Context): List<MediaItem> = withContext(Dispatchers.IO) {
     val projection = arrayOf(
         C._ID, C.DISPLAY_NAME, MediaStore.Files.FileColumns.MEDIA_TYPE, C.DATE_TAKEN, C.DATE_MODIFIED,
-        C.SIZE, C.DURATION, C.BUCKET_ID, C.BUCKET_DISPLAY_NAME,
+        C.SIZE, C.DURATION, C.BUCKET_ID, C.BUCKET_DISPLAY_NAME, C.MIME_TYPE, C.WIDTH, C.HEIGHT, C.RELATIVE_PATH,
     )
     val selection = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN ($IMAGE, $VIDEO)"
     val items = mutableListOf<MediaItem>()
@@ -44,14 +52,46 @@ suspend fun loadMedia(context: Context): List<MediaItem> = withContext(Dispatche
                 id = id,
                 uri = ContentUris.withAppendedId(base, id),
                 name = c.getString(1).orEmpty(),
+                mime = c.getString(9).orEmpty(),
                 isVideo = isVideo,
                 takenMs = taken,
                 size = c.getLong(5),
                 durationMs = c.getLong(6),
+                width = c.getInt(10),
+                height = c.getInt(11),
                 bucketId = c.getLong(7),
                 bucketName = c.getString(8).orEmpty(),
+                path = c.getString(12).orEmpty(),
             )
         }
     }
     items.sortedByDescending { it.takenMs }
+}
+
+/** An image/video handed to us by another app ("Open with"); only what the viewer needs. */
+fun externalItem(context: Context, uri: Uri): MediaItem {
+    val mime = context.contentResolver.getType(uri).orEmpty()
+    return MediaItem(EXTERNAL_ID, uri, uri.lastPathSegment.orEmpty(), mime, mime.startsWith("video"), 0, 0, 0, 0, 0, 0, "", "")
+}
+
+/** Camera details and GPS from EXIF as label/value rows; empty for videos or files without EXIF. */
+suspend fun readExif(context: Context, item: MediaItem): List<Pair<String, String>> = withContext(Dispatchers.IO) {
+    if (item.isVideo) return@withContext emptyList()
+    // setRequireOriginal keeps GPS (needs ACCESS_MEDIA_LOCATION); it throws for non-MediaStore uris
+    val stream = runCatching { context.contentResolver.openInputStream(MediaStore.setRequireOriginal(item.uri)) }.getOrNull()
+        ?: runCatching { context.contentResolver.openInputStream(item.uri) }.getOrNull()
+        ?: return@withContext emptyList()
+    stream.use {
+        val e = ExifInterface(it)
+        buildList {
+            val camera = listOfNotNull(e.getAttribute(ExifInterface.TAG_MAKE), e.getAttribute(ExifInterface.TAG_MODEL)).joinToString(" ")
+            if (camera.isNotEmpty()) add("CAMERA" to camera)
+            e.getAttributeDouble(ExifInterface.TAG_F_NUMBER, 0.0).takeIf { it > 0 }?.let { add("APERTURE" to "f/%.1f".format(it)) }
+            e.getAttributeDouble(ExifInterface.TAG_EXPOSURE_TIME, 0.0).takeIf { it > 0 }
+                ?.let { add("EXPOSURE" to if (it < 1) "1/${Math.round(1 / it)} s" else "%.1f s".format(it)) }
+            e.getAttribute(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY)?.let { add("ISO" to it) }
+            e.getAttributeDouble(ExifInterface.TAG_FOCAL_LENGTH, 0.0).takeIf { it > 0 }?.let { add("FOCAL LENGTH" to "%.0f mm".format(it)) }
+            e.latLong?.let { add("GPS" to "%.5f, %.5f".format(it[0], it[1])) }
+        }
+    }
 }

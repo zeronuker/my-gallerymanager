@@ -1,5 +1,6 @@
 package com.claudeborne.gallerymanager
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,9 +22,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             ClaudeBorneTheme {
-                var splash by rememberSaveable { mutableStateOf(true) }
+                val viewUri = intent.takeIf { it.action == Intent.ACTION_VIEW }?.data
+                var splash by rememberSaveable { mutableStateOf(viewUri == null) } // no splash when another app just wants a photo shown
                 Box(Modifier.fillMaxSize()) {
-                    GalleryRoot()
+                    GalleryRoot(viewUri)
                     if (splash) SplashScreen { splash = false }
                 }
             }

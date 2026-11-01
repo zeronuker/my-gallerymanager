@@ -42,8 +42,11 @@ private val mediaPermissions =
     if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
     else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
 
+// location access is requested together but optional: without it photos just show no GPS in Info
+private val requestedPermissions = mediaPermissions + Manifest.permission.ACCESS_MEDIA_LOCATION
+
 @Composable
-fun GalleryRoot() {
+fun GalleryRoot(openUri: Uri? = null) {
     val context = LocalContext.current
     fun granted() = mediaPermissions.all { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
 
@@ -69,14 +72,14 @@ fun GalleryRoot() {
     when {
         !hasAccess -> PermissionScreen(
             denied = askedAndDenied,
-            onGrant = { launcher.launch(mediaPermissions) },
+            onGrant = { launcher.launch(requestedPermissions) },
             onSettings = {
                 context.startActivity(
                     Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
                 )
             },
         )
-        items != null -> MainScaffold(items!!)
+        items != null -> MainScaffold(items!!, openUri) { reload++ }
     }
 }
 

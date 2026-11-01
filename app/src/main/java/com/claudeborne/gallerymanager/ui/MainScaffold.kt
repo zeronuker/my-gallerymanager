@@ -1,5 +1,8 @@
 package com.claudeborne.gallerymanager.ui
 
+import android.app.Activity
+import android.content.ContentUris
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -29,25 +32,39 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import com.claudeborne.gallerymanager.data.EXTERNAL_ID
 import com.claudeborne.gallerymanager.data.MediaItem
+import com.claudeborne.gallerymanager.data.externalItem
 
 private val tabs = listOf("PHOTOS", "ALBUMS")
 
+/** [openUri] is set when another app opened a photo/video with us ("Open with"); closing the viewer then returns to that app. */
 @Composable
-fun MainScaffold(items: List<MediaItem>) {
+fun MainScaffold(items: List<MediaItem>, openUri: Uri?, onChanged: () -> Unit) {
     val cb = LocalCb.current
+    val context = LocalContext.current
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var openAlbum by rememberSaveable { mutableStateOf<Long?>(null) }
-    var viewerId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var viewerId by rememberSaveable {
+        // MediaStore uris map to a library item; anything else (file manager, downloads) gets a single-item viewer
+        mutableStateOf(openUri?.let { u -> (if (u.authority == "media") runCatching { ContentUris.parseId(u) }.getOrNull() else null) ?: EXTERNAL_ID })
+    }
     val photosGrid = rememberLazyGridState() // kept here so the Photos scroll position survives tab switches
 
     val album = openAlbum
     val inAlbum = remember(items, album) { album?.let { a -> items.filter { it.bucketId == a } }.orEmpty() }
+    val external = remember(openUri) { openUri?.let { externalItem(context, it) } }
     // the viewer swipes through whatever list the user opened it from
-    val viewerItems = if (tab == 0) items else inAlbum
+    val viewerItems = when {
+        viewerId == EXTERNAL_ID -> listOfNotNull(external)
+        tab == 0 -> items
+        else -> inAlbum
+    }
+    val closeViewer = { viewerId = null; if (openUri != null) (context as? Activity)?.finish() }
 
     BackHandler(enabled = album != null) { openAlbum = null }
-    BackHandler(enabled = viewerId != null) { viewerId = null }
+    BackHandler(enabled = viewerId != null) { closeViewer() }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().cbGrid(cb).statusBarsPadding()) {
@@ -66,7 +83,7 @@ fun MainScaffold(items: List<MediaItem>) {
         }
 
         viewerId?.let { id ->
-            Viewer(viewerItems, id, onPageChange = { viewerId = it }, onClose = { viewerId = null })
+            Viewer(viewerItems, id, onPageChange = { viewerId = it }, onChanged = onChanged, onClose = closeViewer)
         }
     }
 }
