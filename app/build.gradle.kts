@@ -1,0 +1,52 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+}
+
+// Release signing comes from CI secrets; without them the release APK stays unsigned.
+val keystore = System.getenv("KEYSTORE_PATH")?.let(::file)?.takeIf { it.exists() }
+
+android {
+    // ponytail: placeholder id — changing it later makes Android treat the app as a new one
+    namespace = "com.claudeborne.gallerymanager"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.claudeborne.gallerymanager"
+        minSdk = 30
+        targetSdk = 35
+        versionCode = 1
+        versionName = "0.1.0"
+    }
+
+    signingConfigs {
+        if (keystore != null) {
+            create("release") {
+                storeFile = keystore
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (keystore != null) signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = "17" }
+    buildFeatures { compose = true }
+}
+
+dependencies {
+    implementation(platform("androidx.compose:compose-bom:2024.10.01"))
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.activity:activity-compose:1.9.3")
+}

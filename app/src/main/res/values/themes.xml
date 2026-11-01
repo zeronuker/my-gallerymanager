@@ -1,0 +1,5 @@
+<resources>
+    <style name="Theme.GalleryManager" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/cb_surface_0</item>
+    </style>
+</resources>
