@@ -11,6 +11,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -112,7 +114,8 @@ fun SplashScreen(onFinish: () -> Unit) {
                 )
             }
             Column(
-                Modifier.graphicsLayer { alpha = wordAlpha.value }.onSizeChanged { wordWidth = it.width },
+                // Max intrinsic width keeps the underline as wide as the text instead of filling the row
+                Modifier.width(IntrinsicSize.Max).graphicsLayer { alpha = wordAlpha.value }.onSizeChanged { wordWidth = it.width },
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
