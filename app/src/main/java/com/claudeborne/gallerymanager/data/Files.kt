@@ -157,7 +157,10 @@ data class RecycledItem(val stored: File, val originalPath: String, val deletedM
 
 object Recycle {
     private const val KEEP_MS = 30L * 24 * 3600 * 1000
-    private fun bin(): File = File(storageRoot, RECYCLE_DIR).also { it.mkdirs() }
+    private fun bin(): File = File(storageRoot, RECYCLE_DIR).also {
+        it.mkdirs()
+        runCatching { File(it, ".nomedia").createNewFile() } // keeps trashed photos out of the gallery
+    }
     private fun index() = File(bin(), "index.tsv")
 
     private fun readIndex(): List<RecycledItem> {

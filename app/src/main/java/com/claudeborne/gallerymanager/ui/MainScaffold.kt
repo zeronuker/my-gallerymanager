@@ -92,7 +92,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
                         filesPath, { filesPath = it }, clip, onChanged = onChanged,
                         onOpen = { f ->
                             when (kindOf(f)) {
-                                Kind.IMAGE, Kind.VIDEO -> { fileView = android.net.Uri.fromFile(f); viewerId = EXTERNAL_ID }
+                                Kind.IMAGE, Kind.VIDEO -> { fileView = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", f); viewerId = EXTERNAL_ID }
                                 Kind.AUDIO -> docFile = f
                                 else -> if (extOf(f) == "pdf" || extOf(f) in textExtensions) docFile = f else openExternally(context, f)
                             }
