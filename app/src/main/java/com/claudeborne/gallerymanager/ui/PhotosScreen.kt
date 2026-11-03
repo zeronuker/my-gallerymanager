@@ -12,7 +12,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.mutableStateOf
@@ -95,12 +98,14 @@ fun PhotosScreen(
 ) {
     val cb = LocalCb.current
     val context = LocalContext.current
-    var cols by rememberSaveable { mutableIntStateOf(4) }
+    var cols by rememberSaveable { mutableIntStateOf(com.claudeborne.gallerymanager.data.AppSettings.gridCols) }
     var filter by rememberSaveable { mutableStateOf(PhotoFilter.ALL) }
-    var sort by rememberSaveable { mutableStateOf(PhotoSort.NEWEST) }
+    var sort by rememberSaveable { mutableStateOf(runCatching { PhotoSort.valueOf(com.claudeborne.gallerymanager.data.AppSettings.photoSort) }.getOrDefault(PhotoSort.NEWEST)) }
     var query by rememberSaveable { mutableStateOf<String?>(null) }
     var selected by remember { mutableStateOf(emptySet<Long>()) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var moveDialog by remember { mutableStateOf(false) }
+    var newAlbum by remember { mutableStateOf("") }
 
     val shown = remember(items, filter, sort, query) {
         items.asSequence()
@@ -187,6 +192,7 @@ fun PhotosScreen(
                 ActionLabel(if (makeFav) "♥ FAVORITE" else "♡ UNFAVORITE", cb.mint) {
                     ask(MediaStore.createFavoriteRequest(context.contentResolver, chosen.map { it.uri }, makeFav))
                 }
+                ActionLabel("MOVE", cb.mint) { moveDialog = true }
                 ActionLabel("VAULT", cb.mint) {
                     scope.launch {
                         withContext(Dispatchers.IO) {
@@ -200,6 +206,41 @@ fun PhotosScreen(
                 }
                 ActionLabel("TRASH", DangerRed) { ask(MediaStore.createTrashRequest(context.contentResolver, chosen.map { it.uri }, true)) }
                 ActionLabel("CANCEL", cb.inkDim) { selected = emptySet() }
+            }
+        }
+    }
+
+    if (moveDialog) {
+        val albums = remember(items) { items.map { it.path }.filter { it.isNotEmpty() }.distinct().sorted() }
+        fun moveTo(rel: String) {
+            moveDialog = false
+            if (!com.claudeborne.gallerymanager.data.hasAllFilesAccess()) {
+                android.widget.Toast.makeText(context, "Allow All files access first (open the Files tab)", android.widget.Toast.LENGTH_LONG).show()
+                return
+            }
+            val files = chosen.map { File(com.claudeborne.gallerymanager.data.storageRoot, it.path + it.name) }.filter { it.isFile }
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    val dest = File(com.claudeborne.gallerymanager.data.storageRoot, rel).also { it.mkdirs() }
+                    val before = files.map { it.absolutePath }
+                    val made = files.map { com.claudeborne.gallerymanager.data.moveInto(it, dest) }
+                    com.claudeborne.gallerymanager.data.scanPaths(context, before + made.map { it.absolutePath })
+                }
+                selected = emptySet(); newAlbum = ""; onChanged()
+            }
+        }
+        CbDialog("MOVE ${chosen.size} TO", { moveDialog = false }, "NEW ALBUM", onConfirm = {
+            if (newAlbum.isNotBlank() && !newAlbum.contains('/')) moveTo("Pictures/" + newAlbum.trim())
+        }) {
+            CbInput(newAlbum, { newAlbum = it }, "New album name (then tap NEW ALBUM)")
+            androidx.compose.foundation.layout.Column(Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState())) {
+                albums.forEach { rel ->
+                    Text(
+                        rel.trimEnd('/'),
+                        Modifier.fillMaxWidth().clickable { moveTo(rel) }.padding(vertical = 10.dp),
+                        style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink),
+                    )
+                }
             }
         }
     }

@@ -93,7 +93,7 @@ fun Viewer(items: List<MediaItem>, startId: Long, onPageChange: (Long) -> Unit, 
     LaunchedEffect(playing, pager.currentPage) {
         if (!playing) return@LaunchedEffect
         if (items.getOrNull(pager.currentPage)?.isVideo == true || pager.currentPage >= items.size - 1) { playing = false; return@LaunchedEffect }
-        kotlinx.coroutines.delay(3000)
+        kotlinx.coroutines.delay(com.claudeborne.gallerymanager.data.AppSettings.slideSeconds * 1000L)
         pager.animateScrollToPage(pager.currentPage + 1)
     }
     val favLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {

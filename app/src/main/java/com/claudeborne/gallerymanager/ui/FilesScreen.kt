@@ -105,7 +105,7 @@ fun FilesScreen(path: String?, onPath: (String?) -> Unit, clip: ClipState, onOpe
     val dir = path?.let { File(it) }
     var sort by rememberSaveable { mutableStateOf(SortBy.NAME) }
     var ascending by rememberSaveable { mutableStateOf(true) }
-    var showHidden by rememberSaveable { mutableStateOf(false) }
+    var showHidden by rememberSaveable { mutableStateOf(com.claudeborne.gallerymanager.data.AppSettings.showHidden) }
     var query by rememberSaveable { mutableStateOf<String?>(null) } // null = not searching
     var entries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
     var selected by remember { mutableStateOf(emptySet<String>()) }

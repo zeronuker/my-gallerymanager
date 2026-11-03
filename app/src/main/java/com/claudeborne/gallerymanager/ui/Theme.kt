@@ -99,7 +99,8 @@ fun Modifier.cbGrid(cb: CbColors): Modifier = background(cb.surface0).drawBehind
 
 @Composable
 fun ClaudeBorneTheme(content: @Composable () -> Unit) {
-    val cb = if (isSystemInDarkTheme()) DarkCb else LightCb
+    val dark = when (com.claudeborne.gallerymanager.data.AppSettings.theme) { "DARK" -> true; "LIGHT" -> false; else -> isSystemInDarkTheme() }
+    val cb = if (dark) DarkCb else LightCb
     val scheme = if (cb.isDark) {
         darkColorScheme(
             primary = cb.mint, onPrimary = cb.surface0, secondary = cb.blue, tertiary = cb.violet,

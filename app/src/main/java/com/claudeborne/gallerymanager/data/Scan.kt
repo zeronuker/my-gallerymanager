@@ -86,3 +86,14 @@ suspend fun findDuplicates(sameSize: Map<Long, List<File>>, onProgress: (Int, In
     }
     groups.sortedByDescending { it[0].length() * (it.size - 1) } // most wasted space first
 }
+
+/** Every file of one [kind] on the storage, biggest first (capped), for the tap-a-category view in Tools. */
+suspend fun filesOfKind(root: File, kind: Kind, limit: Int = 3000): List<FileEntry> = withContext(Dispatchers.IO) {
+    root.walkTopDown()
+        .onEnter { d -> d.name != RECYCLE_DIR && !(d.parentFile?.name == "Android" && (d.name == "data" || d.name == "obb")) }
+        .filter { it.isFile && kindOf(it) == kind }
+        .map { FileEntry(it, false, it.length(), it.lastModified(), 0) }
+        .sortedByDescending { it.size }
+        .take(limit)
+        .toList()
+}

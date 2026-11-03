@@ -46,6 +46,8 @@ import com.claudeborne.gallerymanager.data.Recycle
 import com.claudeborne.gallerymanager.data.ScanResult
 import com.claudeborne.gallerymanager.data.VaultItem
 import com.claudeborne.gallerymanager.data.VaultSession
+import com.claudeborne.gallerymanager.data.AppSettings
+import com.claudeborne.gallerymanager.data.filesOfKind
 import com.claudeborne.gallerymanager.data.findDuplicates
 import com.claudeborne.gallerymanager.data.hasAllFilesAccess
 import com.claudeborne.gallerymanager.data.openExternally
@@ -64,11 +66,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-enum class ToolPage { HOME, LARGE, RECENT, DUPES, CLEANUP, VAULT }
+enum class ToolPage { HOME, LARGE, RECENT, DUPES, CLEANUP, VAULT, CATEGORY, SETTINGS }
 
 /** Lives in MainScaffold so the (slow) storage scan survives tab switches. */
 class ToolsState {
     var page by mutableStateOf(ToolPage.HOME)
+    var category by mutableStateOf(Kind.IMAGE)
     var scan by mutableStateOf<ScanResult?>(null)
     var scanning by mutableStateOf(false)
     var seen by mutableIntStateOf(0)
@@ -118,6 +121,8 @@ fun ToolsScreen(state: ToolsState, scope: CoroutineScope, onChanged: () -> Unit)
         ToolPage.DUPES -> DuplicatesPage(state, scope, onChanged)
         ToolPage.CLEANUP -> CleanupPage(state, scope, onChanged)
         ToolPage.VAULT -> VaultPage(state, onChanged)
+        ToolPage.CATEGORY -> CategoryPage(state, scope, onChanged)
+        ToolPage.SETTINGS -> SettingsPage(state)
     }
 }
 
@@ -143,11 +148,12 @@ private fun ToolsHome(state: ToolsState, scope: CoroutineScope) {
                         }
                         Box(Modifier.weight((free.toFloat() / total.coerceAtLeast(1)).coerceAtLeast(0.001f)).height(10.dp))
                     }
+                    Text("Tap a type to browse its files", Modifier.padding(top = 10.dp), style = mono(cb.inkDim, 9, 1f))
                     if (state.scanning) Text("Scanning… ${state.seen} files so far", Modifier.padding(top = 8.dp), style = mono(cb.inkDim, 10, 1f))
                     scan?.let { r ->
                         Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             r.bytesByKind.entries.sortedByDescending { it.value }.forEach { (k, b) ->
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.fillMaxWidth().clickable { state.category = k; state.page = ToolPage.CATEGORY }, verticalAlignment = Alignment.CenterVertically) {
                                     Box(Modifier.height(10.dp).weight(0.05f).background(kindColors[k] ?: cb.ink2))
                                     Text(kindNames[k] ?: "", Modifier.weight(0.5f).padding(start = 8.dp), style = mono(cb.ink2, 10, 1.6f))
                                     Text("${r.countByKind[k] ?: 0} files", Modifier.weight(0.25f), style = mono(cb.inkDim, 10, 0.5f))
@@ -165,6 +171,7 @@ private fun ToolsHome(state: ToolsState, scope: CoroutineScope) {
             toolRow("DUPLICATES", "Identical files wasting space", r != null) { state.page = ToolPage.DUPES }
             toolRow("CLEANUP", if (r == null) "Junk files and empty folders" else "${r.junk.size} junk files · ${r.emptyDirs.size} empty folders", r != null) { state.page = ToolPage.CLEANUP }
             toolRow("PRIVATE VAULT", "Encrypted files, locked with your screen lock", true) { state.page = ToolPage.VAULT }
+            toolRow("SETTINGS", "Theme, grid size, slideshow speed, defaults", true) { state.page = ToolPage.SETTINGS }
         }
     }
 }
@@ -400,4 +407,60 @@ private fun VaultPage(state: ToolsState, onChanged: () -> Unit) {
         scope.launch { withContext(Dispatchers.IO) { chosen.forEach { vaultDelete(context, it) } }; selected = emptySet(); reload++ }
     }) { DialogText("Permanently delete ${chosen.size} file(s) from the vault? This cannot be undone.") }
     message?.let { m -> CbDialog("VAULT", { message = null }, "") { DialogText(m) } }
+}
+
+// ---------------- browse one file type ----------------
+
+@Composable
+private fun CategoryPage(state: ToolsState, scope: CoroutineScope, onChanged: () -> Unit) {
+    val files by androidx.compose.runtime.produceState<List<FileEntry>?>(null, state.category, state.scan) { value = filesOfKind(storageRoot, state.category) }
+    val list = files
+    if (list == null) {
+        Column(Modifier.fillMaxSize()) { PageHeader(kindNames[state.category] ?: "FILES", "LOADING…", state); EmptyNote("LOADING…") }
+    } else FileListPage(kindNames[state.category] ?: "FILES", list, state, scope, onChanged)
+}
+
+// ---------------- settings ----------------
+
+@Composable
+private fun SettingsPage(state: ToolsState) {
+    val cb = LocalCb.current
+    val context = LocalContext.current
+    val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "" }
+
+    @Composable
+    fun Row2(label: String, content: @Composable () -> Unit) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(label, style = mono(cb.mint, 10, 2.2f))
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { content() }
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        PageHeader("SETTINGS", "v$version", state)
+        LazyColumn(Modifier.weight(1f)) {
+            item {
+                Row2("THEME") {
+                    listOf("SYSTEM", "DARK", "LIGHT").forEach { t -> Chip(t, on = AppSettings.theme == t) { AppSettings.theme = t; AppSettings.save() } }
+                }
+                Row2("PHOTO GRID COLUMNS") {
+                    (2..6).forEach { c -> Chip("$c", on = AppSettings.gridCols == c) { AppSettings.gridCols = c; AppSettings.save() } }
+                }
+                Row2("DEFAULT PHOTO SORT") {
+                    com.claudeborne.gallerymanager.ui.PhotoSort.entries.forEach { s -> Chip(s.label, on = AppSettings.photoSort == s.name) { AppSettings.photoSort = s.name; AppSettings.save() } }
+                }
+                Row2("SLIDESHOW SPEED") {
+                    listOf(2, 3, 5, 8).forEach { sec -> Chip("${sec}s", on = AppSettings.slideSeconds == sec) { AppSettings.slideSeconds = sec; AppSettings.save() } }
+                }
+                Row2("SHOW HIDDEN FILES IN FILES TAB") {
+                    Chip("OFF", on = !AppSettings.showHidden) { AppSettings.showHidden = false; AppSettings.save() }
+                    Chip("ON", on = AppSettings.showHidden) { AppSettings.showHidden = true; AppSettings.save() }
+                }
+                Text(
+                    "Theme applies at once. Grid columns, sort and hidden files apply the next time you open those tabs.",
+                    Modifier.padding(16.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim),
+                )
+            }
+        }
+    }
 }
