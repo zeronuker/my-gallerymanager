@@ -1,7 +1,26 @@
 package com.claudeborne.gallerymanager.ui
 
+import android.app.Activity
+import android.content.Intent
+import android.provider.MediaStore
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
@@ -57,60 +76,157 @@ private fun duration(ms: Long): String {
     return "%d:%02d".format(s / 60, s % 60)
 }
 
-/** Date-grouped grid of [items]. Used for the Photos tab and for a single album ([onBack] set). */
+enum class PhotoSort(val label: String) { NEWEST("NEWEST"), OLDEST("OLDEST"), BIGGEST("BIGGEST"), NAME("NAME") }
+enum class PhotoFilter(val label: String) { ALL("ALL"), PHOTOS("PHOTOS"), VIDEOS("VIDEOS"), FAVORITES("♥ FAVORITES") }
+
+/**
+ * Grid of [items] (Photos tab, or one album when [onBack] is set) with filter, sort, search and multi-select.
+ * [onOpen] gets the tapped item plus the list as currently shown, so the viewer swipes through exactly what the user sees.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PhotosScreen(
     items: List<MediaItem>,
     title: String,
     gridState: LazyGridState = rememberLazyGridState(),
     onBack: (() -> Unit)? = null,
-    onOpen: (MediaItem) -> Unit,
+    onChanged: () -> Unit = {},
+    onOpen: (MediaItem, List<MediaItem>) -> Unit,
 ) {
     val cb = LocalCb.current
+    val context = LocalContext.current
     var cols by rememberSaveable { mutableIntStateOf(4) }
-    val groups = remember(items) { items.groupBy { dayLabel(it.takenMs) }.toList() }
+    var filter by rememberSaveable { mutableStateOf(PhotoFilter.ALL) }
+    var sort by rememberSaveable { mutableStateOf(PhotoSort.NEWEST) }
+    var query by rememberSaveable { mutableStateOf<String?>(null) }
+    var selected by remember { mutableStateOf(emptySet<Long>()) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
+    val shown = remember(items, filter, sort, query) {
+        items.asSequence()
+            .filter {
+                when (filter) {
+                    PhotoFilter.ALL -> true
+                    PhotoFilter.PHOTOS -> !it.isVideo
+                    PhotoFilter.VIDEOS -> it.isVideo
+                    PhotoFilter.FAVORITES -> it.favorite
+                }
+            }
+            .filter { query.isNullOrBlank() || it.name.contains(query!!, true) || it.bucketName.contains(query!!, true) }
+            .toList()
+            .let {
+                when (sort) {
+                    PhotoSort.NEWEST -> it
+                    PhotoSort.OLDEST -> it.sortedBy { m -> m.takenMs }
+                    PhotoSort.BIGGEST -> it.sortedByDescending { m -> m.size }
+                    PhotoSort.NAME -> it.sortedBy { m -> m.name.lowercase() }
+                }
+            }
+    }
+    val groupByDay = sort == PhotoSort.NEWEST || sort == PhotoSort.OLDEST
+    val groups = remember(shown, groupByDay) { if (groupByDay) shown.groupBy { dayLabel(it.takenMs) }.toList() else listOf("" to shown) }
+    val chosen = shown.filter { it.id in selected }
+
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+        if (it.resultCode == Activity.RESULT_OK) { selected = emptySet(); onChanged() }
+    }
+    fun ask(request: android.app.PendingIntent) = launcher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+    BackHandler(enabled = selected.isNotEmpty()) { selected = emptySet() }
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader(title, "${items.size} ITEMS", onBack, backLabel = "ALBUMS")
+        ScreenHeader(title, if (selected.isNotEmpty()) "${selected.size} SELECTED" else "${shown.size} ITEMS", onBack, backLabel = "ALBUMS")
 
-        if (items.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("NO PHOTOS OR VIDEOS", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            PhotoFilter.entries.forEach { f -> Chip(f.label, on = filter == f) { filter = f } }
+            Chip("↕ ${sort.label}") { sort = PhotoSort.entries[(sort.ordinal + 1) % PhotoSort.entries.size] }
+            Chip(if (query != null) "SEARCH ✕" else "SEARCH", on = query != null) { query = if (query == null) "" else null }
+        }
+        query?.let { q -> Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { CbInput(q, { query = it }, "Search by name or album…") } }
+
+        if (shown.isEmpty()) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text(if (items.isEmpty()) "NO PHOTOS OR VIDEOS" else "NOTHING MATCHES", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
             }
-            return@Column
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(cols),
+                state = gridState,
+                modifier = Modifier.weight(1f).fillMaxWidth().pinchToResize(cols) { cols = it },
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                groups.forEach { (label, day) ->
+                    if (label.isNotEmpty()) item(key = label, span = { GridItemSpan(maxLineSpan) }) {
+                        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(label, Modifier.weight(1f), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.4.sp, color = cb.mint))
+                            val all = day.all { it.id in selected }
+                            ActionLabel(if (all) "UNSELECT" else "SELECT", cb.inkDim) {
+                                selected = if (all) selected - day.map { it.id }.toSet() else selected + day.map { it.id }
+                            }
+                        }
+                    }
+                    items(day, key = { it.id }) { m ->
+                        Tile(m, m.id in selected, onClick = {
+                            if (selected.isNotEmpty()) selected = if (m.id in selected) selected - m.id else selected + m.id
+                            else onOpen(m, shown)
+                        }, onLongClick = { selected = if (m.id in selected) selected - m.id else selected + m.id })
+                    }
+                }
+            }
         }
 
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(cols),
-            state = gridState,
-            modifier = Modifier.fillMaxSize().pinchToResize(cols) { cols = it },
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            groups.forEach { (label, day) ->
-                item(key = label, span = { GridItemSpan(maxLineSpan) }) {
-                    Text(
-                        label,
-                        Modifier.padding(start = 16.dp, top = 14.dp, bottom = 6.dp),
-                        style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.4.sp, color = cb.mint),
-                    )
+        if (selected.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().background(cb.surface1).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.SpaceEvenly) {
+                ActionLabel("ALL", cb.inkDim) { selected = shown.map { it.id }.toSet() }
+                ActionLabel("SHARE", cb.mint) {
+                    val uris = ArrayList(chosen.map { it.uri })
+                    val send = Intent(Intent.ACTION_SEND_MULTIPLE).setType("*/*").putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    context.startActivity(Intent.createChooser(send, null))
                 }
-                items(day, key = { it.id }) { Tile(it) { onOpen(it) } }
+                val makeFav = !chosen.all { it.favorite }
+                ActionLabel(if (makeFav) "♥ FAVORITE" else "♡ UNFAVORITE", cb.mint) {
+                    ask(MediaStore.createFavoriteRequest(context.contentResolver, chosen.map { it.uri }, makeFav))
+                }
+                ActionLabel("VAULT", cb.mint) {
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            val files = chosen.map { File(com.claudeborne.gallerymanager.data.storageRoot, it.path + it.name) }.filter { it.isFile }
+                            val before = files.map { it.absolutePath }
+                            files.forEach { com.claudeborne.gallerymanager.data.vaultAdd(context, it) }
+                            com.claudeborne.gallerymanager.data.scanPaths(context, before)
+                        }
+                        selected = emptySet(); onChanged()
+                    }
+                }
+                ActionLabel("TRASH", DangerRed) { ask(MediaStore.createTrashRequest(context.contentResolver, chosen.map { it.uri }, true)) }
+                ActionLabel("CANCEL", cb.inkDim) { selected = emptySet() }
             }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Tile(item: MediaItem, onClick: () -> Unit) {
+private fun Tile(item: MediaItem, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val cb = LocalCb.current
-    Box(Modifier.aspectRatio(1f).background(cb.surface2).clickable(onClick = onClick)) {
+    Box(
+        Modifier.aspectRatio(1f).background(cb.surface2).combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .then(if (selected) Modifier.border(3.dp, cb.mint) else Modifier),
+    ) {
         AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         if (item.isVideo) {
             Text(
                 "▶ ${duration(item.durationMs)}",
                 Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color(0x99000000)).padding(horizontal = 4.dp, vertical = 2.dp),
                 style = TextStyle(fontFamily = JetBrainsMono, fontSize = 10.sp, color = Color.White),
+            )
+        }
+        if (item.favorite) Text("♥", Modifier.align(Alignment.BottomEnd).padding(5.dp), style = TextStyle(fontSize = 13.sp, color = Color(0xFFFF6B8B)))
+        if (selected) {
+            Text(
+                "✓",
+                Modifier.align(Alignment.TopEnd).padding(4.dp).background(cb.mint).padding(horizontal = 5.dp),
+                style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, color = DarkCb.surface0),
             )
         }
     }

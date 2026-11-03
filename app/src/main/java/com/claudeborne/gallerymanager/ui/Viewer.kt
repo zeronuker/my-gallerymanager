@@ -75,10 +75,11 @@ private val infoDateFmt = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm")
 
 /** Full-screen swipeable viewer over [items], starting at the item with [startId]. [onChanged] fires after the library changed (trash). */
 @Composable
-fun Viewer(items: List<MediaItem>, startId: Long, onPageChange: (Long) -> Unit, onChanged: () -> Unit, onClose: () -> Unit) {
+fun Viewer(items: List<MediaItem>, startId: Long, onPageChange: (Long) -> Unit, onChanged: () -> Unit, onEdit: (MediaItem) -> Unit, onClose: () -> Unit) {
     val context = LocalContext.current
     val pager = rememberPagerState(items.indexOfFirst { it.id == startId }.coerceAtLeast(0)) { items.size }
     var showInfo by remember { mutableStateOf(false) }
+    var playing by remember { mutableStateOf(false) } // slideshow
     val current = items.getOrNull(pager.currentPage)
     LightStatusIcons()
     BackHandler(enabled = showInfo) { showInfo = false }
@@ -86,6 +87,17 @@ fun Viewer(items: List<MediaItem>, startId: Long, onPageChange: (Long) -> Unit, 
     LaunchedEffect(pager, items) {
         if (items.isEmpty()) onClose()
         snapshotFlow { pager.settledPage }.collect { items.getOrNull(it)?.let { m -> onPageChange(m.id) } }
+    }
+
+    // slideshow: every 3 s to the next photo; stops at the end or on a video
+    LaunchedEffect(playing, pager.currentPage) {
+        if (!playing) return@LaunchedEffect
+        if (items.getOrNull(pager.currentPage)?.isVideo == true || pager.currentPage >= items.size - 1) { playing = false; return@LaunchedEffect }
+        kotlinx.coroutines.delay(3000)
+        pager.animateScrollToPage(pager.currentPage + 1)
+    }
+    val favLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+        if (it.resultCode == Activity.RESULT_OK) onChanged()
     }
 
     // Android asks the user to confirm moving the item to the system trash, where it stays recoverable for ~30 days
@@ -130,6 +142,14 @@ fun Viewer(items: List<MediaItem>, startId: Long, onPageChange: (Long) -> Unit, 
                 }
             }
             ActionButton("INFO", DarkCb.mint, enabled = current != null) { showInfo = !showInfo }
+            if (current != null && current.id != EXTERNAL_ID) {
+                ActionButton(if (current.favorite) "♥" else "♡", Color(0xFFFF6B8B), enabled = true) {
+                    val request = MediaStore.createFavoriteRequest(context.contentResolver, listOf(current.uri), !current.favorite)
+                    favLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+                }
+            }
+            if (items.size > 1) ActionButton(if (playing) "STOP" else "SLIDE", DarkCb.mint, enabled = true) { playing = !playing }
+            if (current != null && !current.isVideo) ActionButton("EDIT", DarkCb.mint, enabled = true) { onEdit(current) }
             if (current?.id != EXTERNAL_ID) {
                 ActionButton("TRASH", TrashRed, enabled = current != null) {
                     current?.let {
@@ -149,8 +169,8 @@ private fun monoStyle(color: Color, spacing: androidx.compose.ui.unit.TextUnit) 
 private fun ActionButton(label: String, color: Color, enabled: Boolean, onClick: () -> Unit) {
     Text(
         label,
-        Modifier.clickable(enabled = enabled, onClick = onClick).padding(horizontal = 16.dp, vertical = 6.dp),
-        style = monoStyle(color, 2.2.sp),
+        Modifier.clickable(enabled = enabled, onClick = onClick).padding(horizontal = 6.dp, vertical = 6.dp),
+        style = monoStyle(color, 1.2.sp),
     )
 }
 

@@ -23,6 +23,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -40,7 +41,7 @@ import com.claudeborne.gallerymanager.data.externalItem
 import com.claudeborne.gallerymanager.data.kindOf
 import com.claudeborne.gallerymanager.data.openExternally
 
-private val tabs = listOf("PHOTOS", "ALBUMS", "FILES", "TRASH")
+private val tabs = listOf("PHOTOS", "ALBUMS", "FILES", "TOOLS", "TRASH")
 
 /** [openUri] is set when another app opened a photo/video with us ("Open with"); closing the viewer then returns to that app. */
 @Composable
@@ -55,6 +56,8 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     }
     var filesPath by rememberSaveable { mutableStateOf<String?>(null) }
     val clip = remember { ClipState() }
+    val tools = remember { ToolsState() }
+    val toolsScope = rememberCoroutineScope()
     var fileView by remember { mutableStateOf<android.net.Uri?>(null) } // an image/video opened from the Files tab
     val photosGrid = rememberLazyGridState() // kept here so the Photos scroll position survives tab switches
 
@@ -62,10 +65,13 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     val inAlbum = remember(items, album) { album?.let { a -> items.filter { it.bucketId == a } }.orEmpty() }
     val external = remember(openUri, fileView) { (fileView ?: openUri)?.let { externalItem(context, it) } }
     // the viewer swipes through whatever list the user opened it from
-    val viewerItems = when {
-        viewerId == EXTERNAL_ID -> listOfNotNull(external)
-        tab == 0 -> items
-        else -> inAlbum
+    var viewerIds by remember { mutableStateOf(emptyList<Long>()) }
+    var editItem by remember { mutableStateOf<MediaItem?>(null) }
+    val isExternal = viewerId == EXTERNAL_ID
+    val viewerItems = remember(items, viewerIds, isExternal, external) {
+        if (isExternal) listOfNotNull(external)
+        else if (viewerIds.isEmpty()) items // opened from another app: browse the whole library
+        else { val byId = items.associateBy { it.id }; viewerIds.mapNotNull { byId[it] } }
     }
     val closeViewer = {
         viewerId = null
@@ -79,7 +85,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         Column(Modifier.fillMaxSize().cbGrid(cb).statusBarsPadding()) {
             Box(Modifier.weight(1f)) {
                 when {
-                    tab == 0 -> PhotosScreen(items, "PHOTOS", photosGrid) { viewerId = it.id }
+                    tab == 0 -> PhotosScreen(items, "PHOTOS", photosGrid, onChanged = onChanged) { m, list -> viewerIds = list.map { it.id }; viewerId = m.id }
                     tab == 2 -> FilesScreen(
                         filesPath, { filesPath = it }, clip, onChanged = onChanged,
                         onOpen = { f ->
@@ -89,9 +95,10 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
                             }
                         },
                     )
-                    tab == 3 -> TrashHome(trash, onChanged)
+                    tab == 3 -> ToolsScreen(tools, toolsScope, onChanged)
+                    tab == 4 -> TrashHome(trash, onChanged)
                     album != null -> key(album) {
-                        PhotosScreen(inAlbum, inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM", onBack = { openAlbum = null }) { viewerId = it.id }
+                        PhotosScreen(inAlbum, inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM", onBack = { openAlbum = null }, onChanged = onChanged) { m, list -> viewerIds = list.map { it.id }; viewerId = m.id }
                     }
                     else -> AlbumsScreen(items) { openAlbum = it }
                 }
@@ -102,8 +109,9 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         }
 
         viewerId?.let { id ->
-            Viewer(viewerItems, id, onPageChange = { viewerId = it }, onChanged = onChanged, onClose = closeViewer)
+            Viewer(viewerItems, id, onPageChange = { viewerId = it }, onChanged = onChanged, onEdit = { editItem = it }, onClose = closeViewer)
         }
+        editItem?.let { m -> EditScreen(m, onClose = { editItem = null }, onSaved = { editItem = null; onChanged() }) }
     }
 }
 
@@ -116,7 +124,7 @@ private fun RowScope.TabButton(label: String, selected: Boolean, onClick: () -> 
             Text(
                 label,
                 style = TextStyle(
-                    fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.2.sp,
+                    fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 1.4.sp,
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                     color = if (selected) cb.mint else cb.inkDim,
                 ),

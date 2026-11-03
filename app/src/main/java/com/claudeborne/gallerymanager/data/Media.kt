@@ -29,6 +29,7 @@ data class MediaItem(
     val bucketName: String,
     val path: String,
     val expiresMs: Long = 0, // when a trashed item is removed for good; 0 for normal items
+    val favorite: Boolean = false,
 )
 
 private const val IMAGE = MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
@@ -39,7 +40,7 @@ suspend fun loadMedia(context: Context, trashed: Boolean = false): List<MediaIte
     val projection = arrayOf(
         C._ID, C.DISPLAY_NAME, MediaStore.Files.FileColumns.MEDIA_TYPE, C.DATE_TAKEN, C.DATE_MODIFIED,
         C.SIZE, C.DURATION, C.BUCKET_ID, C.BUCKET_DISPLAY_NAME, C.MIME_TYPE, C.WIDTH, C.HEIGHT, C.RELATIVE_PATH,
-        C.DATE_EXPIRES,
+        C.DATE_EXPIRES, C.IS_FAVORITE,
     )
     val args = Bundle().apply {
         putString(ContentResolver.QUERY_ARG_SQL_SELECTION, "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN ($IMAGE, $VIDEO)")
@@ -68,6 +69,7 @@ suspend fun loadMedia(context: Context, trashed: Boolean = false): List<MediaIte
                 bucketName = c.getString(8).orEmpty(),
                 path = c.getString(12).orEmpty(),
                 expiresMs = c.getLong(13) * 1000,
+                favorite = c.getInt(14) == 1,
             )
         }
     }

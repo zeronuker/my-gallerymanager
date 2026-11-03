@@ -212,6 +212,11 @@ fun FilesScreen(path: String?, onPath: (String?) -> Unit, clip: ClipState, onOpe
                     ActionLabel("SHARE", cb.mint, enabled = chosen.any { it.isFile }) { shareFiles(context, chosen) }
                     ActionLabel("RENAME", cb.mint, enabled = chosen.size == 1) { dialog = Dlg.Rename(chosen[0]) }
                     ActionLabel("ZIP", cb.mint) { dialog = Dlg.ZipName }
+                    ActionLabel("VAULT", cb.mint, enabled = chosen.any { it.isFile }) {
+                        val files = chosen.filter { it.isFile }
+                        val before = pathsUnder(files)
+                        runOp("ENCRYPTING") { files.forEach { com.claudeborne.gallerymanager.data.vaultAdd(context, it) }; scanPaths(context, before) }
+                    }
                     ActionLabel("INFO", cb.mint, enabled = chosen.size == 1) { dialog = Dlg.Info(chosen[0]) }
                     ActionLabel("DELETE", DangerRed) { dialog = Dlg.Delete(chosen) }
                 }
@@ -302,7 +307,7 @@ private fun InfoLine(label: String, value: String) {
 }
 
 @Composable
-private fun AccessGate() {
+internal fun AccessGate() {
     val cb = LocalCb.current
     val context = LocalContext.current
     Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically), horizontalAlignment = Alignment.CenterHorizontally) {
