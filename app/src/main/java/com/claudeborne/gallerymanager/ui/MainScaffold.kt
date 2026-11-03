@@ -38,6 +38,7 @@ import com.claudeborne.gallerymanager.data.EXTERNAL_ID
 import com.claudeborne.gallerymanager.data.MediaItem
 import com.claudeborne.gallerymanager.data.Kind
 import com.claudeborne.gallerymanager.data.externalItem
+import com.claudeborne.gallerymanager.data.extOf
 import com.claudeborne.gallerymanager.data.kindOf
 import com.claudeborne.gallerymanager.data.openExternally
 
@@ -56,6 +57,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     }
     var filesPath by rememberSaveable { mutableStateOf<String?>(null) }
     val clip = remember { ClipState() }
+    var docFile by remember { mutableStateOf<java.io.File?>(null) } // PDF / text / audio opened from Files
     val tools = remember { ToolsState() }
     val toolsScope = rememberCoroutineScope()
     var fileView by remember { mutableStateOf<android.net.Uri?>(null) } // an image/video opened from the Files tab
@@ -91,7 +93,8 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
                         onOpen = { f ->
                             when (kindOf(f)) {
                                 Kind.IMAGE, Kind.VIDEO -> { fileView = android.net.Uri.fromFile(f); viewerId = EXTERNAL_ID }
-                                else -> openExternally(context, f)
+                                Kind.AUDIO -> docFile = f
+                                else -> if (extOf(f) == "pdf" || extOf(f) in textExtensions) docFile = f else openExternally(context, f)
                             }
                         },
                     )
@@ -110,6 +113,13 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
 
         viewerId?.let { id ->
             Viewer(viewerItems, id, onPageChange = { viewerId = it }, onChanged = onChanged, onEdit = { editItem = it }, onClose = closeViewer)
+        }
+        docFile?.let { f ->
+            when {
+                extOf(f) == "pdf" -> PdfScreen(f) { docFile = null }
+                kindOf(f) == Kind.AUDIO -> AudioScreen(f, remember(f) { f.parentFile?.listFiles()?.filter { kindOf(it) == Kind.AUDIO }?.sortedBy { it.name.lowercase() }.orEmpty().ifEmpty { listOf(f) } }) { docFile = null }
+                else -> TextScreen(f) { docFile = null }
+            }
         }
         editItem?.let { m -> EditScreen(m, onClose = { editItem = null }, onSaved = { editItem = null; onChanged() }) }
     }
