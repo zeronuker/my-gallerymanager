@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- lets other apps open/share any file we hand them (all-files access lets us read all of it) -->
+    <root-path name="root" path="" />
+</paths>

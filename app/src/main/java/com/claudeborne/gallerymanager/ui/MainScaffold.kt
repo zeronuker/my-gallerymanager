@@ -35,9 +35,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import com.claudeborne.gallerymanager.data.EXTERNAL_ID
 import com.claudeborne.gallerymanager.data.MediaItem
+import com.claudeborne.gallerymanager.data.Kind
 import com.claudeborne.gallerymanager.data.externalItem
+import com.claudeborne.gallerymanager.data.kindOf
+import com.claudeborne.gallerymanager.data.openExternally
 
-private val tabs = listOf("PHOTOS", "ALBUMS", "TRASH")
+private val tabs = listOf("PHOTOS", "ALBUMS", "FILES", "TRASH")
 
 /** [openUri] is set when another app opened a photo/video with us ("Open with"); closing the viewer then returns to that app. */
 @Composable
@@ -50,18 +53,24 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         // MediaStore uris map to a library item; anything else (file manager, downloads) gets a single-item viewer
         mutableStateOf(openUri?.let { u -> (if (u.authority == "media") runCatching { ContentUris.parseId(u) }.getOrNull() else null) ?: EXTERNAL_ID })
     }
+    var filesPath by rememberSaveable { mutableStateOf<String?>(null) }
+    val clip = remember { ClipState() }
+    var fileView by remember { mutableStateOf<android.net.Uri?>(null) } // an image/video opened from the Files tab
     val photosGrid = rememberLazyGridState() // kept here so the Photos scroll position survives tab switches
 
     val album = openAlbum
     val inAlbum = remember(items, album) { album?.let { a -> items.filter { it.bucketId == a } }.orEmpty() }
-    val external = remember(openUri) { openUri?.let { externalItem(context, it) } }
+    val external = remember(openUri, fileView) { (fileView ?: openUri)?.let { externalItem(context, it) } }
     // the viewer swipes through whatever list the user opened it from
     val viewerItems = when {
         viewerId == EXTERNAL_ID -> listOfNotNull(external)
         tab == 0 -> items
         else -> inAlbum
     }
-    val closeViewer = { viewerId = null; if (openUri != null) (context as? Activity)?.finish() }
+    val closeViewer = {
+        viewerId = null
+        if (fileView != null) fileView = null else if (openUri != null) (context as? Activity)?.finish()
+    }
 
     BackHandler(enabled = album != null) { openAlbum = null }
     BackHandler(enabled = viewerId != null) { closeViewer() }
@@ -71,7 +80,16 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
             Box(Modifier.weight(1f)) {
                 when {
                     tab == 0 -> PhotosScreen(items, "PHOTOS", photosGrid) { viewerId = it.id }
-                    tab == 2 -> TrashScreen(trash, onChanged)
+                    tab == 2 -> FilesScreen(
+                        filesPath, { filesPath = it }, clip, onChanged = onChanged,
+                        onOpen = { f ->
+                            when (kindOf(f)) {
+                                Kind.IMAGE, Kind.VIDEO -> { fileView = android.net.Uri.fromFile(f); viewerId = EXTERNAL_ID }
+                                else -> openExternally(context, f)
+                            }
+                        },
+                    )
+                    tab == 3 -> TrashHome(trash, onChanged)
                     album != null -> key(album) {
                         PhotosScreen(inAlbum, inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM", onBack = { openAlbum = null }) { viewerId = it.id }
                     }
