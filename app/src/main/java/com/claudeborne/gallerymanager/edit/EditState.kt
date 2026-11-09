@@ -40,6 +40,11 @@ data class EditState(
     val backdrop: Backdrop = Backdrop.KEEP,
     val backdropColor: Int = 0xFFFFFFFF.toInt(),
     val backdropBlur: Float = 0.5f,
+    val lvBlack: Float = 0f, // levels: darkest and brightest input kept, and the midtone gamma
+    val lvWhite: Float = 1f,
+    val lvGamma: Float = 1f,
+    val curves: Curves = Curves(),
+    val colours: List<Float> = NoColourTuning, // per-colour tuning, see Band
     val skin: Float = 0f, // portrait retouch strengths, 0..1
     val teeth: Float = 0f,
     val eyes: Float = 0f,

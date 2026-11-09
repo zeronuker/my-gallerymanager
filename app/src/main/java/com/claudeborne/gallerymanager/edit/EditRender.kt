@@ -29,6 +29,9 @@ import kotlin.math.sin
 // Order: filter look, manual tone and colour, sharpness/clarity from neighbouring pixels, vignette, grain.
 private const val AGSL = """
 uniform shader image;
+uniform shader lutImg; // tone curves, one pixel per input level
+uniform float lutOn; uniform float lvOn; uniform float lvBlack; uniform float lvWhite; uniform float lvGamma;
+uniform float hslOn; uniform float hslC[8]; uniform float hslH[8]; uniform float hslS[8]; uniform float hslL[8];
 uniform shader faceMask; // red = skin, green = open mouth, blue = eyes
 uniform float faceSkin; uniform float faceTeeth; uniform float faceEyes;
 uniform shader maskImg; // how much of each pixel belongs to the subject (alpha)
@@ -46,6 +49,18 @@ uniform float snap; uniform float blurR; // mosaic cell size and blur radius for
 uniform float2 srcOff; uniform float heal; uniform float healR; // retouch patches: where to read from, and whether to match the colour around the spot
 
 float lum(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
+float3 rgb2hsv(float3 c) {
+    float4 K = float4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    float4 p = mix(float4(c.bg, K.wz), float4(c.gb, K.xy), step(c.b, c.g));
+    float4 q = mix(float4(p.xyw, c.r), float4(c.r, p.yzx), step(p.x, c.r));
+    float d = q.x - min(q.w, q.y);
+    return float3(abs(q.z + (q.w - q.y) / (6.0 * d + 1.0e-10)), d / (q.x + 1.0e-10), q.x);
+}
+float3 hsv2rgb(float3 c) {
+    float4 K = float4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    float3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
 float3 px(float2 p) { return float3(image.eval(p).rgb); }
 float3 ring(float2 p, float r) {
     float q = r * 0.7071;
@@ -158,6 +173,31 @@ half4 main(float2 coord) {
     float spread = clamp(max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b)), 0.0, 1.0);
     c = mix(float3(l), c, 1.0 + vibrance * (1.0 - spread));
 
+    if (hslOn > 0.5) {
+        // per-colour tuning: each colour band pulls on the pixels whose hue is near it, and only on coloured (not grey) pixels
+        float3 hsv = rgb2hsv(clamp(c, 0.0, 1.0));
+        float gate = smoothstep(0.03, 0.2, hsv.y);
+        float dh = 0.0; float ds = 0.0; float dl = 0.0;
+        for (int k = 0; k < 8; k++) {
+            float d = abs(hsv.x - hslC[k]);
+            d = min(d, 1.0 - d);
+            float w = (1.0 - smoothstep(0.0, 0.09, d)) * gate;
+            dh += w * hslH[k]; ds += w * hslS[k]; dl += w * hslL[k];
+        }
+        hsv.x = fract(hsv.x + dh * 0.08 + 1.0);
+        hsv.y = clamp(hsv.y * (1.0 + ds), 0.0, 1.0);
+        hsv.z = clamp(hsv.z * (1.0 + dl * 0.5), 0.0, 1.0);
+        c = hsv2rgb(hsv);
+    }
+    if (lvOn > 0.5) {
+        c = (c - lvBlack) / max(lvWhite - lvBlack, 0.01);
+        c = pow(max(c, float3(0.0)), float3(1.0 / lvGamma));
+    }
+    if (lutOn > 0.5) {
+        c = clamp(c, 0.0, 1.0);
+        c = float3(lutImg.eval(float2(c.r * 255.0 + 0.5, 0.5)).r, lutImg.eval(float2(c.g * 255.0 + 0.5, 0.5)).g, lutImg.eval(float2(c.b * 255.0 + 0.5, 0.5)).b);
+    }
+
     c += (base - near) * sharpness * 2.0 + (base - far) * clarity * 1.2;
 
     float v = smoothstep(0.35, 1.05, length(here - vigCenter) / vigRadius);
@@ -203,6 +243,8 @@ class EditShader {
     private var bound: Bitmap? = null
     private var boundMask: Bitmap? = null
     private var boundFaces: Bitmap? = null
+    private var lutFor: Curves? = null
+    private var lutBmp: Bitmap? = null
     private val dummyMask = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
 
     /** Draws [src] with [st] into the top-left [outW] x [outH] of [canvas], showing only [crop]. */
@@ -217,6 +259,18 @@ class EditShader {
             }
             shader.setInputShader("maskImg", ms)
             boundMask = maskBmp
+        }
+        // the curve table is rebuilt only when the curves change
+        if (!st.curves.isIdentity && st.curves != lutFor) {
+            lutFor = st.curves
+            lutBmp = curveLut(st.curves)
+            shader.setInputShader("lutImg", BitmapShader(lutBmp!!, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP))
+        } else if (st.curves.isIdentity && lutFor != null) {
+            lutFor = null
+        }
+        if (lutBmp == null) { // an input shader must always be set, even when unused
+            lutBmp = dummyMask
+            shader.setInputShader("lutImg", BitmapShader(dummyMask, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP))
         }
         val faceBmp = faces ?: dummyMask
         if (boundFaces !== faceBmp || bound !== src) {
@@ -250,6 +304,16 @@ class EditShader {
         shader.setFloatUniform("fAmt", if (st.filter == 0) 0f else st.filterAmount)
         shader.setFloatUniform("fTint", f.tint)
         shader.setFloatUniform("fLift", f.lift)
+        shader.setFloatUniform("lutOn", if (st.curves.isIdentity) 0f else 1f)
+        shader.setFloatUniform("lvOn", if (levelsOn(st.lvBlack, st.lvWhite, st.lvGamma)) 1f else 0f)
+        shader.setFloatUniform("lvBlack", st.lvBlack)
+        shader.setFloatUniform("lvWhite", st.lvWhite)
+        shader.setFloatUniform("lvGamma", st.lvGamma.coerceIn(0.2f, 5f))
+        shader.setFloatUniform("hslOn", if (st.colours.any { it != 0f }) 1f else 0f)
+        shader.setFloatUniform("hslC", FloatArray(8) { Band.entries[it].hue })
+        shader.setFloatUniform("hslH", FloatArray(8) { st.colours[it * 3] })
+        shader.setFloatUniform("hslS", FloatArray(8) { st.colours[it * 3 + 1] })
+        shader.setFloatUniform("hslL", FloatArray(8) { st.colours[it * 3 + 2] })
         shader.setFloatUniform("faceSkin", if (faces != null) st.skin else 0f)
         shader.setFloatUniform("faceTeeth", if (faces != null) st.teeth else 0f)
         shader.setFloatUniform("faceEyes", if (faces != null) st.eyes else 0f)

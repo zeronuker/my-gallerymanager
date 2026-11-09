@@ -61,6 +61,9 @@ import com.claudeborne.gallerymanager.edit.Crop
 import com.claudeborne.gallerymanager.edit.EditShader
 import com.claudeborne.gallerymanager.edit.EditState
 import com.claudeborne.gallerymanager.edit.Backdrop
+import com.claudeborne.gallerymanager.edit.Band
+import com.claudeborne.gallerymanager.edit.Curves
+import com.claudeborne.gallerymanager.edit.NoColourTuning
 import com.claudeborne.gallerymanager.edit.Filters
 import com.claudeborne.gallerymanager.edit.findFaces
 import com.claudeborne.gallerymanager.edit.findSubject
@@ -116,6 +119,9 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
     }
     var aspect by remember { mutableStateOf(Aspect.FREE) }
     var which by remember { mutableStateOf(Adjust.EXPOSURE) }
+    var adv by remember { mutableIntStateOf(0) } // ADJUST showing: 0 plain sliders, else levels / curves / colour
+    var curveCh by remember { mutableIntStateOf(0) }
+    var band by remember { mutableStateOf(Band.RED) }
 
     // markup: the chosen tool, colour, sizes per tool, sticker, the selected text/sticker, and where new text is being added
     var mtool by remember { mutableStateOf(MarkTool.PEN) }
@@ -254,7 +260,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                     }
                 }
                 // a selected text or sticker has one more slider, so the panel is taller then
-                Box(Modifier.fillMaxWidth().height(if (tool == 3 && selMark != null) 200.dp else 150.dp)) {
+                Box(Modifier.fillMaxWidth().height(if (tool == 3 && selMark != null) 200.dp else if (tool == 1) when (adv) { ADV_LEVELS -> 250.dp; ADV_CURVES -> 250.dp; ADV_COLOUR -> 270.dp; else -> 150.dp } else 150.dp)) {
                     val bmp = bitmap
                     if (bmp != null) when (tool) {
                         0 -> CropPanel(
@@ -276,14 +282,24 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                             onAngle = { live = state.copy(angle = it) },
                             onAngleDone = { live?.let(::commit) },
                         )
-                        1 -> AdjustPanel(
-                            state, which, onWhich = { which = it },
+                        1 -> if (adv != 0) AdvancedPanel(
+                            adv, state, onMode = { adv = it }, onLive = { live = it }, onDone = { live?.let(::commit) },
+                            channel = curveCh, onChannel = { curveCh = it }, band = band, onBand = { band = it },
+                        ) else AdjustPanel(
+                            state, which, onWhich = { which = it }, onMode = { adv = it },
                             onChange = { live = state.with(which, it) }, onDone = { live?.let(::commit) },
                             onAuto = {
                                 val base = state
                                 scope.launch { commit(base.copy(adjust = base.adjust + withContext(Dispatchers.Default) { autoEnhance(bmp) })) }
                             },
-                            onReset = { commit(state.copy(adjust = emptyMap(), filter = 0, filterAmount = 1f)) },
+                            onReset = {
+                                commit(
+                                    state.copy(
+                                        adjust = emptyMap(), filter = 0, filterAmount = 1f,
+                                        lvBlack = 0f, lvWhite = 1f, lvGamma = 1f, curves = Curves(), colours = NoColourTuning,
+                                    ),
+                                )
+                            },
                         )
                         2 -> FilterPanel(
                             bmp, state, onPick = { commit(state.copy(filter = it)) },
@@ -554,12 +570,15 @@ private fun CropPanel(
 
 @Composable
 private fun AdjustPanel(
-    st: EditState, which: Adjust, onWhich: (Adjust) -> Unit, onChange: (Float) -> Unit, onDone: () -> Unit, onAuto: () -> Unit, onReset: () -> Unit,
+    st: EditState, which: Adjust, onWhich: (Adjust) -> Unit, onMode: (Int) -> Unit, onChange: (Float) -> Unit, onDone: () -> Unit, onAuto: () -> Unit, onReset: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
         LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) {
             item { Chip("AUTO", color = DarkCb.mint, onClick = onAuto) }
             item { Chip("RESET", onClick = onReset) }
+            item { Chip("LEVELS", color = DarkCb.ink) { onMode(ADV_LEVELS) } }
+            item { Chip("CURVES", color = DarkCb.ink) { onMode(ADV_CURVES) } }
+            item { Chip("COLOUR", color = DarkCb.ink) { onMode(ADV_COLOUR) } }
             items(Adjust.entries) { a -> Chip(a.label, which == a) { onWhich(a) } }
         }
         val v = st.value(which)
