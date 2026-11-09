@@ -19,8 +19,8 @@ data class Pt(val u: Float, val v: Float)
 /** Things drawn on top of the picture. Sizes are fractions of the frame width. */
 sealed interface Mark
 data class Pen(val pts: List<Pt>, val color: Int, val width: Float, val marker: Boolean) : Mark
-data class Label(val text: String, val u: Float, val v: Float, val size: Float, val color: Int) : Mark
-data class Sticker(val glyph: String, val u: Float, val v: Float, val size: Float) : Mark
+data class Label(val text: String, val u: Float, val v: Float, val size: Float, val color: Int, val rot: Float = 0f) : Mark
+data class Sticker(val glyph: String, val u: Float, val v: Float, val size: Float, val rot: Float = 0f) : Mark
 /** A region of the picture hidden behind a mosaic or a blur. */
 data class Obscure(val r: Crop, val mosaic: Boolean) : Mark
 /** Paint over [pts] with the picture as it looks ([dx], [dy]) away, in frame fractions. [heal] also matches the colour to the surroundings. */

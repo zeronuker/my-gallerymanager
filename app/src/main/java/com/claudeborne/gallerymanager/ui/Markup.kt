@@ -31,6 +31,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -70,6 +71,15 @@ internal val MarkPalette = listOf(
 private val StickerGlyphs = listOf(
     "😀", "😂", "😍", "😎", "🥳", "😱", "👍", "👎", "❤️", "🔥", "⭐", "✨", "🎉", "💯", "👀", "💀", "🌈", "☀️", "🌙", "🍕", "🐶", "🐱", "🎈", "📍",
 )
+
+/** Turns a text or sticker mark to [deg] degrees; other marks are returned untouched. */
+internal fun Mark.withRot(deg: Float): Mark = when (this) {
+    is Label -> copy(rot = deg)
+    is Sticker -> copy(rot = deg)
+    else -> this
+}
+
+internal fun Mark.rotOrNull(): Float? = when (this) { is Label -> rot; is Sticker -> rot; else -> null }
 
 /** Resizes a text or sticker mark; other marks are returned untouched. */
 internal fun Mark.withSize(size: Float): Mark = when (this) {
@@ -113,14 +123,19 @@ internal fun MarkupOverlay(
 
     /** centre and half size of a text or sticker mark in view pixels, or null for other marks */
     fun bounds(m: Mark): FloatArray? = when (m) {
-        is Label -> px(Pt(m.u, m.v)).let { floatArrayOf(it.x, it.y, m.text.length * m.size * perFrame() * 0.3f, m.size * perFrame() * 0.65f) }
-        is Sticker -> px(Pt(m.u, m.v)).let { floatArrayOf(it.x, it.y, m.size * perFrame() * 0.6f, m.size * perFrame() * 0.6f) }
+        is Label -> px(Pt(m.u, m.v)).let { floatArrayOf(it.x, it.y, m.text.length * m.size * perFrame() * 0.3f, m.size * perFrame() * 0.65f, m.rot) }
+        is Sticker -> px(Pt(m.u, m.v)).let { floatArrayOf(it.x, it.y, m.size * perFrame() * 0.6f, m.size * perFrame() * 0.6f, m.rot) }
         else -> null
     }
     fun hit(o: Offset): Int {
         for (i in marksNow.indices.reversed()) {
             val b = bounds(marksNow[i]) ?: continue
-            if (abs(o.x - b[0]) <= max(b[2], minHit) && abs(o.y - b[1]) <= max(b[3], minHit)) return i
+            val a = Math.toRadians(-b[4].toDouble())
+            val dx = o.x - b[0]
+            val dy = o.y - b[1]
+            val lx = (dx * Math.cos(a) - dy * Math.sin(a)).toFloat() // touch point in the mark's own frame
+            val ly = (dx * Math.sin(a) + dy * Math.cos(a)).toFloat()
+            if (abs(lx) <= max(b[2], minHit) && abs(ly) <= max(b[3], minHit)) return i
         }
         return -1
     }
@@ -192,7 +207,9 @@ internal fun MarkupOverlay(
     ) {
         // outline around the selected text or sticker
         marks.getOrNull(selected)?.let { bounds(it) }?.let { b ->
-            drawRect(DarkCb.mint, Offset(b[0] - b[2], b[1] - b[3]), Size(b[2] * 2, b[3] * 2), style = Stroke(1.5.dp.toPx()))
+            rotate(b[4], Offset(b[0], b[1])) {
+                drawRect(DarkCb.mint, Offset(b[0] - b[2], b[1] - b[3]), Size(b[2] * 2, b[3] * 2), style = Stroke(1.5.dp.toPx()))
+            }
         }
     }
 }
@@ -201,10 +218,12 @@ internal fun MarkupOverlay(
 internal fun MarkupPanel(
     tool: MarkTool, onTool: (MarkTool) -> Unit, color: Int, onColor: (Int) -> Unit, glyph: String, onGlyph: (String) -> Unit,
     size: Float, range: ClosedFloatingPointRange<Float>, onSize: (Float) -> Unit, onSizeDone: () -> Unit, canDelete: Boolean, onDelete: () -> Unit,
+    rot: Float?, onRot: (Float) -> Unit, onEditText: (() -> Unit)?,
 ) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
         LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
             items(MarkTool.entries) { Chip(it.label, tool == it) { onTool(it) } }
+            if (onEditText != null) item { Chip("EDIT TEXT", color = DarkCb.mint, onClick = onEditText) }
             if (canDelete) item { Chip("DELETE", color = Danger, onClick = onDelete) }
         }
         when (tool) {
@@ -231,6 +250,7 @@ internal fun MarkupPanel(
         }
         if (tool != MarkTool.ERASER && tool != MarkTool.BLUR && tool != MarkTool.MOSAIC) {
             EditSlider("SIZE", size, range, "${((size - range.start) / (range.endInclusive - range.start) * 100).roundToInt()}", onSize, onSizeDone) {}
+            if (rot != null) EditSlider("ROTATE", rot, -180f..180f, "${rot.roundToInt()}°", onRot, onSizeDone) { onRot(0f); onSizeDone() }
         } else {
             Row(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {}
         }
@@ -239,14 +259,14 @@ internal fun MarkupPanel(
 
 /** Asks for the words of a new text mark. */
 @Composable
-internal fun AddTextDialog(onAdd: (String) -> Unit, onCancel: () -> Unit) {
-    var text by remember { mutableStateOf("") }
+internal fun AddTextDialog(initial: String, onAdd: (String) -> Unit, onCancel: () -> Unit) {
+    var text by remember { mutableStateOf(initial) }
     val value = text.trim()
-    CbDialog("ADD TEXT", onCancel) {
+    CbDialog(if (initial.isEmpty()) "ADD TEXT" else "EDIT TEXT", onCancel) {
         CbTextField(text, { text = it })
         Row(Modifier.fillMaxWidth(), Arrangement.End) {
             ActionText("CANCEL", DarkCb.inkDim, onCancel)
-            ActionText("ADD", if (value.isNotEmpty()) DarkCb.mint else DarkCb.inkDim) { if (value.isNotEmpty()) onAdd(value) }
+            ActionText(if (initial.isEmpty()) "ADD" else "DONE", if (value.isNotEmpty()) DarkCb.mint else DarkCb.inkDim) { if (value.isNotEmpty()) onAdd(value) }
         }
     }
 }

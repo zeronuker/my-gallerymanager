@@ -360,7 +360,10 @@ private fun drawMarks(canvas: Canvas, marks: List<Mark>, crop: Crop, outW: Int, 
             paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             paint.textSize = m.size * sx
             paint.color = m.color
+            canvas.save()
+            canvas.rotate(m.rot, (m.u - crop.l) * sx, (m.v - crop.t) * sy)
             canvas.drawText(m.text, (m.u - crop.l) * sx, (m.v - crop.t) * sy + paint.textSize * 0.35f, paint)
+            canvas.restore()
         }
         is Sticker -> {
             paint.style = Paint.Style.FILL
@@ -368,7 +371,10 @@ private fun drawMarks(canvas: Canvas, marks: List<Mark>, crop: Crop, outW: Int, 
             paint.typeface = Typeface.DEFAULT
             paint.textSize = m.size * sx
             paint.color = Color.BLACK
+            canvas.save()
+            canvas.rotate(m.rot, (m.u - crop.l) * sx, (m.v - crop.t) * sy)
             canvas.drawText(m.glyph, (m.u - crop.l) * sx, (m.v - crop.t) * sy + paint.textSize * 0.35f, paint)
+            canvas.restore()
         }
         is Obscure, is Patch -> Unit // drawn with the picture itself
     }

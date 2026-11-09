@@ -124,6 +124,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
     var glyph by remember { mutableStateOf("😀") }
     var selected by remember { mutableIntStateOf(-1) }
     var textAt by remember { mutableStateOf<Pt?>(null) }
+    var editText by remember { mutableStateOf(false) } // the selected text mark's words are being changed
     val selMark = state.marks.getOrNull(selected)?.takeIf { it.sizeOrNull() != null }
     fun finishMarks() { // a drag that never grew into a real region leaves nothing behind
         live?.let { s -> commit(s.copy(marks = s.marks.filterNot { it is Obscure && (it.r.w < 0.01f || it.r.h < 0.01f) })) }
@@ -252,7 +253,8 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                         }
                     }
                 }
-                Box(Modifier.fillMaxWidth().height(150.dp)) {
+                // a selected text or sticker has one more slider, so the panel is taller then
+                Box(Modifier.fillMaxWidth().height(if (tool == 3 && selMark != null) 200.dp else 150.dp)) {
                     val bmp = bitmap
                     if (bmp != null) when (tool) {
                         0 -> CropPanel(
@@ -303,6 +305,9 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                             onSizeDone = { live?.let(::commit) },
                             canDelete = selMark != null,
                             onDelete = { commit(state.copy(marks = state.marks.filterIndexed { i, _ -> i != selected })); selected = -1 },
+                            rot = selMark?.rotOrNull(),
+                            onRot = { v -> live = state.copy(marks = state.marks.mapIndexed { i, m -> if (i == selected) m.withRot(v) else m }) },
+                            onEditText = if (selMark is Label) ({ editText = true }) else null,
                         )
                         4 -> if (rface) FacePanel(
                             state, found = faces != null, tried = facesTried, which = fwhich, onWhich = { fwhich = it },
@@ -344,6 +349,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
         }
         textAt?.let { p ->
             AddTextDialog(
+                initial = "",
                 onAdd = { words ->
                     val index = state.marks.size
                     commit(state.copy(marks = state.marks + Label(words, p.u, p.v, sizes.getValue(MarkTool.TEXT), mcolor)))
@@ -351,6 +357,16 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                     textAt = null
                 },
                 onCancel = { textAt = null },
+            )
+        }
+        if (editText && selMark is Label) {
+            AddTextDialog(
+                initial = selMark.text,
+                onAdd = { words ->
+                    commit(state.copy(marks = state.marks.mapIndexed { i, m -> if (i == selected && m is Label) m.copy(text = words) else m }))
+                    editText = false
+                },
+                onCancel = { editText = false },
             )
         }
         if (saving) {
