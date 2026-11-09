@@ -103,11 +103,13 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
     val pager = rememberPagerState(items.indexOfFirst { it.id == startId }.coerceAtLeast(0)) { items.size }
     var showInfo by remember { mutableStateOf(false) }
     var showMore by remember { mutableStateOf(false) }
+    var export by remember { mutableStateOf<Pair<MediaItem, Boolean>?>(null) } // the photo to resize/convert, and whether to start with location removal on
     var chrome by remember { mutableStateOf(true) } // tapping the media hides every control for a full-screen view
     val scope = rememberCoroutineScope()
     val current = items.getOrNull(pager.currentPage)
     LightStatusIcons()
     Immersive(hidden = !chrome)
+    export?.let { (photo, strip) -> ExportDialog(photo, strip, onClose = { export = null }, onSaved = onChanged) }
     BackHandler(enabled = showInfo || showMore) { showInfo = false; showMore = false }
 
     LaunchedEffect(pager, items) {
@@ -154,6 +156,10 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
                             add("RENAME" to { tools.rename(current) })
                             add("MOVE" to { tools.move(listOf(current)) })
                             add("COPY" to { tools.copy(listOf(current)) })
+                        }
+                        if (current.id != EXTERNAL_ID) {
+                            add("RESIZE · CONVERT" to { export = current to false })
+                            add("REMOVE LOCATION" to { export = current to true })
                         }
                         add("SET AS" to { launchChooser(context, Intent.ACTION_ATTACH_DATA, current, "Set as") })
                         add("EDIT WITH" to { launchChooser(context, Intent.ACTION_EDIT, current, "Edit with") })

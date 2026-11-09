@@ -46,6 +46,36 @@ private fun readExifTags(context: Context, uri: Uri): Map<String, String> = runC
     stream?.use { s -> ExifInterface(s).let { e -> EXIF_TAGS.mapNotNull { t -> e.getAttribute(t)?.let { t to it } }.toMap() } } ?: emptyMap()
 }.getOrDefault(emptyMap())
 
+/** The EXIF facts to copy from [item] into a new file, without the GPS ones when [stripLocation]. */
+internal fun carriedTags(context: Context, item: MediaItem, stripLocation: Boolean = false): Map<String, String> {
+    var tags = readExifTags(context, item.uri)
+    // MediaStore re-reads the date from the file after every write, so a photo without an EXIF date would jump to today; give it one
+    if (item.takenMs > 0 && ExifInterface.TAG_DATETIME_ORIGINAL !in tags) {
+        tags = tags + (ExifInterface.TAG_DATETIME_ORIGINAL to SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date(item.takenMs)))
+    }
+    return if (stripLocation) tags.filterKeys { !it.startsWith("GPS") } else tags
+}
+
+/** Writes [tags] into the EXIF block of [file]; formats that cannot hold EXIF are left alone. */
+internal fun writeTags(file: File, tags: Map<String, String>) {
+    if (tags.isNotEmpty()) runCatching { ExifInterface(file.path).apply { tags.forEach { (k, v) -> setAttribute(k, v) }; saveAttributes() } }
+}
+
+/** Adds [file] to MediaStore as a new image called [name] in [folder]. Returns false if it could not be written. */
+internal fun insertImage(context: Context, file: File, name: String, mime: String, folder: String): Boolean {
+    val resolver = context.contentResolver
+    val values = ContentValues().apply {
+        put(C.DISPLAY_NAME, name)
+        put(C.MIME_TYPE, mime)
+        put(C.RELATIVE_PATH, folder)
+        put(C.IS_PENDING, 1)
+    }
+    val target = resolver.insert(MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values) ?: return false
+    val ok = runCatching { resolver.openOutputStream(target)!!.use { out -> file.inputStream().use { it.copyTo(out) } } }.isSuccess
+    if (ok) resolver.update(target, ContentValues().apply { put(C.IS_PENDING, 0) }, null, null) else resolver.delete(target, null, null)
+    return ok
+}
+
 /** True when [item] can be overwritten in place without changing its format. */
 fun canReplace(item: MediaItem) = item.mime == "image/jpeg" || item.mime == "image/png"
 
@@ -54,13 +84,8 @@ fun canReplace(item: MediaItem) = item.mime == "image/jpeg" || item.mime == "ima
  * write access). Camera and GPS details are copied over. Returns false if writing failed.
  */
 suspend fun saveEdited(context: Context, item: MediaItem, bitmap: Bitmap, replace: Boolean): Boolean = withContext(Dispatchers.IO) {
-    val resolver = context.contentResolver
     val png = item.mime == "image/png"
-    var tags = if (png) emptyMap() else readExifTags(context, item.uri) // read before a replace overwrites them
-    // MediaStore re-reads the date from the file after every write, so a photo without an EXIF date would jump to today; give it one
-    if (!png && item.takenMs > 0 && ExifInterface.TAG_DATETIME_ORIGINAL !in tags) {
-        tags = tags + (ExifInterface.TAG_DATETIME_ORIGINAL to SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date(item.takenMs)))
-    }
+    val tags = if (png) emptyMap() else carriedTags(context, item) // read before a replace overwrites them
     val format = if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
 
     // Build the finished file (pixels plus EXIF) first and hand it to MediaStore in one write: it re-reads the date from the file
@@ -68,22 +93,9 @@ suspend fun saveEdited(context: Context, item: MediaItem, bitmap: Bitmap, replac
     val file = File.createTempFile("edit", ".img", context.cacheDir)
     try {
         file.outputStream().use { if (!bitmap.compress(format, 95, it)) return@withContext false }
-        if (tags.isNotEmpty()) runCatching { ExifInterface(file.path).apply { tags.forEach { (k, v) -> setAttribute(k, v) }; saveAttributes() } }
-
-        if (replace) {
-            runCatching { resolver.openOutputStream(item.uri, "wt")!!.use { out -> file.inputStream().use { it.copyTo(out) } } }.isSuccess
-        } else {
-            val values = ContentValues().apply {
-                put(C.DISPLAY_NAME, item.name.substringBeforeLast('.') + "_edit." + if (png) "png" else "jpg")
-                put(C.MIME_TYPE, if (png) "image/png" else "image/jpeg")
-                put(C.RELATIVE_PATH, item.path)
-                put(C.IS_PENDING, 1)
-            }
-            val target = resolver.insert(MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values) ?: return@withContext false
-            val ok = runCatching { resolver.openOutputStream(target)!!.use { out -> file.inputStream().use { it.copyTo(out) } } }.isSuccess
-            if (ok) resolver.update(target, ContentValues().apply { put(C.IS_PENDING, 0) }, null, null) else resolver.delete(target, null, null)
-            ok
-        }
+        writeTags(file, tags)
+        if (replace) runCatching { context.contentResolver.openOutputStream(item.uri, "wt")!!.use { out -> file.inputStream().use { it.copyTo(out) } } }.isSuccess
+        else insertImage(context, file, item.name.substringBeforeLast('.') + "_edit." + if (png) "png" else "jpg", if (png) "image/png" else "image/jpeg", item.path)
     } finally {
         file.delete()
     }

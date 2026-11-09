@@ -231,11 +231,11 @@ private fun drawMarks(canvas: Canvas, marks: List<Mark>, crop: Crop, outW: Int, 
     }
 }
 
-/** Renders [src] with [st] at full resolution, cropped, off screen on the GPU. */
-fun renderEdited(src: Bitmap, st: EditState): Bitmap {
+/** Renders [src] with [st] at full resolution (times [scale]), cropped, off screen on the GPU. */
+fun renderEdited(src: Bitmap, st: EditState, scale: Float = 1f): Bitmap {
     val (cw, ch) = frameSize(src.width, src.height, st.turns)
-    val w = (st.crop.w * cw).toInt().coerceAtLeast(1)
-    val h = (st.crop.h * ch).toInt().coerceAtLeast(1)
+    val w = (st.crop.w * cw * scale).toInt().coerceAtLeast(1)
+    val h = (st.crop.h * ch * scale).toInt().coerceAtLeast(1)
     val reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 1, HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE or HardwareBuffer.USAGE_GPU_COLOR_OUTPUT)
     val node = RenderNode("edit").apply { setPosition(0, 0, w, h) }
     val canvas = node.beginRecording()
