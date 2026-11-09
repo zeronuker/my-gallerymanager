@@ -60,6 +60,8 @@ dependencies {
     implementation("androidx.print:print:1.0.0")
     // ponytail: beta API; the model is fetched by Google Play services the first time it is needed
     implementation("com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1")
+    // runs the bundled Real-ESRGAN upscaling model on the CPU
+    implementation("com.google.ai.edge.litert:litert:1.4.0")
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
 }

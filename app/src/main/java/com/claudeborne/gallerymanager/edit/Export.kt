@@ -27,10 +27,14 @@ fun scaledSize(w: Int, h: Int, scale: Float): Pair<Int, Int> {
  * Saves a copy of [item] next to it, resized by [scale], in [format] at [quality] (JPG and WEBP), optionally without GPS data.
  * Enlarging is a smooth resize with a little sharpening: it makes the picture bigger, it does not add detail.
  */
-suspend fun exportCopy(context: Context, item: MediaItem, scale: Float, format: OutFormat, quality: Int, stripLocation: Boolean): Boolean =
+suspend fun exportCopy(
+    context: Context, item: MediaItem, scale: Float, format: OutFormat, quality: Int, stripLocation: Boolean,
+    ai: Boolean = false, onProgress: (Float) -> Unit = {},
+): Boolean =
     withContext(Dispatchers.Default) {
         runCatching {
             val longSide = max(item.width, item.height)
+            if (ai) return@withContext saveAi(context, item, format, quality, stripLocation, onProgress)
             // shrinking is best done by the decoder; enlarging happens on the GPU
             val src = if (scale < 1f && longSide > 0) loadBitmap(context, item.uri, (longSide * scale).roundToInt().coerceAtLeast(1)) else loadBitmap(context, item.uri, MAX_EDGE)
             val out = if (scale > 1f) renderEdited(src, EditState().with(Adjust.SHARPNESS, 0.25f), min(scale, MAX_EDGE.toFloat() / max(src.width, src.height))) else src
@@ -54,3 +58,23 @@ suspend fun exportCopy(context: Context, item: MediaItem, scale: Float, format: 
             }
         }.getOrDefault(false)
     }
+
+/** The AI route of [exportCopy]: the picture is enlarged four times by the Real-ESRGAN model. */
+private suspend fun saveAi(context: Context, item: MediaItem, format: OutFormat, quality: Int, stripLocation: Boolean, onProgress: (Float) -> Unit): Boolean {
+    val out = upscale4x(context, loadBitmap(context, item.uri, AI_INPUT_MAX), onProgress)
+    val file = File.createTempFile("export", ".img", context.cacheDir)
+    try {
+        file.outputStream().use { stream ->
+            val type = when (format) {
+                OutFormat.JPG -> Bitmap.CompressFormat.JPEG
+                OutFormat.PNG -> Bitmap.CompressFormat.PNG
+                OutFormat.WEBP -> Bitmap.CompressFormat.WEBP_LOSSY
+            }
+            check(out.compress(type, quality, stream))
+        }
+        if (format != OutFormat.PNG) writeTags(file, carriedTags(context, item, stripLocation))
+        return insertImage(context, file, item.name.substringBeforeLast('.') + "_ai_${out.width}x${out.height}." + format.ext, format.mime, item.path)
+    } finally {
+        file.delete()
+    }
+}
