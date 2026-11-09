@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.provider.MediaStore
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
@@ -20,6 +21,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -46,6 +49,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -79,6 +83,7 @@ fun PhotosScreen(
     title: String,
     tools: FileTools,
     onChanged: () -> Unit,
+    onCollage: (List<MediaItem>) -> Unit,
     gridState: LazyGridState = rememberLazyGridState(),
     onBack: (() -> Unit)? = null,
     onOpen: (MediaItem) -> Unit,
@@ -130,18 +135,36 @@ fun PhotosScreen(
         }
 
         if (selecting) {
-            Row(Modifier.fillMaxWidth().background(cb.surface1).padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                ActionText("ALL", cb.inkDim) { selected = items.map { it.id }.toSet() }
-                ActionText("SHARE", cb.mint) { share(context, chosen) }
-                ActionText("COPY", cb.mint) { tools.copy(chosen) { selected = emptySet() } }
-                ActionText("MOVE", cb.mint) { tools.move(chosen) { selected = emptySet() } }
-                ActionText("TRASH", Color(0xFFFF6B6B)) {
+            Row(Modifier.fillMaxWidth().background(cb.surface1).padding(vertical = 8.dp)) {
+                BarAction("ALL", cb.inkDim) { selected = items.map { it.id }.toSet() }
+                BarAction("SHARE", cb.mint) { share(context, chosen) }
+                BarAction("COPY", cb.mint) { tools.copy(chosen) { selected = emptySet() } }
+                BarAction("MOVE", cb.mint) { tools.move(chosen) { selected = emptySet() } }
+                BarAction("COLLAGE", cb.mint) {
+                    val photos = chosen.filterNot { it.isVideo }
+                    when {
+                        photos.size < 2 -> Toast.makeText(context, "Select at least 2 photos", Toast.LENGTH_SHORT).show()
+                        photos.size > 9 -> { Toast.makeText(context, "A collage holds up to 9 photos; using the first 9", Toast.LENGTH_SHORT).show(); onCollage(photos.take(9)) }
+                        else -> onCollage(photos)
+                    }
+                }
+                BarAction("TRASH", Color(0xFFFF6B6B)) {
                     val request = MediaStore.createTrashRequest(context.contentResolver, chosen.map { it.uri }, true)
                     trashLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
                 }
             }
         }
     }
+}
+
+/** One action in the selection bar; they share the width evenly so six fit on a phone. */
+@Composable
+private fun RowScope.BarAction(label: String, color: Color, onClick: () -> Unit) {
+    Text(
+        label,
+        Modifier.weight(1f).clickable(onClick = onClick).padding(vertical = 10.dp),
+        style = monoStyle(color, 1.2.sp).copy(textAlign = TextAlign.Center),
+    )
 }
 
 private fun share(context: Context, items: List<MediaItem>) {

@@ -37,7 +37,7 @@ import com.claudeborne.gallerymanager.data.EXTERNAL_ID
 import com.claudeborne.gallerymanager.data.MediaItem
 import com.claudeborne.gallerymanager.data.externalItem
 
-private val tabs = listOf("PHOTOS", "ALBUMS", "TRASH")
+private val tabs = listOf("PHOTOS", "ALBUMS", "TRASH", "SETTINGS")
 
 /** [openUri] is set when another app opened a photo/video with us ("Open with"); closing the viewer then returns to that app. */
 @Composable
@@ -53,6 +53,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     val photosGrid = rememberLazyGridState() // kept here so the Photos scroll position survives tab switches
     val tools = rememberFileTools(items, onChanged)
     var editing by remember { mutableStateOf<MediaItem?>(null) }
+    var collage by remember { mutableStateOf<List<MediaItem>?>(null) }
 
     val album = openAlbum
     val favorites = rememberFavorites()
@@ -79,11 +80,12 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         Column(Modifier.fillMaxSize().cbGrid(cb).statusBarsPadding()) {
             Box(Modifier.weight(1f)) {
                 when {
-                    tab == 0 -> PhotosScreen(items, "PHOTOS", tools, onChanged, photosGrid) { viewerId = it.id }
+                    tab == 0 -> PhotosScreen(items, "PHOTOS", tools, onChanged, onCollage = { collage = it }, gridState = photosGrid) { viewerId = it.id }
                     tab == 2 -> TrashScreen(trash, onChanged)
+                    tab == 3 -> SettingsScreen()
                     album != null -> key(album) {
                         val title = if (album == FAVORITES_ID) "FAVORITES" else inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM"
-                        PhotosScreen(inAlbum, title, tools, onChanged, onBack = { openAlbum = null }) { viewerId = it.id }
+                        PhotosScreen(inAlbum, title, tools, onChanged, onCollage = { collage = it }, onBack = { openAlbum = null }) { viewerId = it.id }
                     }
                     else -> AlbumsScreen(items, favorites.ids) { openAlbum = it }
                 }
@@ -96,6 +98,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         viewerId?.let { id ->
             Viewer(viewerItems, id, tools, favorites, onPageChange = { viewerId = it }, onChanged = onChanged, onEdit = { editing = it }, onClose = closeViewer)
         }
+        collage?.let { CollageScreen(it, onClose = { collage = null }, onSaved = { collage = null; onChanged() }) }
         editing?.let { Editor(it, tools, onClose = { editing = null }, onSaved = { editing = null; onChanged() }) }
         FileToolDialogs(tools)
     }

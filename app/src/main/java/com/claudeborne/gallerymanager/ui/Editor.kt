@@ -76,7 +76,7 @@ import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private val Panel = Color(0xFF0A1020)
+internal val Panel = Color(0xFF0A1020)
 internal val Danger = Color(0xFFFF6B6B)
 
 /** Full-screen photo editor. Edits are a list of [EditState] snapshots, so every step can be undone; the file is only written on save. */
