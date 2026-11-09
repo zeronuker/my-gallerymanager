@@ -5,6 +5,8 @@ import android.text.format.Formatter
 import android.view.LayoutInflater
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -112,7 +114,7 @@ private fun fmt(ms: Long): String {
 /** Full-screen video editor: trim on a timeline, change speed and sound, turn, crop and shrink, then save a new copy. */
 @OptIn(UnstableApi::class)
 @Composable
-fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit) {
+fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLibraryChanged: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -132,6 +134,9 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit) {
     var progress by remember { mutableFloatStateOf(0f) }
     var job by remember { mutableStateOf<Job?>(null) }
     var askDiscard by remember { mutableStateOf(false) }
+    val pickMusic = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) edit = edit.copy(music = uri, musicName = musicFileName(context, uri))
+    }
     var lookWhich by remember { mutableIntStateOf(0) } // LOOK slider shown: 0 brightness, 1 contrast, 2 saturation, 3 warmth, 4 filter strength
     var mtool by remember { mutableStateOf(MarkTool.PEN) }
     var mcolor by remember { mutableIntStateOf(MarkPalette[0]) }
@@ -209,7 +214,7 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit) {
                     scope.launch {
                         val ok = saveFrame(context, item, t)
                         Toast.makeText(context, if (ok) "Frame saved as a photo" else "Couldn't save the frame", Toast.LENGTH_SHORT).show()
-                        if (ok) onSaved()
+                        if (ok) onLibraryChanged()
                     }
                 }
                 ActionText("SAVE", if (changed) DarkCb.mint else DarkCb.inkDim) { if (changed) save() }
@@ -313,14 +318,14 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit) {
                         Modifier.fillMaxWidth().padding(horizontal = 32.dp).height(56.dp), // margin keeps the end handles clear of Android's Back-swipe zone
                     )
                     Row(Modifier.fillMaxWidth().padding(top = 4.dp).horizontalScroll(rememberScrollState())) {
-                        listOf("TRIM", "SPEED", "AUDIO", "ROTATE", "CROP", "LOOK", "MARKUP", "COMPRESS").forEachIndexed { n, label ->
+                        listOf("TRIM", "SPEED", "AUDIO", "ROTATE", "CROP", "LOOK", "MARKUP", "FADE", "FREEZE", "COMPRESS").forEachIndexed { n, label ->
                             Column(Modifier.clickable { tool = n; selected = -1 }.padding(horizontal = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                 Box(Modifier.width(48.dp).height(2.dp).background(if (tool == n) DarkCb.mint else Color.Transparent))
                                 Text(label, Modifier.padding(vertical = 10.dp), style = monoStyle(if (tool == n) DarkCb.mint else DarkCb.inkDim, 0.8.sp).copy(fontSize = 10.sp))
                             }
                         }
                     }
-                    Box(Modifier.fillMaxWidth().height(when (tool) { 5 -> 200.dp; 6 -> if (selMark != null) 240.dp else 200.dp; else -> 130.dp })) {
+                    Box(Modifier.fillMaxWidth().height(when (tool) { 2 -> 200.dp; 5 -> 200.dp; 6 -> if (selMark != null) 240.dp else 200.dp; 7 -> 190.dp; else -> 130.dp })) {
                         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
                             when (tool) {
                                 0 -> {
@@ -338,12 +343,21 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit) {
                                     }
                                     Hint("SLOW MOTION BELOW 1×, FAST FORWARD ABOVE. SOUND CHANGES SPEED TOO.")
                                 }
-                                2 -> if (!i.hasAudio) Hint("THIS VIDEO HAS NO SOUND.") else {
+                                2 -> {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
-                                        item { Chip(if (edit.volume <= 0f) "MUTED ✓" else "MUTE", edit.volume <= 0f) { edit = edit.copy(volume = if (edit.volume <= 0f) 1f else 0f) } }
-                                        item { Chip("RESET", color = DarkCb.inkDim) { edit = edit.copy(volume = 1f) } }
+                                        if (i.hasAudio) {
+                                            item { Chip(if (edit.volume <= 0f) "MUTED ✓" else "MUTE", edit.volume <= 0f) { edit = edit.copy(volume = if (edit.volume <= 0f) 1f else 0f) } }
+                                            item { Chip("RESET", color = DarkCb.inkDim) { edit = edit.copy(volume = 1f) } }
+                                        }
                                     }
-                                    EditSlider("VOLUME", edit.volume, 0f..2f, "${(edit.volume * 100).roundToInt()}%", { edit = edit.copy(volume = it) }, {}) { edit = edit.copy(volume = 1f) }
+                                    if (i.hasAudio) EditSlider("VOLUME", edit.volume, 0f..2f, "${(edit.volume * 100).roundToInt()}%", { edit = edit.copy(volume = it) }, {}) { edit = edit.copy(volume = 1f) }
+                                    else Hint("THIS VIDEO HAS NO SOUND OF ITS OWN.")
+                                    MusicControls(
+                                        edit.musicName, edit.music != null, edit.musicVolume,
+                                        onPick = { pickMusic.launch(arrayOf("audio/*")) },
+                                        onClear = { edit = edit.copy(music = null, musicName = "") },
+                                        onVolume = { edit = edit.copy(musicVolume = it) },
+                                    )
                                 }
                                 3 -> {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
@@ -408,6 +422,25 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit) {
                                     onEditText = if (selMark is Label) ({ editText = true }) else null,
                                     tools = listOf(MarkTool.PEN, MarkTool.MARKER, MarkTool.ERASER, MarkTool.TEXT, MarkTool.STICKER),
                                 )
+                                7 -> {
+                                    FadeChips(edit.fadeInMs, edit.fadeOutMs) { a, b -> edit = edit.copy(fadeInMs = a, fadeOutMs = b) }
+                                    Hint("PICTURE AND SOUND FADE FROM AND TO BLACK. SHOWN IN THE SAVED VIDEO, NOT IN THIS PREVIEW.")
+                                }
+                                8 -> {
+                                    LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
+                                        item {
+                                            Chip("FREEZE HERE", color = DarkCb.ink) {
+                                                edit = edit.copy(freezeAtMs = player.currentPosition.coerceIn(edit.startMs, endMs))
+                                            }
+                                        }
+                                        if (edit.freezeAtMs >= 0) item { Chip("REMOVE", color = Danger) { edit = edit.copy(freezeAtMs = -1) } }
+                                        items(listOf(1000L, 2000L, 3000L, 5000L)) { ms -> Chip("${ms / 1000}S", edit.freezeMs == ms) { edit = edit.copy(freezeMs = ms) } }
+                                    }
+                                    Hint(
+                                        if (edit.freezeAtMs >= 0) "THE PICTURE AT ${fmt(edit.freezeAtMs)} IS HELD STILL FOR ${edit.freezeMs / 1000} SECONDS. THE SOUND PAUSES."
+                                        else "PLAY TO A MOMENT, THEN TAP FREEZE HERE TO HOLD THAT PICTURE STILL.",
+                                    )
+                                }
                                 else -> {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
                                         items(VideoSize.entries) { s -> Chip(s.label, edit.size == s) { edit = edit.copy(size = s) } }

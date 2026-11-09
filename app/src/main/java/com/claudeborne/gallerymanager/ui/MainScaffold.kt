@@ -54,6 +54,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     val tools = rememberFileTools(items, onChanged)
     var editing by remember { mutableStateOf<MediaItem?>(null) }
     var collage by remember { mutableStateOf<List<MediaItem>?>(null) }
+    var join by remember { mutableStateOf<List<MediaItem>?>(null) }
 
     val album = openAlbum
     val favorites = rememberFavorites()
@@ -80,12 +81,12 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         Column(Modifier.fillMaxSize().cbGrid(cb).statusBarsPadding()) {
             Box(Modifier.weight(1f)) {
                 when {
-                    tab == 0 -> PhotosScreen(items, "PHOTOS", tools, onChanged, onCollage = { collage = it }, gridState = photosGrid) { viewerId = it.id }
+                    tab == 0 -> PhotosScreen(items, "PHOTOS", tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, gridState = photosGrid) { viewerId = it.id }
                     tab == 2 -> TrashScreen(trash, onChanged)
                     tab == 3 -> SettingsScreen(favorites)
                     album != null -> key(album) {
                         val title = if (album == FAVORITES_ID) "FAVORITES" else inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM"
-                        PhotosScreen(inAlbum, title, tools, onChanged, onCollage = { collage = it }, onBack = { openAlbum = null }) { viewerId = it.id }
+                        PhotosScreen(inAlbum, title, tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, onBack = { openAlbum = null }) { viewerId = it.id }
                     }
                     else -> AlbumsScreen(items, favorites.ids) { openAlbum = it }
                 }
@@ -98,8 +99,9 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         viewerId?.let { id ->
             Viewer(viewerItems, id, tools, favorites, onPageChange = { viewerId = it }, onChanged = onChanged, onEdit = { editing = it }, onClose = closeViewer)
         }
+        join?.let { JoinScreen(it, onClose = { join = null }, onSaved = { join = null; onChanged() }) }
         collage?.let { CollageScreen(it, onClose = { collage = null }, onSaved = { collage = null; onChanged() }) }
-        editing?.let { if (it.isVideo) VideoEditor(it, onClose = { editing = null }, onSaved = { editing = null; onChanged() }) else Editor(it, tools, onClose = { editing = null }, onSaved = { editing = null; onChanged() }) }
+        editing?.let { if (it.isVideo) VideoEditor(it, onClose = { editing = null }, onSaved = { editing = null; onChanged() }, onLibraryChanged = onChanged) else Editor(it, tools, onClose = { editing = null }, onSaved = { editing = null; onChanged() }) }
         FileToolDialogs(tools)
     }
 }

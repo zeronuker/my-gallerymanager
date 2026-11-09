@@ -36,11 +36,19 @@ data class VideoEdit(
     val filter: Int = 0, // index into the photo Filters list
     val filterAmount: Float = 1f,
     val marks: List<com.claudeborne.gallerymanager.edit.Mark> = emptyList(), // text, stickers and pen strokes over the whole video
+    val fadeInMs: Long = 0, // the picture and sound come up from black/silence, and go back down at the end
+    val fadeOutMs: Long = 0,
+    val freezeAtMs: Long = -1, // where in the original the picture is held still, or -1 for no freeze
+    val freezeMs: Long = 2000,
+    val music: Uri? = null, // a sound file played under the video
+    val musicName: String = "",
+    val musicVolume: Float = 0.7f,
     val exactCut: Boolean = false, // cut at exactly the chosen frames (re-encodes) instead of the nearest key frame (instant, lossless)
 ) {
     /** True when the picture or sound has to be re-encoded. A plain trim, with or without the sound, is just copied. */
     val hasLook get() = brightness != 0f || contrast != 0f || saturation != 0f || warmth != 0f || filter != 0
-    val needsEncode get() = exactCut || hasLook || marks.isNotEmpty() || speed != 1f || (volume > 0f && volume != 1f) || turns != 0 || flip || aspect != VideoAspect.ORIGINAL || size != VideoSize.ORIGINAL || quality != VideoQuality.HIGH
+    val hasFade get() = fadeInMs > 0 || fadeOutMs > 0
+    val needsEncode get() = exactCut || hasFade || freezeAtMs >= 0 || music != null || hasLook || marks.isNotEmpty() || speed != 1f || (volume > 0f && volume != 1f) || turns != 0 || flip || aspect != VideoAspect.ORIGINAL || size != VideoSize.ORIGINAL || quality != VideoQuality.HIGH
 }
 
 /** Facts about a video, as it is shown (after its rotation flag is applied). */
@@ -83,7 +91,11 @@ suspend fun videoFrame(context: Context, uri: Uri, timeMs: Long): Bitmap? = with
 }
 
 /** Length of the finished video, after trimming and the speed change. */
-fun VideoEdit.outputMs(info: VideoInfo): Long = (((if (endMs > 0) endMs else info.durationMs) - startMs) / speed).toLong().coerceAtLeast(0)
+fun VideoEdit.outputMs(info: VideoInfo): Long {
+    val end = if (endMs > 0) endMs else info.durationMs
+    val held = if (freezeAtMs in startMs..end) freezeMs else 0L
+    return ((end - startMs) / speed).toLong().coerceAtLeast(0) + held
+}
 
 /** Height of the finished picture. */
 fun VideoEdit.outputHeight(info: VideoInfo): Int {

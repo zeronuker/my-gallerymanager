@@ -85,6 +85,7 @@ fun PhotosScreen(
     tools: FileTools,
     onChanged: () -> Unit,
     onCollage: (List<MediaItem>) -> Unit,
+    onJoin: (List<MediaItem>) -> Unit,
     gridState: LazyGridState = rememberLazyGridState(),
     onBack: (() -> Unit)? = null,
     onOpen: (MediaItem) -> Unit,
@@ -141,7 +142,13 @@ fun PhotosScreen(
                 BarAction("SHARE", cb.mint) { share(context, chosen) }
                 BarAction("COPY", cb.mint) { tools.copy(chosen) { selected = emptySet() } }
                 BarAction("MOVE", cb.mint) { tools.move(chosen) { selected = emptySet() } }
-                BarAction("COLLAGE", cb.mint) {
+                if (chosen.all { it.isVideo }) BarAction("JOIN", cb.mint) { // only videos selected: put them one after another
+                    when {
+                        chosen.size < 2 -> Toast.makeText(context, "Select at least 2 videos", Toast.LENGTH_SHORT).show()
+                        chosen.size > 10 -> { Toast.makeText(context, "A join holds up to 10 clips; using the first 10", Toast.LENGTH_SHORT).show(); onJoin(chosen.take(10)) }
+                        else -> onJoin(chosen)
+                    }
+                } else BarAction("COLLAGE", cb.mint) {
                     val photos = chosen.filterNot { it.isVideo }
                     when {
                         photos.size < 2 -> Toast.makeText(context, "Select at least 2 photos", Toast.LENGTH_SHORT).show()
