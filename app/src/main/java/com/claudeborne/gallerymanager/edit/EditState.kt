@@ -40,6 +40,9 @@ data class EditState(
     val backdrop: Backdrop = Backdrop.KEEP,
     val backdropColor: Int = 0xFFFFFFFF.toInt(),
     val backdropBlur: Float = 0.5f,
+    val skin: Float = 0f, // portrait retouch strengths, 0..1
+    val teeth: Float = 0f,
+    val eyes: Float = 0f,
 ) {
     fun value(a: Adjust) = adjust[a] ?: 0f
     fun with(a: Adjust, v: Float) = copy(adjust = if (v == 0f) adjust - a else adjust + (a to v))

@@ -29,6 +29,8 @@ import kotlin.math.sin
 // Order: filter look, manual tone and colour, sharpness/clarity from neighbouring pixels, vignette, grain.
 private const val AGSL = """
 uniform shader image;
+uniform shader faceMask; // red = skin, green = open mouth, blue = eyes
+uniform float faceSkin; uniform float faceTeeth; uniform float faceEyes;
 uniform shader maskImg; // how much of each pixel belongs to the subject (alpha)
 uniform float bgMode; uniform float bgBlurR; uniform float3 bgCol; // 0 off, 1 blur, 2 colour, 3 transparent
 uniform float unit;
@@ -87,6 +89,43 @@ half4 main(float2 coord) {
         }
     }
     float3 base = float3(src.rgb);
+    if (faceSkin + faceTeeth + faceEyes > 0.001) {
+        float3 fm = faceMask.eval(here).rgb;
+        if (faceSkin > 0.001 && fm.r > 0.01) {
+            // smooth skin: average only neighbours that look like this pixel, so freckles soften but edges and features stay sharp
+            float spin2 = fract(sin(dot(floor(here / unit), float2(39.346, 11.135))) * 43758.5453) * 6.2832;
+            float rs = unit * (3.0 + 7.0 * faceSkin);
+            float3 acc = base;
+            float wsum = 1.0;
+            for (int k = 1; k <= 3; k++) {
+                for (int j = 0; j < 8; j++) {
+                    float a2 = float(j) * 0.7854 + spin2 + float(k) * 0.5;
+                    float3 d = px(coord + float2(cos(a2), sin(a2)) * rs * float(k) / 3.0);
+                    float3 df = d - base;
+                    float wt = exp(-dot(df, df) * 30.0);
+                    acc += d * wt;
+                    wsum += wt;
+                }
+            }
+            float3 soft = acc / wsum;
+            float amt = fm.r * min(1.0, faceSkin * 1.2);
+            base = mix(base, soft, amt) + (base - soft) * 0.18 * fm.r; // a little texture stays so it does not look plastic
+        }
+        if (faceTeeth > 0.001 && fm.g > 0.01) {
+            float lt = lum(base);
+            float on = faceTeeth * fm.g * smoothstep(0.18, 0.4, lt); // not the dark tongue or gums
+            // pull the yellow out (towards grey) and lift the brightness
+            float3 white = mix(base, float3(lt), 0.95 * on);
+            base = white * (1.0 + 0.3 * on) + 0.04 * on;
+        }
+        if (faceEyes > 0.001 && fm.b > 0.01) {
+            // brighten the whites of the eyes only: skin of the lids is pinkish (colourful) and the iris is dark, both are left alone
+            float le = lum(base);
+            float sat2 = max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b));
+            float on = faceEyes * fm.b * smoothstep(0.3, 0.6, le) * (1.0 - smoothstep(0.1, 0.3, sat2));
+            base = base * exp2(0.45 * on) + 0.015 * on;
+        }
+    }
     if (heal > 0.5) base += ring(here, healR) - ring(coord, healR); // carry over the colour of the area around the spot
     float3 c = base;
 
@@ -163,10 +202,11 @@ class EditShader {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var bound: Bitmap? = null
     private var boundMask: Bitmap? = null
+    private var boundFaces: Bitmap? = null
     private val dummyMask = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
 
     /** Draws [src] with [st] into the top-left [outW] x [outH] of [canvas], showing only [crop]. */
-    fun draw(canvas: Canvas, src: Bitmap, st: EditState, crop: Crop, outW: Int, outH: Int, mask: Bitmap? = null) {
+    fun draw(canvas: Canvas, src: Bitmap, st: EditState, crop: Crop, outW: Int, outH: Int, mask: Bitmap? = null, faces: Bitmap? = null) {
         val cutout = mask != null && st.backdrop != Backdrop.KEEP
         val maskBmp = mask ?: dummyMask
         if (boundMask !== maskBmp || bound !== src) {
@@ -177,6 +217,15 @@ class EditShader {
             }
             shader.setInputShader("maskImg", ms)
             boundMask = maskBmp
+        }
+        val faceBmp = faces ?: dummyMask
+        if (boundFaces !== faceBmp || bound !== src) {
+            val fs = BitmapShader(faceBmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
+                setFilterMode(BitmapShader.FILTER_MODE_LINEAR)
+                setLocalMatrix(Matrix().apply { setScale(src.width.toFloat() / faceBmp.width, src.height.toFloat() / faceBmp.height) })
+            }
+            shader.setInputShader("faceMask", fs)
+            boundFaces = faceBmp
         }
         if (bound !== src) {
             shader.setInputShader("image", BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply { setFilterMode(BitmapShader.FILTER_MODE_LINEAR) })
@@ -201,6 +250,9 @@ class EditShader {
         shader.setFloatUniform("fAmt", if (st.filter == 0) 0f else st.filterAmount)
         shader.setFloatUniform("fTint", f.tint)
         shader.setFloatUniform("fLift", f.lift)
+        shader.setFloatUniform("faceSkin", if (faces != null) st.skin else 0f)
+        shader.setFloatUniform("faceTeeth", if (faces != null) st.teeth else 0f)
+        shader.setFloatUniform("faceEyes", if (faces != null) st.eyes else 0f)
         shader.setFloatUniform("bgMode", if (!cutout) 0f else when (st.backdrop) { Backdrop.BLUR -> 1f; Backdrop.COLOR -> 2f; else -> 3f })
         shader.setFloatUniform("bgBlurR", max(src.width, src.height) / 1500f * (10f + 40f * st.backdropBlur))
         shader.setFloatUniform("bgCol", Color.red(st.backdropColor) / 255f, Color.green(st.backdropColor) / 255f, Color.blue(st.backdropColor) / 255f)
@@ -323,14 +375,14 @@ private fun drawMarks(canvas: Canvas, marks: List<Mark>, crop: Crop, outW: Int, 
 }
 
 /** Renders [src] with [st] at full resolution (times [scale]), cropped, off screen on the GPU. */
-fun renderEdited(src: Bitmap, st: EditState, scale: Float = 1f, mask: Bitmap? = null): Bitmap {
+fun renderEdited(src: Bitmap, st: EditState, scale: Float = 1f, mask: Bitmap? = null, faces: Bitmap? = null): Bitmap {
     val (cw, ch) = frameSize(src.width, src.height, st.turns)
     val w = (st.crop.w * cw * scale).toInt().coerceAtLeast(1)
     val h = (st.crop.h * ch * scale).toInt().coerceAtLeast(1)
     val reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 1, HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE or HardwareBuffer.USAGE_GPU_COLOR_OUTPUT)
     val node = RenderNode("edit").apply { setPosition(0, 0, w, h) }
     val canvas = node.beginRecording()
-    EditShader().draw(canvas, src, st, st.crop, w, h, mask)
+    EditShader().draw(canvas, src, st, st.crop, w, h, mask, faces)
     node.endRecording()
     val renderer = HardwareRenderer().apply {
         setSurface(reader.surface); setContentRoot(node)

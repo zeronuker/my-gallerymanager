@@ -62,6 +62,7 @@ import com.claudeborne.gallerymanager.edit.EditShader
 import com.claudeborne.gallerymanager.edit.EditState
 import com.claudeborne.gallerymanager.edit.Backdrop
 import com.claudeborne.gallerymanager.edit.Filters
+import com.claudeborne.gallerymanager.edit.findFaces
 import com.claudeborne.gallerymanager.edit.findSubject
 import com.claudeborne.gallerymanager.edit.Label
 import com.claudeborne.gallerymanager.edit.Obscure
@@ -130,9 +131,22 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
 
     // retouch: Heal or Clone, brush size, and Clone's chosen source point and the offset it fixes on the first stroke
     var rtool by remember { mutableStateOf(RetouchTool.HEAL) }
+    var rface by remember { mutableStateOf(false) } // RETOUCH tab showing the portrait tools
+    var fwhich by remember { mutableStateOf(FaceFix.SKIN) }
+    var faces by remember { mutableStateOf<Bitmap?>(null) } // skin/teeth/eye map of the faces found
+    var facesTried by remember { mutableStateOf(false) }
     var rsize by remember { mutableFloatStateOf(0.05f) }
     var cloneSrc by remember { mutableStateOf<Pt?>(null) }
     var cloneOff by remember { mutableStateOf<Pt?>(null) }
+
+    // faces are looked for the first time the portrait tools are opened
+    LaunchedEffect(tool, rface, bitmap, facesTried) {
+        val b = bitmap
+        if (tool == 4 && rface && b != null && faces == null && !facesTried) {
+            faces = findFaces(b)
+            facesTried = true
+        }
+    }
 
     var showOriginal by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -155,7 +169,11 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
             val out = runCatching {
                 withContext(Dispatchers.Default) {
                     val big = loadBitmap(context, item.uri, 6144)
-                    renderEdited(big, edits, 1f, mask?.let { Bitmap.createScaledBitmap(it, big.width, big.height, true) })
+                    renderEdited(
+                        big, edits, 1f,
+                        mask?.let { Bitmap.createScaledBitmap(it, big.width, big.height, true) },
+                        faces?.let { Bitmap.createScaledBitmap(it, big.width, big.height, true) },
+                    )
                 }
             }.getOrNull()
             when {
@@ -185,7 +203,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                     EditCanvas(
                         bmp, if (showOriginal) EditState() else state, cropMode = tool == 0 && !showOriginal, aspect,
                         onCrop = { live = state.copy(crop = it) }, onCropDone = { live?.let(::commit) },
-                        mask = mask,
+                        mask = mask, faces = faces,
                         overlay = when {
                             showOriginal -> null
                             tool == 3 -> {
@@ -203,7 +221,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                                 )
                             }
                             }
-                            tool == 4 -> {
+                            tool == 4 && !rface -> {
                                 {
                                     RetouchOverlay(
                                         rtool, state.crop, state.marks, bmp, state, rsize, cloneSrc, cloneOff,
@@ -286,10 +304,16 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                             canDelete = selMark != null,
                             onDelete = { commit(state.copy(marks = state.marks.filterIndexed { i, _ -> i != selected })); selected = -1 },
                         )
-                        4 -> RetouchPanel(
+                        4 -> if (rface) FacePanel(
+                            state, found = faces != null, tried = facesTried, which = fwhich, onWhich = { fwhich = it },
+                            onChange = { live = state.withStrength(fwhich, it) }, onDone = { live?.let(::commit) },
+                            onHeal = { rface = false; rtool = RetouchTool.HEAL }, onClone = { rface = false; rtool = RetouchTool.CLONE },
+                            onFind = { faces = null; facesTried = false },
+                        ) else RetouchPanel(
                             rtool, onTool = { rtool = it }, rsize, onSize = { rsize = it },
                             sourceSet = cloneSrc != null, onNewSource = { cloneSrc = null; cloneOff = null },
                             canClear = state.marks.any { it is Patch }, onClear = { commit(state.copy(marks = state.marks.filterNot { it is Patch })) },
+                            onFace = { rface = true },
                         )
                         else -> CutoutPanel(
                             state, found = mask != null, tried = maskTried,
@@ -349,7 +373,7 @@ private fun Choice(title: String, note: String, onClick: () -> Unit) {
 @Composable
 private fun EditCanvas(
     bmp: Bitmap, st: EditState, cropMode: Boolean, lock: Aspect, onCrop: (Crop) -> Unit, onCropDone: () -> Unit,
-    overlay: (@Composable () -> Unit)? = null, mask: Bitmap? = null,
+    overlay: (@Composable () -> Unit)? = null, mask: Bitmap? = null, faces: Bitmap? = null,
 ) {
     val shader = remember { EditShader() }
     val density = LocalDensity.current
@@ -377,7 +401,7 @@ private fun EditCanvas(
                         y += cell; row++
                     }
                 }
-                drawIntoCanvas { shader.draw(it.nativeCanvas, bmp, st, crop, size.width.roundToInt(), size.height.roundToInt(), mask) }
+                drawIntoCanvas { shader.draw(it.nativeCanvas, bmp, st, crop, size.width.roundToInt(), size.height.roundToInt(), mask, faces) }
             }
             if (cropMode) CropOverlay(st.crop, lock.lock(cw / ch), cw / ch, onCrop, onCropDone, Modifier.fillMaxSize())
             overlay?.invoke()

@@ -163,11 +163,12 @@ internal fun RetouchOverlay(
 @Composable
 internal fun RetouchPanel(
     tool: RetouchTool, onTool: (RetouchTool) -> Unit, size: Float, onSize: (Float) -> Unit,
-    sourceSet: Boolean, onNewSource: () -> Unit, canClear: Boolean, onClear: () -> Unit,
+    sourceSet: Boolean, onNewSource: () -> Unit, canClear: Boolean, onClear: () -> Unit, onFace: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
         LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
             items(RetouchTool.entries) { Chip(it.label, tool == it) { onTool(it) } }
+            item { Chip("FACE", color = DarkCb.mint, onClick = onFace) }
             if (tool == RetouchTool.CLONE) item { Chip("SET SOURCE", color = DarkCb.ink, onClick = onNewSource) }
             if (canClear) item { Chip("CLEAR ALL", color = Danger, onClick = onClear) }
         }
