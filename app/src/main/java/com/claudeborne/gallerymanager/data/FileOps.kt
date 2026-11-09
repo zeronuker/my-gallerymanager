@@ -25,7 +25,7 @@ suspend fun moveItems(context: Context, items: List<MediaItem>, folder: String) 
 // Editing a row bumps its modified time, which the timeline falls back on for photos without a date taken, so pin the date
 private fun ContentValues.keepDate(item: MediaItem) { if (item.takenMs > 0) put(C.DATE_TAKEN, item.takenMs) }
 
-/** Copies image [items] into [folder] as new files (MediaStore picks a free name if one is taken). Returns how many were copied. */
+/** Copies [items] (photos or videos) into [folder] as new files (MediaStore picks a free name if one is taken). Returns how many were copied. */
 suspend fun copyItems(context: Context, items: List<MediaItem>, folder: String): Int = withContext(Dispatchers.IO) {
     val resolver = context.contentResolver
     var copied = 0
@@ -37,7 +37,7 @@ suspend fun copyItems(context: Context, items: List<MediaItem>, folder: String):
             if (item.takenMs > 0) put(C.DATE_TAKEN, item.takenMs) // keeps the copy in the same place on the timeline
             put(C.IS_PENDING, 1)
         }
-        val target = resolver.insert(MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values) ?: return@forEach
+        val target = resolver.insert(if (item.isVideo) MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) else MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values) ?: return@forEach
         runCatching {
             resolver.openInputStream(item.uri)!!.use { input -> resolver.openOutputStream(target)!!.use { input.copyTo(it) } }
             resolver.update(target, ContentValues().apply { put(C.IS_PENDING, 0) }, null, null)

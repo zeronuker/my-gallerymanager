@@ -142,8 +142,8 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
                 Text("← BACK", Modifier.clickable(onClick = onClose), style = monoStyle(DarkCb.mint, 2.6.sp))
                 Box(Modifier.weight(1f))
                 Text("${pager.currentPage + 1} / ${items.size}", style = monoStyle(Color.White, 1.sp))
-                // file tools (rename, move, copy, set as, ...) are for images only
-                if (current?.isVideo == false) IconAction(Icon.MORE, Color.White, "More") { showMore = !showMore; showInfo = false }
+                // file tools: rename, move and copy for everything; resize, set as and print for photos
+                if (current != null) IconAction(Icon.MORE, Color.White, "More") { showMore = !showMore; showInfo = false }
             }
 
             if (chrome && showInfo && current != null) {
@@ -158,13 +158,15 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
                             add("MOVE" to { tools.move(listOf(current)) })
                             add("COPY" to { tools.copy(listOf(current)) })
                         }
-                        if (current.id != EXTERNAL_ID) {
-                            add("RESIZE · CONVERT" to { export = current to false })
-                            add("REMOVE LOCATION" to { export = current to true })
+                        if (!current.isVideo) {
+                            if (current.id != EXTERNAL_ID) {
+                                add("RESIZE · CONVERT" to { export = current to false })
+                                add("REMOVE LOCATION" to { export = current to true })
+                            }
+                            add("SET AS" to { launchChooser(context, Intent.ACTION_ATTACH_DATA, current, "Set as") })
+                            add("EDIT WITH" to { launchChooser(context, Intent.ACTION_EDIT, current, "Edit with") })
+                            add("PRINT" to { print(context, current) })
                         }
-                        add("SET AS" to { launchChooser(context, Intent.ACTION_ATTACH_DATA, current, "Set as") })
-                        add("EDIT WITH" to { launchChooser(context, Intent.ACTION_EDIT, current, "Edit with") })
-                        add("PRINT" to { print(context, current) })
                     },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 ) { showMore = false }
@@ -182,8 +184,8 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
                 val favorite = current.id in favorites.ids
                 IconAction(Icon.HEART, DarkCb.mint, if (favorite) "Remove from favorites" else "Add to favorites", filled = favorite) { favorites.toggle(current.id) }
             }
-            // editing is for library photos only
-            if (current != null && !current.isVideo && current.id != EXTERNAL_ID) IconAction(Icon.EDIT, DarkCb.mint, "Edit") { onEdit(current) }
+            // editing is for library photos and videos
+            if (current != null && current.id != EXTERNAL_ID) IconAction(Icon.EDIT, DarkCb.mint, "Edit") { onEdit(current) }
             if (current?.id != EXTERNAL_ID) {
                 IconAction(Icon.TRASH, TrashRed, "Move to trash", enabled = current != null) {
                     current?.let {

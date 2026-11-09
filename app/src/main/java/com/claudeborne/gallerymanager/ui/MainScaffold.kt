@@ -99,7 +99,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
             Viewer(viewerItems, id, tools, favorites, onPageChange = { viewerId = it }, onChanged = onChanged, onEdit = { editing = it }, onClose = closeViewer)
         }
         collage?.let { CollageScreen(it, onClose = { collage = null }, onSaved = { collage = null; onChanged() }) }
-        editing?.let { Editor(it, tools, onClose = { editing = null }, onSaved = { editing = null; onChanged() }) }
+        editing?.let { if (it.isVideo) VideoEditor(it, onClose = { editing = null }, onSaved = { editing = null; onChanged() }) else Editor(it, tools, onClose = { editing = null }, onSaved = { editing = null; onChanged() }) }
         FileToolDialogs(tools)
     }
 }

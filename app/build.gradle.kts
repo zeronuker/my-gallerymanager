@@ -16,8 +16,8 @@ android {
         applicationId = "com.claudeborne.gallerymanager"
         minSdk = 33
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.2.1"
+        versionCode = 4
+        versionName = "0.3.0"
     }
 
     signingConfigs {
@@ -70,4 +70,8 @@ dependencies {
     implementation("com.google.ai.edge.litert:litert:1.4.0")
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
+    // video editing: trim, speed, crop, rotate, volume, compress
+    implementation("androidx.media3:media3-transformer:1.4.1")
+    implementation("androidx.media3:media3-effect:1.4.1")
+    implementation("androidx.media3:media3-common:1.4.1")
 }

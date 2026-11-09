@@ -72,15 +72,12 @@ class FileTools internal constructor(
     fun move(selection: List<MediaItem>, onDone: () -> Unit = {}) = pickFolder(selection, move = true, onDone)
     fun copy(selection: List<MediaItem>, onDone: () -> Unit = {}) = pickFolder(selection, move = false, onDone)
 
-    // file tools are for images only; videos in a selection are skipped and mentioned afterwards
     private fun pickFolder(selection: List<MediaItem>, move: Boolean, onDone: () -> Unit) {
-        val images = selection.filterNot { it.isVideo }
-        if (images.isEmpty()) toast("Only images can be moved or copied")
-        else dialog = ToolDialog.Folder(images, move, selection.size - images.size, onDone)
+        if (selection.isNotEmpty()) dialog = ToolDialog.Folder(selection, move, 0, onDone)
     }
 
-    /** Folders that already hold images, as (relative path, display name). */
-    internal fun folders() = library().filter { !it.isVideo && it.path.isNotEmpty() }.distinctBy { it.path }
+    /** Folders that already hold photos or videos, as (relative path, display name). */
+    internal fun folders() = library().filter { it.path.isNotEmpty() }.distinctBy { it.path }
         .map { it.path to it.bucketName.ifEmpty { it.path } }.sortedBy { it.second.lowercase() }
 
     internal fun doRename(item: MediaItem, baseName: String) {
