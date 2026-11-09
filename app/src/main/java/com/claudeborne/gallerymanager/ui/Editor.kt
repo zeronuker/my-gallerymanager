@@ -271,7 +271,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                     }
                 }
                 // a selected text or sticker has one more slider, so the panel is taller then
-                Box(Modifier.fillMaxWidth().height(if (tool == 3 && selMark != null) 200.dp else if (tool == 1) when (adv) { ADV_LEVELS -> 250.dp; ADV_CURVES -> 250.dp; ADV_COLOUR -> 270.dp; else -> 150.dp } else 150.dp)) {
+                Box(Modifier.fillMaxWidth().height(if (tool == 3 && selMark != null) 200.dp else if (tool == 1) when (adv) { ADV_LEVELS -> 250.dp; ADV_CURVES -> 330.dp; ADV_COLOUR -> 270.dp; else -> 150.dp } else 150.dp)) {
                     val bmp = bitmap
                     if (bmp != null) when (tool) {
                         0 -> CropPanel(

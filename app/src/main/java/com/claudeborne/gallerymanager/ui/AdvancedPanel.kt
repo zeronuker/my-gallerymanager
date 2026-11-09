@@ -2,13 +2,16 @@ package com.claudeborne.gallerymanager.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
@@ -16,6 +19,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,12 +68,12 @@ internal fun AdvancedPanel(
                 EditSlider("MIDTONES", st.lvGamma, 0.3f..3f, "%.2f".format(st.lvGamma), { onLive(st.copy(lvGamma = it)) }, onDone) { onLive(st.copy(lvGamma = 1f)); onDone() }
                 EditSlider("WHITE POINT", st.lvWhite, 0.4f..1f, "${(st.lvWhite * 100).roundToInt()}", { onLive(st.copy(lvWhite = maxOf(it, st.lvBlack + 0.05f))) }, onDone) { onLive(st.copy(lvWhite = 1f)); onDone() }
             }
-            ADV_CURVES -> Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                CurveEditor(st.curves.channel(channel), channel, { onLive(st.copy(curves = st.curves.with(channel, it))) }, onDone, Modifier.size(180.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            ADV_CURVES -> Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row {
                     listOf("RGB", "RED", "GREEN", "BLUE").forEachIndexed { i, label -> Chip(label, channel == i) { onChannel(i) } }
                     Chip("RESET", color = DarkCb.inkDim) { onLive(st.copy(curves = st.curves.with(channel, Curves().master))); onDone() }
                 }
+                CurveEditor(st.curves.channel(channel), channel, { onLive(st.copy(curves = st.curves.with(channel, it))) }, onDone, Modifier.fillMaxWidth().height(210.dp))
             }
             else -> {
                 LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) { items(Band.entries) { b -> Chip(b.label, band == b) { onBand(b) } } }
@@ -85,79 +91,108 @@ internal fun AdvancedPanel(
 private const val MAX_POINTS = 8
 private const val MIN_GAP = 0.03f
 
-/** A curve you can shape: drag a point to move it, tap empty space to add one, double-tap a point to remove it. */
+/**
+ * A curve you can shape. Touch near a point to grab it; touch anywhere else to put a new point right there and drag it. Everything
+ * reacts the moment your finger lands. Double-tap a point to remove it (the two end points stay).
+ */
 @Composable
 private fun CurveEditor(points: List<Pt>, channel: Int, onChange: (List<Pt>) -> Unit, onDone: () -> Unit, modifier: Modifier) {
     val pts by rememberUpdatedState(points)
     val change by rememberUpdatedState(onChange)
     val done by rememberUpdatedState(onDone)
+    var active by remember { mutableIntStateOf(-1) }
     val line = when (channel) { 1 -> Color(0xFFFF6B6B); 2 -> Color(0xFF5BE08C); 3 -> Color(0xFF5B9DFF); else -> DarkCb.mint }
-
-    fun nearest(o: Offset, w: Float, h: Float, slop: Float): Int {
-        var best = -1
-        var bestD = slop
-        pts.forEachIndexed { i, p ->
-            val d = hypot(p.u * w - o.x, (1f - p.v) * h - o.y)
-            if (d < bestD) { best = i; bestD = d }
-        }
-        return best
-    }
+    val pad = 14.dp // room around the graph so the end points at its corners are fully touchable
 
     Canvas(
-        modifier.background(DarkCb.surface2)
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { o ->
-                        val w = size.width.toFloat(); val h = size.height.toFloat()
-                        if (nearest(o, w, h, 28.dp.toPx()) < 0 && pts.size < MAX_POINTS) {
-                            val u = (o.x / w).coerceIn(0.02f, 0.98f)
-                            if (pts.none { abs(it.u - u) < MIN_GAP }) {
-                                change((pts + Pt(u, (1f - o.y / h).coerceIn(0f, 1f))).sortedBy { it.u }); done()
-                            }
+        modifier.background(DarkCb.surface2).pointerInput(Unit) {
+            val padPx = pad.toPx()
+            var lastUp = 0L // for double-tap
+            var lastIdx = -1
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                down.consume()
+                val iw = size.width - 2 * padPx
+                val ih = size.height - 2 * padPx
+                fun toPt(o: Offset) = Pt(((o.x - padPx) / iw).coerceIn(0f, 1f), (1f - (o.y - padPx) / ih).coerceIn(0f, 1f))
+                fun nearest(o: Offset, slop: Float, onlyX: Boolean = false): Int {
+                    var best = -1
+                    var bestD = slop
+                    pts.forEachIndexed { i, p ->
+                        val dx = padPx + p.u * iw - o.x
+                        val dy = padPx + (1f - p.v) * ih - o.y
+                        val d = if (onlyX) abs(dx) else hypot(dx, dy)
+                        if (d < bestD) { best = i; bestD = d }
+                    }
+                    return best
+                }
+
+                var work = pts // the curve as this gesture changes it (the shared state catches up a frame later)
+                var idx = nearest(down.position, 44.dp.toPx())
+                val now = System.currentTimeMillis()
+                if (idx > 0 && idx < work.lastIndex && idx == lastIdx && now - lastUp < 350) {
+                    change(work.filterIndexed { k, _ -> k != idx }); done()
+                    active = -1; lastIdx = -1; lastUp = 0L
+                    waitForUpOrCancellation()
+                    return@awaitEachGesture
+                }
+                if (idx < 0) {
+                    val p = toPt(down.position)
+                    val u = p.u.coerceIn(0.02f, 0.98f)
+                    if (work.size < MAX_POINTS && work.none { abs(it.u - u) < MIN_GAP }) {
+                        work = (work + Pt(u, p.v)).sortedBy { it.u }
+                        idx = work.indexOfFirst { it.u == u }
+                        change(work)
+                    } else {
+                        idx = nearest(down.position, Float.MAX_VALUE, onlyX = true) // no room for a new point: move the closest one
+                    }
+                }
+                active = idx
+
+                while (true) {
+                    val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                    if (!c.pressed) break
+                    c.consume()
+                    val p = toPt(c.position)
+                    val last = work.lastIndex
+                    val u = when (idx) {
+                        0 -> 0f
+                        last -> 1f
+                        else -> {
+                            val lo = work[idx - 1].u + MIN_GAP
+                            val hi = work[idx + 1].u - MIN_GAP
+                            if (lo <= hi) p.u.coerceIn(lo, hi) else work[idx].u
                         }
-                    },
-                    onDoubleTap = { o ->
-                        val i = nearest(o, size.width.toFloat(), size.height.toFloat(), 28.dp.toPx())
-                        if (i > 0 && i < pts.lastIndex) { change(pts.filterIndexed { k, _ -> k != i }); done() } // the two end points stay
-                    },
-                )
+                    }
+                    work = work.mapIndexed { i, q -> if (i == idx) Pt(u, p.v) else q }
+                    change(work)
+                }
+                done()
+                lastIdx = idx
+                lastUp = System.currentTimeMillis()
             }
-            .pointerInput(Unit) {
-                var grab = -1
-                detectDragGestures(
-                    onDragStart = { o -> grab = nearest(o, size.width.toFloat(), size.height.toFloat(), 36.dp.toPx()) },
-                    onDrag = { c, _ ->
-                        if (grab >= 0) {
-                            c.consume()
-                            val w = size.width.toFloat(); val h = size.height.toFloat()
-                            val v = (1f - c.position.y / h).coerceIn(0f, 1f)
-                            val last = pts.lastIndex
-                            val u = when (grab) {
-                                0 -> 0f
-                                last -> 1f
-                                else -> (c.position.x / w).coerceIn(pts[grab - 1].u + MIN_GAP, pts[grab + 1].u - MIN_GAP)
-                            }
-                            change(pts.mapIndexed { i, p -> if (i == grab) Pt(u, v) else p })
-                        }
-                    },
-                    onDragEnd = { if (grab >= 0) done(); grab = -1 },
-                    onDragCancel = { grab = -1 },
-                )
-            },
+        },
     ) {
+        val p = pad.toPx()
+        val iw = size.width - 2 * p
+        val ih = size.height - 2 * p
         val grid = Color(0x22FFFFFF)
-        for (i in 1..3) {
-            drawLine(grid, Offset(size.width * i / 4, 0f), Offset(size.width * i / 4, size.height), 1f)
-            drawLine(grid, Offset(0f, size.height * i / 4), Offset(size.width, size.height * i / 4), 1f)
+        for (i in 0..4) {
+            drawLine(grid, Offset(p + iw * i / 4, p), Offset(p + iw * i / 4, p + ih), 1f)
+            drawLine(grid, Offset(p, p + ih * i / 4), Offset(p + iw, p + ih * i / 4), 1f)
         }
-        drawLine(Color(0x44FFFFFF), Offset(0f, size.height), Offset(size.width, 0f), 1f) // the "no change" line
+        drawLine(Color(0x44FFFFFF), Offset(p, p + ih), Offset(p + iw, p), 1f) // the "no change" line
         val path = Path()
-        for (i in 0..60) {
-            val x = i / 60f
+        for (i in 0..80) {
+            val x = i / 80f
             val y = 1f - curveAt(points, x)
-            if (i == 0) path.moveTo(x * size.width, y * size.height) else path.lineTo(x * size.width, y * size.height)
+            if (i == 0) path.moveTo(p + x * iw, p + y * ih) else path.lineTo(p + x * iw, p + y * ih)
         }
-        drawPath(path, line, style = Stroke(2.dp.toPx()))
-        points.forEach { p -> drawCircle(Color.White, 5.dp.toPx(), Offset(p.u * size.width, (1f - p.v) * size.height), style = Stroke(2.dp.toPx())) }
+        drawPath(path, line, style = Stroke(2.5.dp.toPx()))
+        points.forEachIndexed { i, pt ->
+            val c = Offset(p + pt.u * iw, p + (1f - pt.v) * ih)
+            if (i == active) drawCircle(line, 9.dp.toPx(), c)
+            drawCircle(Color.White, if (i == active) 9.dp.toPx() else 7.dp.toPx(), c, style = Stroke(2.dp.toPx()))
+        }
     }
 }
