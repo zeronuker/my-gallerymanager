@@ -1,5 +1,4 @@
 <resources>
     <!-- window background before Compose draws: brand surface-0 (light) -->
     <color name="cb_surface_0">#f4f6fb</color>
-    <color name="ic_launcher_background">#0a1020</color>
 </resources>

@@ -50,10 +50,10 @@ private const val WORD_FADE = 1000
 private const val HOLD = 1000L
 private const val OUT = 800
 
-private val OUTER = listOf(50f to 334f, 50f to 86f, 86f to 50f, 426f to 50f, 462f to 86f, 462f to 426f, 426f to 462f, 178f to 462f)
-private val INNER = listOf(66f to 330f, 66f to 102f, 102f to 66f, 410f to 66f, 446f to 102f, 446f to 410f, 410f to 446f, 190f to 446f)
+internal val OUTER = listOf(50f to 334f, 50f to 86f, 86f to 50f, 426f to 50f, 462f to 86f, 462f to 426f, 426f to 462f, 178f to 462f)
+internal val INNER = listOf(66f to 330f, 66f to 102f, 102f to 66f, 410f to 66f, 446f to 102f, 446f to 410f, 410f to 446f, 190f to 446f)
 
-private fun DrawScope.drawPolyline(points: List<Pair<Float, Float>>, color: Color, width: Float, progress: Float) {
+internal fun DrawScope.drawPolyline(points: List<Pair<Float, Float>>, color: Color, width: Float, progress: Float) {
     val s = size.width / 512f
     val path = Path().apply {
         moveTo(points[0].first * s, points[0].second * s)

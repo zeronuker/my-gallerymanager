@@ -2,14 +2,32 @@ package com.claudeborne.gallerymanager.ui
 
 import android.app.Activity
 import android.content.Intent
+import android.view.LayoutInflater
+import com.claudeborne.gallerymanager.R
 import android.provider.MediaStore
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.media3.common.Player
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -56,6 +74,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.MediaItem as PlayerItem
@@ -79,8 +99,11 @@ fun Viewer(items: List<MediaItem>, startId: Long, onPageChange: (Long) -> Unit, 
     val context = LocalContext.current
     val pager = rememberPagerState(items.indexOfFirst { it.id == startId }.coerceAtLeast(0)) { items.size }
     var showInfo by remember { mutableStateOf(false) }
+    var chrome by remember { mutableStateOf(true) } // tapping the media hides every control for a full-screen view
+    val scope = rememberCoroutineScope()
     val current = items.getOrNull(pager.currentPage)
     LightStatusIcons()
+    Immersive(hidden = !chrome)
     BackHandler(enabled = showInfo) { showInfo = false }
 
     LaunchedEffect(pager, items) {
@@ -97,10 +120,14 @@ fun Viewer(items: List<MediaItem>, startId: Long, onPageChange: (Long) -> Unit, 
         Box(Modifier.weight(1f)) {
             HorizontalPager(pager, Modifier.fillMaxSize(), key = { items.getOrNull(it)?.id ?: it }) { page ->
                 val item = items.getOrNull(page) ?: return@HorizontalPager
-                if (item.isVideo) VideoPage(item, active = pager.settledPage == page) else ZoomableImage(item)
+                val toggleChrome = { chrome = !chrome }
+                if (item.isVideo) VideoPage(item, active = pager.settledPage == page, chrome, toggleChrome) else ZoomableImage(item, toggleChrome)
             }
 
-            Row(
+            if (chrome && pager.currentPage > 0) NavArrow("‹", Alignment.CenterStart) { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } }
+            if (chrome && pager.currentPage < items.size - 1) NavArrow("›", Alignment.CenterEnd) { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } }
+
+            if (chrome) Row(
                 Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xB3000000), Color.Transparent)))
                     .statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -110,12 +137,12 @@ fun Viewer(items: List<MediaItem>, startId: Long, onPageChange: (Long) -> Unit, 
                 Text("${pager.currentPage + 1} / ${items.size}", style = monoStyle(Color.White, 1.sp))
             }
 
-            if (showInfo && current != null) {
+            if (chrome && showInfo && current != null) {
                 InfoPanel(current, Modifier.align(Alignment.BottomCenter))
             }
         }
 
-        Row(
+        if (chrome) Row(
             Modifier.fillMaxWidth().background(Color(0xFF0A1020)).navigationBarsPadding().padding(vertical = 14.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
@@ -145,6 +172,19 @@ fun Viewer(items: List<MediaItem>, startId: Long, onPageChange: (Long) -> Unit, 
 private fun monoStyle(color: Color, spacing: androidx.compose.ui.unit.TextUnit) =
     TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = spacing, color = color)
 
+private fun clock(ms: Long) = "%d:%02d".format(ms / 60000, ms / 1000 % 60)
+
+/** Round previous/next button floating over the side of the media. */
+@Composable
+private fun BoxScope.NavArrow(glyph: String, at: Alignment, onClick: () -> Unit) {
+    Box(
+        Modifier.align(at).padding(8.dp).size(44.dp).clip(CircleShape).background(Color(0x80000000)).clickable(onClick = onClick),
+        Alignment.Center,
+    ) {
+        Text(glyph, style = TextStyle(fontFamily = JetBrainsMono, fontSize = 28.sp, color = DarkCb.mint))
+    }
+}
+
 @Composable
 private fun ActionButton(label: String, color: Color, enabled: Boolean, onClick: () -> Unit) {
     Text(
@@ -162,24 +202,48 @@ private fun InfoPanel(item: MediaItem, modifier: Modifier) {
     val rows = buildList {
         add("NAME" to item.name)
         if (item.takenMs > 0) add("DATE" to Instant.ofEpochMilli(item.takenMs).atZone(ZoneId.systemDefault()).format(infoDateFmt))
-        if (item.width > 0) add("RESOLUTION" to "${item.width} × ${item.height}")
-        if (item.isVideo && item.durationMs > 0) add("DURATION" to "%d:%02d".format(item.durationMs / 60000, item.durationMs / 1000 % 60))
         if (item.size > 0) add("SIZE" to Formatter.formatShortFileSize(context, item.size))
+        if (item.width > 0) add("RESOLUTION" to "${item.width} × ${item.height}")
+        if (item.isVideo && item.durationMs > 0) add("DURATION" to clock(item.durationMs))
         if (item.mime.isNotEmpty()) add("TYPE" to item.mime)
-        if (item.path.isNotEmpty()) add("PATH" to item.path + item.name)
         addAll(exif)
+        if (item.path.isNotEmpty()) add("PATH" to item.path + item.name)
+    }
+    // NAME and PATH take a whole line; everything else pairs up two to a line
+    val full = setOf("NAME", "PATH")
+    val lines = buildList<List<Pair<String, String>>> {
+        var half: Pair<String, String>? = null
+        rows.forEach { row ->
+            if (row.first in full) {
+                half?.let { add(listOf(it)) }
+                half = null
+                add(listOf(row))
+            } else if (half == null) half = row else { add(listOf(half!!, row)); half = null }
+        }
+        half?.let { add(listOf(it)) }
     }
     Column(
-        modifier.fillMaxWidth().heightIn(max = 360.dp).background(Color(0xFF141A2E)).verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier.fillMaxWidth().padding(12.dp).heightIn(max = 360.dp).doubleChamferFrame(DarkCb.mint, DarkCb.surface1)
+            .verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("INFO", style = monoStyle(DarkCb.mint, 2.6.sp))
-        rows.forEach { (label, value) ->
-            Column {
-                Text(label, style = monoStyle(DarkCb.inkDim, 1.5.sp))
-                Text(value, style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = DarkCb.ink))
+        Text("INFO", Modifier.padding(bottom = 2.dp), style = monoStyle(DarkCb.mint, 2.6.sp))
+        lines.forEach { line ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                line.forEach { (label, value) -> InfoTile(label, value, Modifier.weight(1f)) }
+                if (line.size == 1 && line[0].first !in full) Box(Modifier.weight(1f))
             }
         }
+    }
+}
+
+@Composable
+private fun InfoTile(label: String, value: String, modifier: Modifier) {
+    val dp = LocalDensity.current.density
+    val shape = remember(dp) { GenericShape { size, _ -> addPath(chamfered(size.width, size.height, 0f, 7f * dp)) } }
+    Column(modifier.clip(shape).background(DarkCb.surface2).padding(horizontal = 10.dp, vertical = 7.dp)) {
+        Text(label, style = monoStyle(DarkCb.inkDim, 1.5.sp))
+        Text(value, style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = DarkCb.ink))
     }
 }
 
@@ -195,17 +259,50 @@ private fun LightStatusIcons() {
     }
 }
 
+/** Hides the status and navigation bars while [hidden]; an edge swipe brings them back briefly. */
+@Composable
+private fun Immersive(hidden: Boolean) {
+    val view = LocalView.current
+    val controller = remember(view) { WindowCompat.getInsetsController((view.context as Activity).window, view) }
+    LaunchedEffect(hidden) {
+        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (hidden) controller.hide(WindowInsetsCompat.Type.systemBars()) else controller.show(WindowInsetsCompat.Type.systemBars())
+    }
+    DisposableEffect(controller) {
+        onDispose {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+        }
+    }
+}
+
+@Composable
+private fun ZoomableImage(item: MediaItem, onTap: () -> Unit) {
+    val context = LocalContext.current
+    ZoomBox(onTap) {
+        AsyncImage(
+            ImageRequest.Builder(context).data(item.uri).size(2400).build(),
+            item.name,
+            Modifier.fillMaxSize(),
+            contentScale = ContentScale.Fit,
+        )
+    }
+}
+
+/** Double-tap or pinch zooms [content]; a single tap calls [onTap]. */
 // ponytail: zooms around the center, and pan stops the pager while zoomed; upgrade to centroid zoom + edge hand-off if needed
 @Composable
-private fun ZoomableImage(item: MediaItem) {
-    val context = LocalContext.current
+private fun ZoomBox(onTap: () -> Unit, content: @Composable () -> Unit) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
 
-    Box(
-        Modifier.fillMaxSize().clipToBounds()
+    Box(Modifier.fillMaxSize().clipToBounds()) {
+        Box(Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y }) { content() }
+        // gestures sit on a transparent layer above the content, so they also work over a video view
+        Box(
+            Modifier.fillMaxSize()
             .pointerInput(Unit) {
-                detectTapGestures(onDoubleTap = {
+                detectTapGestures(onTap = { onTap() }, onDoubleTap = {
                     if (scale > 1f) { scale = 1f; offset = Offset.Zero } else scale = 2.5f
                 })
             }
@@ -227,20 +324,13 @@ private fun ZoomableImage(item: MediaItem) {
                     } while (event.changes.any { it.pressed })
                 }
             }
-            .graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y },
-    ) {
-        AsyncImage(
-            ImageRequest.Builder(context).data(item.uri).size(2400).build(),
-            item.name,
-            Modifier.fillMaxSize(),
-            contentScale = ContentScale.Fit,
         )
     }
 }
 
 /** Only the page on screen owns a player; others show the thumbnail. */
 @Composable
-private fun VideoPage(item: MediaItem, active: Boolean) {
+private fun VideoPage(item: MediaItem, active: Boolean, chrome: Boolean, onTap: () -> Unit) {
     if (!active) {
         AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         return
@@ -255,5 +345,75 @@ private fun VideoPage(item: MediaItem, active: Boolean) {
     }
     DisposableEffect(player) { onDispose { player.release() } }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { player.pause() }
-    AndroidView({ PlayerView(it).apply { this.player = player } }, Modifier.fillMaxSize())
+    Column(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            ZoomBox(onTap) {
+                // texture_view (set in the layout) so the video follows the zoom transform; a SurfaceView would not
+                AndroidView({ (LayoutInflater.from(it).inflate(R.layout.player_texture, null) as PlayerView).also { v -> v.player = player } }, Modifier.fillMaxSize())
+            }
+        }
+        if (chrome) VideoControls(player)
+    }
+}
+
+/** Timeline with elapsed/total time, and the buttons underneath it. */
+@Composable
+private fun VideoControls(player: Player) {
+    var playing by remember { mutableStateOf(player.isPlaying) }
+    var pos by remember { mutableLongStateOf(0L) }
+    var dur by remember { mutableLongStateOf(0L) }
+    var drag by remember { mutableStateOf<Float?>(null) }
+    DisposableEffect(player) {
+        val listener = object : Player.Listener { override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying } }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
+    LaunchedEffect(player) {
+        while (true) {
+            pos = player.currentPosition
+            dur = player.duration.coerceAtLeast(0) // unknown duration is a huge negative
+            delay(200)
+        }
+    }
+    val shown = drag?.let { (it * dur).toLong() } ?: pos
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Slider(
+            value = drag ?: if (dur > 0) pos.toFloat() / dur else 0f,
+            onValueChange = { drag = it },
+            onValueChangeFinished = { drag?.let { player.seekTo((it * dur).toLong()) }; drag = null },
+            colors = SliderDefaults.colors(thumbColor = DarkCb.mint, activeTrackColor = DarkCb.mint, inactiveTrackColor = Color(0x3DFFFFFF)),
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(clock(shown), style = monoStyle(Color.White, 1.sp))
+            Text(clock(dur), style = monoStyle(DarkCb.inkDim, 1.sp))
+        }
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
+            SkipButton("−5S") { player.seekTo((player.currentPosition - 5_000).coerceAtLeast(0)) }
+            Box(
+                Modifier.size(56.dp).clip(CircleShape).background(Color.White).clickable {
+                    if (playing) player.pause() else {
+                        if (player.playbackState == Player.STATE_ENDED) player.seekTo(0)
+                        player.play()
+                    }
+                },
+                Alignment.Center,
+            ) {
+                Canvas(Modifier.size(22.dp)) {
+                    val ink = Color(0xFF0A1020)
+                    if (playing) {
+                        drawRect(ink, Offset(size.width * .12f, 0f), Size(size.width * .3f, size.height))
+                        drawRect(ink, Offset(size.width * .58f, 0f), Size(size.width * .3f, size.height))
+                    } else {
+                        drawPath(Path().apply { moveTo(size.width * .15f, 0f); lineTo(size.width, size.height / 2); lineTo(size.width * .15f, size.height); close() }, ink)
+                    }
+                }
+            }
+            SkipButton("+15S") { player.seekTo((player.currentPosition + 15_000).coerceAtMost(dur)) }
+        }
+    }
+}
+
+@Composable
+private fun SkipButton(label: String, onClick: () -> Unit) {
+    Text(label, Modifier.clickable(onClick = onClick).padding(8.dp), style = monoStyle(Color.White, 1.sp).copy(fontSize = 16.sp))
 }

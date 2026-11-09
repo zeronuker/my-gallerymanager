@@ -4,7 +4,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.shape.GenericShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -49,22 +59,51 @@ fun AlbumsScreen(items: List<MediaItem>, onOpen: (Long) -> Unit) {
     }
 }
 
+// Card frame, all in dp: distance of the outer line, inner line and picture from the card edge
+private const val OUTER_AT = 0.75f
+private const val INNER_AT = 4f
+private const val PICTURE_AT = 6f
+private const val CUT = 10f // chamfer leg of the outer line
+private const val SHRINK = 0.586f // 2 - sqrt(2): chamfer leg lost per dp of inset, keeps the lines parallel
+
+private fun chamferLeg(at: Float) = CUT - (at - OUTER_AT) * SHRINK
+
+internal fun chamfered(w: Float, h: Float, inset: Float, leg: Float) = Path().apply {
+    val r = w - inset
+    val b = h - inset
+    moveTo(inset + leg, inset); lineTo(r - leg, inset); lineTo(r, inset + leg); lineTo(r, b - leg)
+    lineTo(r - leg, b); lineTo(inset + leg, b); lineTo(inset, b - leg); lineTo(inset, inset + leg); close()
+}
+
+/** Brand card frame: chamfered double line (outer 1.5dp, inner 1dp) with an optional chamfered [fill]. Content needs about 6dp of padding. */
+internal fun Modifier.doubleChamferFrame(color: Color, fill: Color? = null) = drawBehind {
+    if (fill != null) drawPath(chamfered(size.width, size.height, OUTER_AT * density, CUT * density), fill)
+    drawPath(chamfered(size.width, size.height, OUTER_AT * density, CUT * density), color, style = Stroke(1.5f * density, join = StrokeJoin.Miter))
+    drawPath(chamfered(size.width, size.height, INNER_AT * density, chamferLeg(INNER_AT) * density), color, style = Stroke(1f * density, join = StrokeJoin.Miter))
+}
+
 @Composable
 private fun AlbumCard(album: Album, onClick: () -> Unit) {
     val cb = LocalCb.current
-    Column(Modifier.clickable(onClick = onClick)) {
+    val dp = LocalDensity.current.density
+    val pictureShape = remember(dp) { GenericShape { size, _ -> addPath(chamfered(size.width, size.height, 0f, chamferLeg(PICTURE_AT) * dp)) } }
+    Column(
+        Modifier.clickable(onClick = onClick).doubleChamferFrame(cb.mint).padding(PICTURE_AT.dp),
+    ) {
         AsyncImage(
             album.cover.uri, album.name,
-            Modifier.fillMaxWidth().aspectRatio(1f).background(cb.surface2),
+            Modifier.fillMaxWidth().aspectRatio(1f).clip(pictureShape).background(cb.surface2),
             contentScale = ContentScale.Crop,
         )
-        Text(
-            album.name,
-            Modifier.padding(top = 6.dp),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = cb.ink),
-        )
-        Text("${album.count} ITEMS", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 10.sp, letterSpacing = 1.sp, color = cb.inkDim))
+        Row(Modifier.padding(start = 8.dp, top = 6.dp, end = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
+            Text(
+                album.name,
+                Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = cb.ink),
+            )
+            Text("${album.count} ITEMS", Modifier.padding(start = 8.dp), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 10.sp, letterSpacing = 1.sp, color = cb.inkDim))
+        }
     }
 }

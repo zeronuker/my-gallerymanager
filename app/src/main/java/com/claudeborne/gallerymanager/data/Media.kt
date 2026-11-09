@@ -92,11 +92,17 @@ suspend fun readExif(context: Context, item: MediaItem): List<Pair<String, Strin
         buildList {
             val camera = listOfNotNull(e.getAttribute(ExifInterface.TAG_MAKE), e.getAttribute(ExifInterface.TAG_MODEL)).joinToString(" ")
             if (camera.isNotEmpty()) add("CAMERA" to camera)
-            e.getAttributeDouble(ExifInterface.TAG_F_NUMBER, 0.0).takeIf { it > 0 }?.let { add("APERTURE" to "f/%.1f".format(it)) }
-            e.getAttributeDouble(ExifInterface.TAG_EXPOSURE_TIME, 0.0).takeIf { it > 0 }
-                ?.let { add("EXPOSURE" to if (it < 1) "1/${Math.round(1 / it)} s" else "%.1f s".format(it)) }
-            e.getAttribute(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY)?.let { add("ISO" to it) }
-            e.getAttributeDouble(ExifInterface.TAG_FOCAL_LENGTH, 0.0).takeIf { it > 0 }?.let { add("FOCAL LENGTH" to "%.0f mm".format(it)) }
+            val lens = listOfNotNull(
+                e.getAttributeDouble(ExifInterface.TAG_F_NUMBER, 0.0).takeIf { it > 0 }?.let { "f/%.1f".format(it) },
+                e.getAttributeDouble(ExifInterface.TAG_FOCAL_LENGTH, 0.0).takeIf { it > 0 }?.let { "%.0f mm".format(it) },
+            ).joinToString(" · ")
+            if (lens.isNotEmpty()) add("LENS" to lens)
+            val exposure = listOfNotNull(
+                e.getAttributeDouble(ExifInterface.TAG_EXPOSURE_TIME, 0.0).takeIf { it > 0 }
+                    ?.let { if (it < 1) "1/${Math.round(1 / it)} s" else "%.1f s".format(it) },
+                e.getAttribute(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY)?.let { "ISO $it" },
+            ).joinToString(" · ")
+            if (exposure.isNotEmpty()) add("EXPOSURE" to exposure)
             e.latLong?.let { add("GPS" to "%.5f, %.5f".format(it[0], it[1])) }
         }
     }
