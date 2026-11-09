@@ -3,6 +3,7 @@ package com.claudeborne.gallerymanager.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -34,19 +35,20 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.claudeborne.gallerymanager.data.MediaItem
 
-private class Album(val id: Long, val name: String, val cover: MediaItem, val count: Int)
+private class Album(val id: Long, val name: String, val cover: MediaItem?, val count: Int)
 
 @Composable
-fun AlbumsScreen(items: List<MediaItem>, onOpen: (Long) -> Unit) {
-    // items arrive newest first, so the first of each bucket is its cover and albums sort by recent activity
-    val albums = remember(items) {
-        items.groupBy { it.bucketId }.map { (id, list) ->
-            Album(id, list.first().bucketName.ifEmpty { "Unknown" }, list.first(), list.size)
-        }
+fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, onOpen: (Long) -> Unit) {
+    // items arrive newest first, so the first of each bucket is its cover and albums sort by recent activity;
+    // Favorites is a virtual album that always comes first
+    val albums = remember(items, favorites) {
+        val favs = items.filter { it.id in favorites }
+        listOf(Album(FAVORITES_ID, "Favorites", favs.firstOrNull(), favs.size)) +
+            items.groupBy { it.bucketId }.map { (id, list) -> Album(id, list.first().bucketName.ifEmpty { "Unknown" }, list.first(), list.size) }
     }
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("ALBUMS", "${albums.size} ALBUMS")
+        ScreenHeader("ALBUMS", "${albums.size - 1} ALBUMS") // Favorites is not counted
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxSize(),
@@ -90,11 +92,10 @@ private fun AlbumCard(album: Album, onClick: () -> Unit) {
     Column(
         Modifier.clickable(onClick = onClick).doubleChamferFrame(cb.mint).padding(PICTURE_AT.dp),
     ) {
-        AsyncImage(
-            album.cover.uri, album.name,
-            Modifier.fillMaxWidth().aspectRatio(1f).clip(pictureShape).background(cb.surface2),
-            contentScale = ContentScale.Crop,
-        )
+        Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(pictureShape).background(cb.surface2), Alignment.Center) {
+            if (album.cover != null) AsyncImage(album.cover.uri, album.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            else CbIcon(Icon.HEART, cb.inkDim, size = 40.dp)
+        }
         Row(Modifier.padding(start = 8.dp, top = 6.dp, end = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
             Text(
                 album.name,

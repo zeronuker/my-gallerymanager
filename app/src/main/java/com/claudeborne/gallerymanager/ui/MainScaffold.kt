@@ -55,7 +55,14 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     var editing by remember { mutableStateOf<MediaItem?>(null) }
 
     val album = openAlbum
-    val inAlbum = remember(items, album) { album?.let { a -> items.filter { it.bucketId == a } }.orEmpty() }
+    val favorites = rememberFavorites()
+    val inAlbum = remember(items, album, favorites.ids) {
+        when (album) {
+            null -> emptyList()
+            FAVORITES_ID -> items.filter { it.id in favorites.ids }
+            else -> items.filter { it.bucketId == album }
+        }
+    }
     val external = remember(openUri) { openUri?.let { externalItem(context, it) } }
     // the viewer swipes through whatever list the user opened it from
     val viewerItems = when {
@@ -75,9 +82,10 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
                     tab == 0 -> PhotosScreen(items, "PHOTOS", tools, onChanged, photosGrid) { viewerId = it.id }
                     tab == 2 -> TrashScreen(trash, onChanged)
                     album != null -> key(album) {
-                        PhotosScreen(inAlbum, inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM", tools, onChanged, onBack = { openAlbum = null }) { viewerId = it.id }
+                        val title = if (album == FAVORITES_ID) "FAVORITES" else inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM"
+                        PhotosScreen(inAlbum, title, tools, onChanged, onBack = { openAlbum = null }) { viewerId = it.id }
                     }
-                    else -> AlbumsScreen(items) { openAlbum = it }
+                    else -> AlbumsScreen(items, favorites.ids) { openAlbum = it }
                 }
             }
             Row(Modifier.fillMaxWidth().background(cb.surface1).navigationBarsPadding()) {
@@ -86,7 +94,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         }
 
         viewerId?.let { id ->
-            Viewer(viewerItems, id, tools, onPageChange = { viewerId = it }, onChanged = onChanged, onEdit = { editing = it }, onClose = closeViewer)
+            Viewer(viewerItems, id, tools, favorites, onPageChange = { viewerId = it }, onChanged = onChanged, onEdit = { editing = it }, onClose = closeViewer)
         }
         editing?.let { Editor(it, tools, onClose = { editing = null }, onSaved = { editing = null; onChanged() }) }
         FileToolDialogs(tools)

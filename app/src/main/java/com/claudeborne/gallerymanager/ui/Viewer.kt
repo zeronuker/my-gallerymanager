@@ -98,7 +98,7 @@ private val infoDateFmt = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm")
 
 /** Full-screen swipeable viewer over [items], starting at the item with [startId]. [onChanged] fires after the library changed (trash). */
 @Composable
-fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, onPageChange: (Long) -> Unit, onChanged: () -> Unit, onEdit: (MediaItem) -> Unit, onClose: () -> Unit) {
+fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: Favorites, onPageChange: (Long) -> Unit, onChanged: () -> Unit, onEdit: (MediaItem) -> Unit, onClose: () -> Unit) {
     val context = LocalContext.current
     val pager = rememberPagerState(items.indexOfFirst { it.id == startId }.coerceAtLeast(0)) { items.size }
     var showInfo by remember { mutableStateOf(false) }
@@ -139,6 +139,8 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, onPageChange
                 Text("← BACK", Modifier.clickable(onClick = onClose), style = monoStyle(DarkCb.mint, 2.6.sp))
                 Box(Modifier.weight(1f))
                 Text("${pager.currentPage + 1} / ${items.size}", style = monoStyle(Color.White, 1.sp))
+                // file tools (rename, move, copy, set as, ...) are for images only
+                if (current?.isVideo == false) IconAction(Icon.MORE, Color.White, "More") { showMore = !showMore; showInfo = false }
             }
 
             if (chrome && showInfo && current != null) {
@@ -166,7 +168,7 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, onPageChange
             Modifier.fillMaxWidth().background(Color(0xFF0A1020)).navigationBarsPadding().padding(vertical = 14.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
-            ActionButton("SHARE", DarkCb.mint, enabled = current != null) {
+            IconAction(Icon.SHARE, DarkCb.mint, "Share", enabled = current != null) {
                 current?.let {
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = it.mime.ifEmpty { "*/*" }
@@ -176,19 +178,21 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, onPageChange
                     context.startActivity(Intent.createChooser(send, null))
                 }
             }
+            if (current != null && current.id != EXTERNAL_ID) {
+                val favorite = current.id in favorites.ids
+                IconAction(Icon.HEART, DarkCb.mint, if (favorite) "Remove from favorites" else "Add to favorites", filled = favorite) { favorites.toggle(current.id) }
+            }
             // editing is for library photos only
-            if (current != null && !current.isVideo && current.id != EXTERNAL_ID) ActionButton("EDIT", DarkCb.mint, enabled = true) { onEdit(current) }
-            ActionButton("INFO", DarkCb.mint, enabled = current != null) { showInfo = !showInfo; showMore = false }
-            // file tools are for images only
-            if (current?.isVideo == false) ActionButton("MORE", DarkCb.mint, enabled = true) { showMore = !showMore; showInfo = false }
+            if (current != null && !current.isVideo && current.id != EXTERNAL_ID) IconAction(Icon.EDIT, DarkCb.mint, "Edit") { onEdit(current) }
             if (current?.id != EXTERNAL_ID) {
-                ActionButton("TRASH", TrashRed, enabled = current != null) {
+                IconAction(Icon.TRASH, TrashRed, "Move to trash", enabled = current != null) {
                     current?.let {
                         val request = MediaStore.createTrashRequest(context.contentResolver, listOf(it.uri), true)
                         trashLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
                     }
                 }
             }
+            IconAction(Icon.INFO, DarkCb.mint, "Info", enabled = current != null) { showInfo = !showInfo; showMore = false }
         }
     }
 }
@@ -207,15 +211,6 @@ private fun BoxScope.NavArrow(glyph: String, at: Alignment, onClick: () -> Unit)
     ) {
         Text(glyph, style = TextStyle(fontFamily = JetBrainsMono, fontSize = 28.sp, color = DarkCb.mint))
     }
-}
-
-@Composable
-private fun ActionButton(label: String, color: Color, enabled: Boolean, onClick: () -> Unit) {
-    Text(
-        label,
-        Modifier.clickable(enabled = enabled, onClick = onClick).padding(horizontal = 16.dp, vertical = 6.dp),
-        style = monoStyle(color, 2.2.sp),
-    )
 }
 
 /** Menu of file tools; tapping a row closes it with [onDone] and runs that action. */
