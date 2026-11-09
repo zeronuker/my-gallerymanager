@@ -96,7 +96,7 @@ class FileTools internal constructor(
     }
 
     // changing files other apps own needs the user's OK first; the action runs once Android reports it was given
-    private fun write(uris: List<Uri>, then: suspend () -> Unit) { afterWrite = then; requestWrite(uris) }
+    internal fun write(uris: List<Uri>, then: suspend () -> Unit) { afterWrite = then; requestWrite(uris) }
 
     private fun toast(message: String) = Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
 }

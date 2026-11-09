@@ -52,6 +52,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     }
     val photosGrid = rememberLazyGridState() // kept here so the Photos scroll position survives tab switches
     val tools = rememberFileTools(items, onChanged)
+    var editing by remember { mutableStateOf<MediaItem?>(null) }
 
     val album = openAlbum
     val inAlbum = remember(items, album) { album?.let { a -> items.filter { it.bucketId == a } }.orEmpty() }
@@ -85,8 +86,9 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         }
 
         viewerId?.let { id ->
-            Viewer(viewerItems, id, tools, onPageChange = { viewerId = it }, onChanged = onChanged, onClose = closeViewer)
+            Viewer(viewerItems, id, tools, onPageChange = { viewerId = it }, onChanged = onChanged, onEdit = { editing = it }, onClose = closeViewer)
         }
+        editing?.let { Editor(it, tools, onClose = { editing = null }, onSaved = { editing = null; onChanged() }) }
         FileToolDialogs(tools)
     }
 }

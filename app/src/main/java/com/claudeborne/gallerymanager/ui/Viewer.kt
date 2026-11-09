@@ -98,7 +98,7 @@ private val infoDateFmt = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm")
 
 /** Full-screen swipeable viewer over [items], starting at the item with [startId]. [onChanged] fires after the library changed (trash). */
 @Composable
-fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, onPageChange: (Long) -> Unit, onChanged: () -> Unit, onClose: () -> Unit) {
+fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, onPageChange: (Long) -> Unit, onChanged: () -> Unit, onEdit: (MediaItem) -> Unit, onClose: () -> Unit) {
     val context = LocalContext.current
     val pager = rememberPagerState(items.indexOfFirst { it.id == startId }.coerceAtLeast(0)) { items.size }
     var showInfo by remember { mutableStateOf(false) }
@@ -176,6 +176,8 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, onPageChange
                     context.startActivity(Intent.createChooser(send, null))
                 }
             }
+            // editing is for library photos only
+            if (current != null && !current.isVideo && current.id != EXTERNAL_ID) ActionButton("EDIT", DarkCb.mint, enabled = true) { onEdit(current) }
             ActionButton("INFO", DarkCb.mint, enabled = current != null) { showInfo = !showInfo; showMore = false }
             // file tools are for images only
             if (current?.isVideo == false) ActionButton("MORE", DarkCb.mint, enabled = true) { showMore = !showMore; showInfo = false }
