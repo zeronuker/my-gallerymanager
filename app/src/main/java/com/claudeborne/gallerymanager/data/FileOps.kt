@@ -14,13 +14,16 @@ import kotlinx.coroutines.withContext
 suspend fun renameItem(context: Context, item: MediaItem, baseName: String) = withContext(Dispatchers.IO) {
     val ext = item.name.substringAfterLast('.', "")
     val name = if (ext.isEmpty()) baseName else "$baseName.$ext"
-    context.contentResolver.update(item.uri, ContentValues().apply { put(C.DISPLAY_NAME, name) }, null, null)
+    context.contentResolver.update(item.uri, ContentValues().apply { put(C.DISPLAY_NAME, name); keepDate(item) }, null, null)
 }
 
 /** Moves [items] into [folder], a relative path such as "Pictures/Trips/". */
 suspend fun moveItems(context: Context, items: List<MediaItem>, folder: String) = withContext(Dispatchers.IO) {
-    items.forEach { context.contentResolver.update(it.uri, ContentValues().apply { put(C.RELATIVE_PATH, folder) }, null, null) }
+    items.forEach { context.contentResolver.update(it.uri, ContentValues().apply { put(C.RELATIVE_PATH, folder); keepDate(it) }, null, null) }
 }
+
+// Editing a row bumps its modified time, which the timeline falls back on for photos without a date taken, so pin the date
+private fun ContentValues.keepDate(item: MediaItem) { if (item.takenMs > 0) put(C.DATE_TAKEN, item.takenMs) }
 
 /** Copies image [items] into [folder] as new files (MediaStore picks a free name if one is taken). Returns how many were copied. */
 suspend fun copyItems(context: Context, items: List<MediaItem>, folder: String): Int = withContext(Dispatchers.IO) {

@@ -52,7 +52,7 @@ import kotlinx.coroutines.launch
 
 internal sealed interface ToolDialog {
     class Rename(val item: MediaItem) : ToolDialog
-    class Folder(val items: List<MediaItem>, val move: Boolean, val skipped: Int) : ToolDialog
+    class Folder(val items: List<MediaItem>, val move: Boolean, val skipped: Int, val onDone: () -> Unit) : ToolDialog
 }
 
 /** Rename, move and copy flows shared by the viewer and the grid. Render [FileToolDialogs] once near the root. */
@@ -68,14 +68,15 @@ class FileTools internal constructor(
     internal var requestWrite: (List<Uri>) -> Unit = {}
 
     fun rename(item: MediaItem) { dialog = ToolDialog.Rename(item) }
-    fun move(selection: List<MediaItem>) = pickFolder(selection, move = true)
-    fun copy(selection: List<MediaItem>) = pickFolder(selection, move = false)
+    /** [onDone] runs once the files were actually moved or copied (not when the user backs out). */
+    fun move(selection: List<MediaItem>, onDone: () -> Unit = {}) = pickFolder(selection, move = true, onDone)
+    fun copy(selection: List<MediaItem>, onDone: () -> Unit = {}) = pickFolder(selection, move = false, onDone)
 
     // file tools are for images only; videos in a selection are skipped and mentioned afterwards
-    private fun pickFolder(selection: List<MediaItem>, move: Boolean) {
+    private fun pickFolder(selection: List<MediaItem>, move: Boolean, onDone: () -> Unit) {
         val images = selection.filterNot { it.isVideo }
         if (images.isEmpty()) toast("Only images can be moved or copied")
-        else dialog = ToolDialog.Folder(images, move, selection.size - images.size)
+        else dialog = ToolDialog.Folder(images, move, selection.size - images.size, onDone)
     }
 
     /** Folders that already hold images, as (relative path, display name). */
@@ -90,8 +91,8 @@ class FileTools internal constructor(
     internal fun doFolder(d: ToolDialog.Folder, folder: String) {
         dialog = null
         val note = if (d.skipped > 0) " (${d.skipped} videos skipped)" else ""
-        if (d.move) write(d.items.map { it.uri }) { moveItems(context, d.items, folder); toast("Moved ${d.items.size}$note") }
-        else scope.launch { toast("Copied ${copyItems(context, d.items, folder)}$note"); onChanged() }
+        if (d.move) write(d.items.map { it.uri }) { moveItems(context, d.items, folder); toast("Moved ${d.items.size}$note"); d.onDone() }
+        else scope.launch { toast("Copied ${copyItems(context, d.items, folder)}$note"); d.onDone(); onChanged() }
     }
 
     // changing files other apps own needs the user's OK first; the action runs once Android reports it was given

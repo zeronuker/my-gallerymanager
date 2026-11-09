@@ -1,15 +1,28 @@
 package com.claudeborne.gallerymanager.ui
 
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.provider.MediaStore
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -21,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -30,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,16 +77,29 @@ private fun duration(ms: Long): String {
 fun PhotosScreen(
     items: List<MediaItem>,
     title: String,
+    tools: FileTools,
+    onChanged: () -> Unit,
     gridState: LazyGridState = rememberLazyGridState(),
     onBack: (() -> Unit)? = null,
     onOpen: (MediaItem) -> Unit,
 ) {
     val cb = LocalCb.current
+    val context = LocalContext.current
     var cols by rememberSaveable { mutableIntStateOf(4) }
     val groups = remember(items) { items.groupBy { dayLabel(it.takenMs) }.toList() }
 
+    // long-press starts selecting; while anything is selected a tap toggles instead of opening
+    var selected by rememberSaveable { mutableStateOf(emptySet<Long>()) }
+    val chosen = items.filter { it.id in selected }
+    val selecting = chosen.isNotEmpty()
+    fun toggle(id: Long) { selected = if (id in selected) selected - id else selected + id }
+    BackHandler(enabled = selecting) { selected = emptySet() }
+    val trashLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+        if (it.resultCode == Activity.RESULT_OK) { selected = emptySet(); onChanged() }
+    }
+
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader(title, "${items.size} ITEMS", onBack, backLabel = "ALBUMS")
+        ScreenHeader(title, if (selecting) "${chosen.size} SELECTED" else "${items.size} ITEMS", onBack, backLabel = "ALBUMS")
 
         if (items.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -83,7 +111,7 @@ fun PhotosScreen(
         LazyVerticalGrid(
             columns = GridCells.Fixed(cols),
             state = gridState,
-            modifier = Modifier.fillMaxSize().pinchToResize(cols) { cols = it },
+            modifier = Modifier.weight(1f).pinchToResize(cols) { cols = it },
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
@@ -95,17 +123,56 @@ fun PhotosScreen(
                         style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.4.sp, color = cb.mint),
                     )
                 }
-                items(day, key = { it.id }) { Tile(it) { onOpen(it) } }
+                items(day, key = { it.id }) { item ->
+                    Tile(item, item.id in selected, onClick = { if (selecting) toggle(item.id) else onOpen(item) }, onLongClick = { toggle(item.id) })
+                }
+            }
+        }
+
+        if (selecting) {
+            Row(Modifier.fillMaxWidth().background(cb.surface1).padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                ActionText("ALL", cb.inkDim) { selected = items.map { it.id }.toSet() }
+                ActionText("SHARE", cb.mint) { share(context, chosen) }
+                ActionText("COPY", cb.mint) { tools.copy(chosen) { selected = emptySet() } }
+                ActionText("MOVE", cb.mint) { tools.move(chosen) { selected = emptySet() } }
+                ActionText("TRASH", Color(0xFFFF6B6B)) {
+                    val request = MediaStore.createTrashRequest(context.contentResolver, chosen.map { it.uri }, true)
+                    trashLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+                }
             }
         }
     }
 }
 
+private fun share(context: Context, items: List<MediaItem>) {
+    val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+        type = "*/*"
+        putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(items.map { it.uri }))
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(send, null))
+}
+
+/** Mint check in the corner of a selected tile. */
 @Composable
-private fun Tile(item: MediaItem, onClick: () -> Unit) {
+internal fun BoxScope.SelectedMark() {
+    Text(
+        "✓",
+        Modifier.align(Alignment.TopEnd).padding(4.dp).background(LocalCb.current.mint).padding(horizontal = 5.dp),
+        style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, color = DarkCb.surface0),
+    )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun Tile(item: MediaItem, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val cb = LocalCb.current
-    Box(Modifier.aspectRatio(1f).background(cb.surface2).clickable(onClick = onClick)) {
+    Box(
+        Modifier.aspectRatio(1f).background(cb.surface2).combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .then(if (selected) Modifier.border(3.dp, cb.mint) else Modifier),
+    ) {
         AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        if (selected) SelectedMark()
         if (item.isVideo) {
             Text(
                 "▶ ${duration(item.durationMs)}",

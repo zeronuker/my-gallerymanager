@@ -115,12 +115,6 @@ private fun TrashTile(item: MediaItem, selected: Boolean, onClick: () -> Unit) {
                 style = TextStyle(fontFamily = JetBrainsMono, fontSize = 10.sp, color = Color.White),
             )
         }
-        if (selected) {
-            Text(
-                "✓",
-                Modifier.align(Alignment.TopEnd).padding(4.dp).background(cb.mint).padding(horizontal = 5.dp),
-                style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, color = DarkCb.surface0),
-            )
-        }
+        if (selected) SelectedMark()
     }
 }

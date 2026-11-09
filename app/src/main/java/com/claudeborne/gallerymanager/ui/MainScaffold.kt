@@ -71,10 +71,10 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         Column(Modifier.fillMaxSize().cbGrid(cb).statusBarsPadding()) {
             Box(Modifier.weight(1f)) {
                 when {
-                    tab == 0 -> PhotosScreen(items, "PHOTOS", photosGrid) { viewerId = it.id }
+                    tab == 0 -> PhotosScreen(items, "PHOTOS", tools, onChanged, photosGrid) { viewerId = it.id }
                     tab == 2 -> TrashScreen(trash, onChanged)
                     album != null -> key(album) {
-                        PhotosScreen(inAlbum, inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM", onBack = { openAlbum = null }) { viewerId = it.id }
+                        PhotosScreen(inAlbum, inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM", tools, onChanged, onBack = { openAlbum = null }) { viewerId = it.id }
                     }
                     else -> AlbumsScreen(items) { openAlbum = it }
                 }
