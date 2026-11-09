@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -62,6 +63,7 @@ import com.claudeborne.gallerymanager.edit.EditState
 import com.claudeborne.gallerymanager.edit.Filters
 import com.claudeborne.gallerymanager.edit.Label
 import com.claudeborne.gallerymanager.edit.Obscure
+import com.claudeborne.gallerymanager.edit.Patch
 import com.claudeborne.gallerymanager.edit.Pt
 import com.claudeborne.gallerymanager.edit.Sticker
 import com.claudeborne.gallerymanager.edit.autoEnhance
@@ -114,6 +116,12 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
         live?.let { s -> commit(s.copy(marks = s.marks.filterNot { it is Obscure && (it.r.w < 0.01f || it.r.h < 0.01f) })) }
     }
 
+    // retouch: Heal or Clone, brush size, and Clone's chosen source point and the offset it fixes on the first stroke
+    var rtool by remember { mutableStateOf(RetouchTool.HEAL) }
+    var rsize by remember { mutableFloatStateOf(0.05f) }
+    var cloneSrc by remember { mutableStateOf<Pt?>(null) }
+    var cloneOff by remember { mutableStateOf<Pt?>(null) }
+
     var showOriginal by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var dialog by remember { mutableIntStateOf(0) } // 1 save options, 2 discard
@@ -159,7 +167,9 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                     EditCanvas(
                         bmp, if (showOriginal) EditState() else state, cropMode = tool == 0 && !showOriginal, aspect,
                         onCrop = { live = state.copy(crop = it) }, onCropDone = { live?.let(::commit) },
-                        overlay = if (tool == 3 && !showOriginal) {
+                        overlay = when {
+                            showOriginal -> null
+                            tool == 3 -> {
                             {
                                 MarkupOverlay(
                                     mtool, state.crop, state.marks, mcolor, sizes[mtool] ?: 0.05f, glyph, selected,
@@ -173,7 +183,19 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }
-                        } else null,
+                            }
+                            tool == 4 -> {
+                                {
+                                    RetouchOverlay(
+                                        rtool, state.crop, state.marks, bmp, state, rsize, cloneSrc, cloneOff,
+                                        onLive = { live = state.copy(marks = it) }, onDone = ::finishMarks,
+                                        onSource = { cloneSrc = it; cloneOff = null }, onOffset = { cloneOff = it },
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
+                            }
+                            else -> null
+                        },
                     )
                     Text(
                         "HOLD TO COMPARE",
@@ -186,7 +208,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
 
             Column(Modifier.fillMaxWidth().background(Panel).navigationBarsPadding()) {
                 Row(Modifier.fillMaxWidth()) {
-                    listOf("CROP", "ADJUST", "FILTERS", "MARKUP").forEachIndexed { i, label ->
+                    listOf("CROP", "ADJUST", "FILTERS", "MARKUP", "RETOUCH").forEachIndexed { i, label ->
                         Column(Modifier.weight(1f).clickable { tool = i; selected = -1 }, horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(Modifier.fillMaxWidth().height(2.dp).background(if (tool == i) DarkCb.mint else Color.Transparent))
                             Text(label, Modifier.padding(vertical = 12.dp), style = monoStyle(if (tool == i) DarkCb.mint else DarkCb.inkDim, 2.2.sp))
@@ -228,7 +250,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                             bmp, state, onPick = { commit(state.copy(filter = it)) },
                             onAmount = { live = state.copy(filterAmount = it) }, onAmountDone = { live?.let(::commit) },
                         )
-                        else -> MarkupPanel(
+                        3 -> MarkupPanel(
                             mtool, onTool = { mtool = it; selected = -1 }, mcolor,
                             onColor = { c ->
                                 mcolor = c
@@ -244,6 +266,11 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                             onSizeDone = { live?.let(::commit) },
                             canDelete = selMark != null,
                             onDelete = { commit(state.copy(marks = state.marks.filterIndexed { i, _ -> i != selected })); selected = -1 },
+                        )
+                        else -> RetouchPanel(
+                            rtool, onTool = { rtool = it }, rsize, onSize = { rsize = it },
+                            sourceSet = cloneSrc != null, onNewSource = { cloneSrc = null; cloneOff = null },
+                            canClear = state.marks.any { it is Patch }, onClear = { commit(state.copy(marks = state.marks.filterNot { it is Patch })) },
                         )
                     }
                 }

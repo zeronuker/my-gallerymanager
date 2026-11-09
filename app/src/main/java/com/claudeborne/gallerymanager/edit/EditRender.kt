@@ -1,6 +1,7 @@
 package com.claudeborne.gallerymanager.edit
 
 import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
 import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.Color
@@ -21,6 +22,7 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 // One fragment shader does every pixel edit, so the live preview and the saved full-size file look identical.
@@ -37,11 +39,19 @@ uniform float sharpness; uniform float clarity; uniform float vignette; uniform 
 uniform float fSat; uniform float fContrast; uniform float fBright; uniform float fFade; uniform float fGlow; uniform float fAmt;
 uniform float3 fTint; uniform float3 fLift;
 uniform float snap; uniform float blurR; // mosaic cell size and blur radius for hidden regions; 0 = off
+uniform float2 srcOff; uniform float heal; uniform float healR; // retouch patches: where to read from, and whether to match the colour around the spot
 
 float lum(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 float3 px(float2 p) { return float3(image.eval(p).rgb); }
+float3 ring(float2 p, float r) {
+    float q = r * 0.7071;
+    return (px(p) + px(p + float2(r, 0)) + px(p - float2(r, 0)) + px(p + float2(0, r)) + px(p - float2(0, r))
+          + px(p + float2(q, q)) + px(p - float2(q, q)) + px(p + float2(q, -q)) + px(p - float2(q, -q))) / 9.0;
+}
 
 half4 main(float2 coord) {
+    float2 here = coord; // where this pixel really is; a retouch patch reads from coord + srcOff instead
+    coord += srcOff;
     if (snap > 0.0) coord = (floor(coord / snap) + 0.5) * snap;
     half4 src = image.eval(coord);
     if (blurR > 0.0) {
@@ -57,6 +67,7 @@ half4 main(float2 coord) {
         src = half4(half3(sum / 17.0), src.a);
     }
     float3 base = float3(src.rgb);
+    if (heal > 0.5) base += ring(here, healR) - ring(coord, healR); // carry over the colour of the area around the spot
     float3 c = base;
 
     float3 near = (px(coord + float2(unit, 0)) + px(coord - float2(unit, 0)) + px(coord + float2(0, unit)) + px(coord - float2(0, unit))) * 0.25;
@@ -90,10 +101,10 @@ half4 main(float2 coord) {
 
     c += (base - near) * sharpness * 2.0 + (base - far) * clarity * 1.2;
 
-    float v = smoothstep(0.35, 1.05, length(coord - vigCenter) / vigRadius);
+    float v = smoothstep(0.35, 1.05, length(here - vigCenter) / vigRadius);
     c = vignette >= 0.0 ? c * (1.0 - vignette * 0.8 * v) : mix(c, float3(1.0), -vignette * 0.7 * v);
 
-    float n = fract(sin(dot(floor(coord / unit * 0.5), float2(12.9898, 78.233))) * 43758.5453) - 0.5;
+    float n = fract(sin(dot(floor(here / unit * 0.5), float2(12.9898, 78.233))) * 43758.5453) - 0.5;
     c += n * grain * 0.3;
 
     return half4(half3(clamp(c, 0.0, 1.0)), src.a);
@@ -156,22 +167,64 @@ class EditShader {
         shader.setFloatUniform("fTint", f.tint)
         shader.setFloatUniform("fLift", f.lift)
 
-        shader.setFloatUniform("snap", 0f)
-        shader.setFloatUniform("blurR", 0f)
+        setPass()
         pass(canvas, src, m, outW, outH, null)
 
-        // hidden regions: the same picture again, pixelated or blurred, inside each region
+        // hidden regions and retouch patches: the picture drawn again over its own spot, in the order they were made
         val unit = max(src.width, src.height) / 1500f
-        st.marks.filterIsInstance<Obscure>().forEach { o ->
-            shader.setFloatUniform("snap", if (o.mosaic) unit * 14f else 0f)
-            shader.setFloatUniform("blurR", if (o.mosaic) 0f else unit * 12f)
-            val r = o.r
-            pass(canvas, src, m, outW, outH, RectF((r.l - crop.l) * outW / crop.w, (r.t - crop.t) * outH / crop.h, (r.r - crop.l) * outW / crop.w, (r.b - crop.t) * outH / crop.h))
+        st.marks.forEach { mk ->
+            when (mk) {
+                is Obscure -> {
+                    setPass(snap = if (mk.mosaic) unit * 14f else 0f, blur = if (mk.mosaic) 0f else unit * 12f)
+                    val r = mk.r
+                    pass(canvas, src, m, outW, outH, RectF((r.l - crop.l) * outW / crop.w, (r.t - crop.t) * outH / crop.h, (r.r - crop.l) * outW / crop.w, (r.b - crop.t) * outH / crop.h))
+                }
+                is Patch -> patch(canvas, src, st, m, outW, outH, mk)
+                else -> Unit
+            }
         }
 
         canvas.save()
         canvas.clipRect(0f, 0f, outW.toFloat(), outH.toFloat())
         drawMarks(canvas, st.marks, crop, outW, outH)
+        canvas.restore()
+    }
+
+    private fun setPass(snap: Float = 0f, blur: Float = 0f, offX: Float = 0f, offY: Float = 0f, heal: Float = 0f, healR: Float = 0f) {
+        shader.setFloatUniform("snap", snap)
+        shader.setFloatUniform("blurR", blur)
+        shader.setFloatUniform("srcOff", offX, offY)
+        shader.setFloatUniform("heal", heal)
+        shader.setFloatUniform("healR", healR)
+    }
+
+    /** Paints [p]'s stroke with the picture taken from its offset position, with soft edges. Works in source pixels. */
+    private fun patch(canvas: Canvas, src: Bitmap, st: EditState, m: Matrix, outW: Int, outH: Int, p: Patch) {
+        val (cw, ch) = frameSize(src.width, src.height, st.turns)
+        val inv = Matrix().also { editMatrix(src.width, src.height, st, Crop(), cw.roundToInt(), ch.roundToInt()).invert(it) } // frame pixels to source pixels
+        val pts = FloatArray(p.pts.size * 2)
+        p.pts.forEachIndexed { i, q -> pts[2 * i] = q.u * cw; pts[2 * i + 1] = q.v * ch }
+        inv.mapPoints(pts)
+        val off = floatArrayOf(p.dx * cw, p.dy * ch).also { inv.mapVectors(it) }
+        val v = FloatArray(9).also { inv.getValues(it) }
+        val width = p.width * cw * hypot(v[Matrix.MSCALE_X], v[Matrix.MSKEW_Y])
+
+        setPass(offX = off[0], offY = off[1], heal = if (p.heal) 1f else 0f, healR = width * 0.9f)
+        val path = Path()
+        for (i in 0 until pts.size / 2) if (i == 0) path.moveTo(pts[0], pts[1]) else path.lineTo(pts[2 * i], pts[2 * i + 1])
+        if (pts.size == 2) path.lineTo(pts[0] + 0.01f, pts[1]) // a single tap still paints a dot
+        val brush = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            strokeWidth = width
+            maskFilter = BlurMaskFilter(max(1f, width * 0.2f), BlurMaskFilter.Blur.NORMAL) // soft edge so the patch blends in
+            setShader(this@EditShader.shader) // not the Paint's own (empty) shader property
+        }
+        canvas.save()
+        canvas.clipRect(0f, 0f, outW.toFloat(), outH.toFloat())
+        canvas.concat(m)
+        canvas.drawPath(path, brush)
         canvas.restore()
     }
 
@@ -227,7 +280,7 @@ private fun drawMarks(canvas: Canvas, marks: List<Mark>, crop: Crop, outW: Int, 
             paint.color = Color.BLACK
             canvas.drawText(m.glyph, (m.u - crop.l) * sx, (m.v - crop.t) * sy + paint.textSize * 0.35f, paint)
         }
-        is Obscure -> Unit // drawn with the picture itself
+        is Obscure, is Patch -> Unit // drawn with the picture itself
     }
 }
 

@@ -23,6 +23,8 @@ data class Label(val text: String, val u: Float, val v: Float, val size: Float, 
 data class Sticker(val glyph: String, val u: Float, val v: Float, val size: Float) : Mark
 /** A region of the picture hidden behind a mosaic or a blur. */
 data class Obscure(val r: Crop, val mosaic: Boolean) : Mark
+/** Paint over [pts] with the picture as it looks ([dx], [dy]) away, in frame fractions. [heal] also matches the colour to the surroundings. */
+data class Patch(val pts: List<Pt>, val width: Float, val dx: Float, val dy: Float, val heal: Boolean) : Mark
 
 /** Everything the user changed, kept apart from the pixels so any step can be undone. */
 data class EditState(
