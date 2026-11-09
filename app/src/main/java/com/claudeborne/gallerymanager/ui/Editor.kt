@@ -55,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.claudeborne.gallerymanager.data.MediaItem
+import com.claudeborne.gallerymanager.data.Settings
 import com.claudeborne.gallerymanager.edit.Adjust
 import com.claudeborne.gallerymanager.edit.Aspect
 import com.claudeborne.gallerymanager.edit.Crop
@@ -191,6 +192,16 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
         }
     }
 
+    // follows the default save choice in Settings; a see-through background can only be saved as a new PNG
+    fun startSave() {
+        val see = state.backdrop == Backdrop.TRANSPARENT && mask != null
+        when {
+            Settings.saveMode == 1 || (Settings.saveMode == 2 && (see || !canReplace(item))) -> save(false)
+            Settings.saveMode == 2 -> save(true)
+            else -> dialog = 1
+        }
+    }
+
     Box(Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) { detectTapGestures { } }) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -199,7 +210,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                 ActionText("UNDO", if (at > 0) DarkCb.ink else DarkCb.inkDim) { if (at > 0) { at--; live = null; selected = -1 } }
                 ActionText("REDO", if (at < history.lastIndex) DarkCb.ink else DarkCb.inkDim) { if (at < history.lastIndex) { at++; live = null; selected = -1 } }
                 Box(Modifier.weight(1f))
-                ActionText("SAVE", if (state.isEdited) DarkCb.mint else DarkCb.inkDim) { if (state.isEdited) dialog = 1 else onClose() }
+                ActionText("SAVE", if (state.isEdited) DarkCb.mint else DarkCb.inkDim) { if (state.isEdited) startSave() else onClose() }
             }
 
             Box(Modifier.weight(1f).fillMaxWidth()) {

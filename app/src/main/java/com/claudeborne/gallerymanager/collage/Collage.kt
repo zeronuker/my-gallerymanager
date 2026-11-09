@@ -10,6 +10,7 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.provider.MediaStore
 import android.provider.MediaStore.MediaColumns as C
+import com.claudeborne.gallerymanager.data.Settings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -140,19 +141,19 @@ fun renderCollage(spec: CollageSpec, photos: List<Bitmap>, order: List<Int>, vie
     return Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { drawCollage(Canvas(it), spec, photos, order, views, w, h) }
 }
 
-/** Saves [bitmap] as a new JPEG in Pictures/Collages. Returns false if it could not be written. */
+/** Saves [bitmap] as a new JPEG in the collage folder (see Settings). Returns false if it could not be written. */
 suspend fun saveCollage(context: Context, bitmap: Bitmap): Boolean = withContext(Dispatchers.IO) {
     val resolver = context.contentResolver
     val now = System.currentTimeMillis()
     val values = ContentValues().apply {
         put(C.DISPLAY_NAME, "Collage_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date(now)) + ".jpg")
         put(C.MIME_TYPE, "image/jpeg")
-        put(C.RELATIVE_PATH, "Pictures/Collages/")
+        put(C.RELATIVE_PATH, "Pictures/${Settings.collageFolder}/")
         put(C.DATE_TAKEN, now)
         put(C.IS_PENDING, 1)
     }
     val target = resolver.insert(MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values) ?: return@withContext false
-    val ok = runCatching { resolver.openOutputStream(target)!!.use { bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it) } }.getOrDefault(false)
+    val ok = runCatching { resolver.openOutputStream(target)!!.use { bitmap.compress(Bitmap.CompressFormat.JPEG, Settings.editQuality, it) } }.getOrDefault(false)
     if (ok) resolver.update(target, ContentValues().apply { put(C.IS_PENDING, 0) }, null, null) else resolver.delete(target, null, null)
     ok
 }

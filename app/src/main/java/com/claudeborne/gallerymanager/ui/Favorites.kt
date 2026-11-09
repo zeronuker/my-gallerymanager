@@ -20,6 +20,11 @@ class Favorites(private val context: Context) {
     var ids by mutableStateOf(prefs.getStringSet("ids", emptySet()).orEmpty().mapNotNull { it.toLongOrNull() }.toSet())
         private set
 
+    fun clear() {
+        ids = emptySet()
+        prefs.edit().remove("ids").apply()
+    }
+
     fun toggle(id: Long) {
         ids = if (id in ids) ids - id else ids + id
         prefs.edit().putStringSet("ids", ids.map { it.toString() }.toSet()).apply()

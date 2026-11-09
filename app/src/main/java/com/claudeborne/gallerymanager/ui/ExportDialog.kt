@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.claudeborne.gallerymanager.data.MediaItem
+import com.claudeborne.gallerymanager.data.Settings
 import com.claudeborne.gallerymanager.data.readExif
 import com.claudeborne.gallerymanager.edit.AI_INPUT_MAX
 import com.claudeborne.gallerymanager.edit.MAX_EDGE
@@ -42,7 +43,7 @@ fun ExportDialog(item: MediaItem, stripLocation: Boolean, onClose: () -> Unit, o
     val scope = rememberCoroutineScope()
     var scale by remember { mutableFloatStateOf(1f) }
     var format by remember { mutableStateOf(if (item.mime == "image/png") OutFormat.PNG else OutFormat.JPG) }
-    var quality by remember { mutableFloatStateOf(90f) }
+    var quality by remember { mutableFloatStateOf(Settings.exportQuality.toFloat()) }
     var strip by remember { mutableStateOf(stripLocation) }
     var saving by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
@@ -63,7 +64,7 @@ fun ExportDialog(item: MediaItem, stripLocation: Boolean, onClose: () -> Unit, o
 
         Text("FORMAT", style = monoStyle(DarkCb.inkDim, 1.5.sp))
         Row { OutFormat.entries.forEach { f -> Chip(f.label, format == f) { format = f } } }
-        if (format != OutFormat.PNG) EditSlider("QUALITY", quality, 50f..100f, "${quality.roundToInt()}", { quality = it }, {}) { quality = 90f }
+        if (format != OutFormat.PNG) EditSlider("QUALITY", quality, 50f..100f, "${quality.roundToInt()}", { quality = it }, {}) { quality = Settings.exportQuality.toFloat() }
 
         if (hasGps) Chip(if (strip) "✓ LOCATION WILL BE REMOVED" else "REMOVE LOCATION", strip, color = DarkCb.ink) { strip = !strip }
         else Text("NO LOCATION IN THIS PHOTO", style = monoStyle(DarkCb.inkDim, 1.2.sp))

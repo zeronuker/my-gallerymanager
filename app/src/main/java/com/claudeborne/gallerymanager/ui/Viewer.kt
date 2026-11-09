@@ -88,6 +88,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.claudeborne.gallerymanager.data.EXTERNAL_ID
 import com.claudeborne.gallerymanager.data.MediaItem
+import com.claudeborne.gallerymanager.data.Settings
 import com.claudeborne.gallerymanager.data.readExif
 import java.time.Instant
 import java.time.ZoneId
@@ -175,14 +176,7 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
             IconAction(Icon.SHARE, DarkCb.mint, "Share", enabled = current != null) {
-                current?.let {
-                    val send = Intent(Intent.ACTION_SEND).apply {
-                        type = it.mime.ifEmpty { "*/*" }
-                        putExtra(Intent.EXTRA_STREAM, it.uri)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    context.startActivity(Intent.createChooser(send, null))
-                }
+                current?.let { shareMedia(context, listOf(it)) }
             }
             if (current != null && current.id != EXTERNAL_ID) {
                 val favorite = current.id in favorites.ids
@@ -390,7 +384,8 @@ private fun VideoPage(item: MediaItem, active: Boolean, chrome: Boolean, onTap: 
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(PlayerItem.fromUri(item.uri))
             prepare()
-            playWhenReady = true
+            volume = if (Settings.muted) 0f else 1f
+            playWhenReady = Settings.autoplay
         }
     }
     DisposableEffect(player) { onDispose { player.release() } }

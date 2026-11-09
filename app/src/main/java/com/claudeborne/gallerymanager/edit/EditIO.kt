@@ -9,6 +9,7 @@ import android.provider.MediaStore
 import android.provider.MediaStore.MediaColumns as C
 import androidx.exifinterface.media.ExifInterface
 import com.claudeborne.gallerymanager.data.MediaItem
+import com.claudeborne.gallerymanager.data.Settings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -92,7 +93,7 @@ suspend fun saveEdited(context: Context, item: MediaItem, bitmap: Bitmap, replac
     // after every write, so a file written in two steps would be scanned half done and lose its date.
     val file = File.createTempFile("edit", ".img", context.cacheDir)
     try {
-        file.outputStream().use { if (!bitmap.compress(format, 95, it)) return@withContext false }
+        file.outputStream().use { if (!bitmap.compress(format, Settings.editQuality, it)) return@withContext false }
         writeTags(file, tags)
         if (replace) runCatching { context.contentResolver.openOutputStream(item.uri, "wt")!!.use { out -> file.inputStream().use { it.copyTo(out) } } }.isSuccess
         else insertImage(context, file, item.name.substringBeforeLast('.') + "_edit." + if (png) "png" else "jpg", if (png) "image/png" else "image/jpeg", item.path)

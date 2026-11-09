@@ -1,7 +1,12 @@
 package com.claudeborne.gallerymanager.ui
 
 import androidx.compose.foundation.background
+import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
+import com.claudeborne.gallerymanager.data.Settings
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -99,7 +104,13 @@ fun Modifier.cbGrid(cb: CbColors): Modifier = background(cb.surface0).drawBehind
 
 @Composable
 fun ClaudeBorneTheme(content: @Composable () -> Unit) {
-    val cb = if (isSystemInDarkTheme()) DarkCb else LightCb
+    val dark = when (Settings.theme) { 1 -> true; 2 -> false; else -> isSystemInDarkTheme() }
+    val cb = if (dark) DarkCb else LightCb
+    val view = LocalView.current
+    SideEffect { // icons in the bars must contrast with the chosen theme, not the phone's
+        val window = (view.context as? Activity)?.window ?: return@SideEffect
+        WindowCompat.getInsetsController(window, view).apply { isAppearanceLightStatusBars = !dark; isAppearanceLightNavigationBars = !dark }
+    }
     val scheme = if (cb.isDark) {
         darkColorScheme(
             primary = cb.mint, onPrimary = cb.surface0, secondary = cb.blue, tertiary = cb.violet,

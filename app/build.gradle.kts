@@ -58,6 +58,7 @@ dependencies {
     implementation("io.coil-kt:coil-video:2.7.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("androidx.print:print:1.0.0")
+    implementation("androidx.biometric:biometric:1.1.0") // app lock
     // ponytail: beta API; the model is fetched by Google Play services the first time it is needed
     implementation("com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1")
     // bundled face detector with contours (works offline), used by portrait retouch

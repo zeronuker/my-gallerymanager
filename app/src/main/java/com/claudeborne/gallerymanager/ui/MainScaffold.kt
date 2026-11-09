@@ -82,7 +82,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
                 when {
                     tab == 0 -> PhotosScreen(items, "PHOTOS", tools, onChanged, onCollage = { collage = it }, gridState = photosGrid) { viewerId = it.id }
                     tab == 2 -> TrashScreen(trash, onChanged)
-                    tab == 3 -> SettingsScreen()
+                    tab == 3 -> SettingsScreen(favorites)
                     album != null -> key(album) {
                         val title = if (album == FAVORITES_ID) "FAVORITES" else inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM"
                         PhotosScreen(inAlbum, title, tools, onChanged, onCollage = { collage = it }, onBack = { openAlbum = null }) { viewerId = it.id }

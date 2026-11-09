@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.claudeborne.gallerymanager.data.MediaItem
+import com.claudeborne.gallerymanager.data.Settings
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -90,7 +91,7 @@ fun PhotosScreen(
 ) {
     val cb = LocalCb.current
     val context = LocalContext.current
-    var cols by rememberSaveable { mutableIntStateOf(4) }
+    var cols by rememberSaveable { mutableIntStateOf(Settings.gridCols) }
     val groups = remember(items) { items.groupBy { dayLabel(it.takenMs) }.toList() }
 
     // long-press starts selecting; while anything is selected a tap toggles instead of opening
@@ -167,14 +168,7 @@ private fun RowScope.BarAction(label: String, color: Color, onClick: () -> Unit)
     )
 }
 
-private fun share(context: Context, items: List<MediaItem>) {
-    val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-        type = "*/*"
-        putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(items.map { it.uri }))
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-    context.startActivity(Intent.createChooser(send, null))
-}
+private fun share(context: Context, items: List<MediaItem>) = shareMedia(context, items)
 
 /** Mint check in the corner of a selected tile. */
 @Composable

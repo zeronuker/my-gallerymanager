@@ -63,6 +63,7 @@ import com.claudeborne.gallerymanager.collage.layoutsFor
 import com.claudeborne.gallerymanager.collage.renderCollage
 import com.claudeborne.gallerymanager.collage.saveCollage
 import com.claudeborne.gallerymanager.data.MediaItem
+import com.claudeborne.gallerymanager.data.Settings
 import com.claudeborne.gallerymanager.edit.loadBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -107,7 +108,7 @@ fun CollageScreen(items: List<MediaItem>, onClose: () -> Unit, onSaved: () -> Un
         scope.launch {
             val ok = runCatching { saveCollage(context, withContext(Dispatchers.Default) { renderCollage(snapshot, p, o, v) }) }.getOrDefault(false)
             saving = false
-            Toast.makeText(context, if (ok) "Saved to Pictures/Collages" else "Couldn't save the collage", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, if (ok) "Saved to Pictures/${Settings.collageFolder}" else "Couldn't save the collage", Toast.LENGTH_SHORT).show()
             if (ok) onSaved()
         }
     }
