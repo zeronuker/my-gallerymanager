@@ -1,7 +1,10 @@
 package com.claudeborne.gallerymanager.ui
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.widget.Toast
+import androidx.print.PrintHelper
 import android.view.LayoutInflater
 import com.claudeborne.gallerymanager.R
 import android.provider.MediaStore
@@ -95,16 +98,17 @@ private val infoDateFmt = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm")
 
 /** Full-screen swipeable viewer over [items], starting at the item with [startId]. [onChanged] fires after the library changed (trash). */
 @Composable
-fun Viewer(items: List<MediaItem>, startId: Long, onPageChange: (Long) -> Unit, onChanged: () -> Unit, onClose: () -> Unit) {
+fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, onPageChange: (Long) -> Unit, onChanged: () -> Unit, onClose: () -> Unit) {
     val context = LocalContext.current
     val pager = rememberPagerState(items.indexOfFirst { it.id == startId }.coerceAtLeast(0)) { items.size }
     var showInfo by remember { mutableStateOf(false) }
+    var showMore by remember { mutableStateOf(false) }
     var chrome by remember { mutableStateOf(true) } // tapping the media hides every control for a full-screen view
     val scope = rememberCoroutineScope()
     val current = items.getOrNull(pager.currentPage)
     LightStatusIcons()
     Immersive(hidden = !chrome)
-    BackHandler(enabled = showInfo) { showInfo = false }
+    BackHandler(enabled = showInfo || showMore) { showInfo = false; showMore = false }
 
     LaunchedEffect(pager, items) {
         if (items.isEmpty()) onClose()
@@ -140,6 +144,22 @@ fun Viewer(items: List<MediaItem>, startId: Long, onPageChange: (Long) -> Unit, 
             if (chrome && showInfo && current != null) {
                 InfoPanel(current, Modifier.align(Alignment.BottomCenter))
             }
+
+            if (chrome && showMore && current != null) {
+                MorePanel(
+                    actions = buildList {
+                        if (current.id != EXTERNAL_ID) {
+                            add("RENAME" to { tools.rename(current) })
+                            add("MOVE" to { tools.move(listOf(current)) })
+                            add("COPY" to { tools.copy(listOf(current)) })
+                        }
+                        add("SET AS" to { launchChooser(context, Intent.ACTION_ATTACH_DATA, current, "Set as") })
+                        add("EDIT WITH" to { launchChooser(context, Intent.ACTION_EDIT, current, "Edit with") })
+                        add("PRINT" to { print(context, current) })
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                ) { showMore = false }
+            }
         }
 
         if (chrome) Row(
@@ -156,7 +176,9 @@ fun Viewer(items: List<MediaItem>, startId: Long, onPageChange: (Long) -> Unit, 
                     context.startActivity(Intent.createChooser(send, null))
                 }
             }
-            ActionButton("INFO", DarkCb.mint, enabled = current != null) { showInfo = !showInfo }
+            ActionButton("INFO", DarkCb.mint, enabled = current != null) { showInfo = !showInfo; showMore = false }
+            // file tools are for images only
+            if (current?.isVideo == false) ActionButton("MORE", DarkCb.mint, enabled = true) { showMore = !showMore; showInfo = false }
             if (current?.id != EXTERNAL_ID) {
                 ActionButton("TRASH", TrashRed, enabled = current != null) {
                     current?.let {
@@ -169,7 +191,7 @@ fun Viewer(items: List<MediaItem>, startId: Long, onPageChange: (Long) -> Unit, 
     }
 }
 
-private fun monoStyle(color: Color, spacing: androidx.compose.ui.unit.TextUnit) =
+internal fun monoStyle(color: Color, spacing: androidx.compose.ui.unit.TextUnit) =
     TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = spacing, color = color)
 
 private fun clock(ms: Long) = "%d:%02d".format(ms / 60000, ms / 1000 % 60)
@@ -192,6 +214,31 @@ private fun ActionButton(label: String, color: Color, enabled: Boolean, onClick:
         Modifier.clickable(enabled = enabled, onClick = onClick).padding(horizontal = 16.dp, vertical = 6.dp),
         style = monoStyle(color, 2.2.sp),
     )
+}
+
+/** Menu of file tools; tapping a row closes it with [onDone] and runs that action. */
+@Composable
+private fun MorePanel(actions: List<Pair<String, () -> Unit>>, modifier: Modifier, onDone: () -> Unit) {
+    Column(modifier.fillMaxWidth().padding(12.dp).doubleChamferFrame(DarkCb.mint, DarkCb.surface1).padding(16.dp)) {
+        Text("MORE", Modifier.padding(bottom = 4.dp), style = monoStyle(DarkCb.mint, 2.6.sp))
+        actions.forEach { (label, run) ->
+            Text(
+                label, Modifier.fillMaxWidth().clickable { onDone(); run() }.padding(vertical = 12.dp),
+                style = monoStyle(DarkCb.ink, 2.2.sp).copy(fontSize = 13.sp),
+            )
+        }
+    }
+}
+
+// the receiving app only needs to read the image; it saves any edit as its own file
+private fun launchChooser(context: Context, action: String, item: MediaItem, title: String) {
+    val intent = Intent(action).setDataAndType(item.uri, item.mime.ifEmpty { "image/*" }).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    context.startActivity(Intent.createChooser(intent, title))
+}
+
+private fun print(context: Context, item: MediaItem) {
+    runCatching { PrintHelper(context).apply { scaleMode = PrintHelper.SCALE_MODE_FIT }.printBitmap(item.name, item.uri) }
+        .onFailure { Toast.makeText(context, "Couldn't print this image", Toast.LENGTH_SHORT).show() }
 }
 
 /** File facts from MediaStore plus camera/GPS rows read from EXIF when the item is a photo. */

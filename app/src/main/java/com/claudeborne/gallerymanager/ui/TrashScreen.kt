@@ -91,7 +91,7 @@ fun TrashScreen(items: List<MediaItem>, onChanged: () -> Unit) {
 }
 
 @Composable
-private fun ActionText(label: String, color: Color, onClick: () -> Unit) {
+internal fun ActionText(label: String, color: Color, onClick: () -> Unit) {
     Text(
         label,
         Modifier.clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),

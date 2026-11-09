@@ -51,6 +51,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         mutableStateOf(openUri?.let { u -> (if (u.authority == "media") runCatching { ContentUris.parseId(u) }.getOrNull() else null) ?: EXTERNAL_ID })
     }
     val photosGrid = rememberLazyGridState() // kept here so the Photos scroll position survives tab switches
+    val tools = rememberFileTools(items, onChanged)
 
     val album = openAlbum
     val inAlbum = remember(items, album) { album?.let { a -> items.filter { it.bucketId == a } }.orEmpty() }
@@ -84,8 +85,9 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         }
 
         viewerId?.let { id ->
-            Viewer(viewerItems, id, onPageChange = { viewerId = it }, onChanged = onChanged, onClose = closeViewer)
+            Viewer(viewerItems, id, tools, onPageChange = { viewerId = it }, onChanged = onChanged, onClose = closeViewer)
         }
+        FileToolDialogs(tools)
     }
 }
 
