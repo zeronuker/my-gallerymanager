@@ -32,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -59,6 +60,10 @@ import com.claudeborne.gallerymanager.edit.Crop
 import com.claudeborne.gallerymanager.edit.EditShader
 import com.claudeborne.gallerymanager.edit.EditState
 import com.claudeborne.gallerymanager.edit.Filters
+import com.claudeborne.gallerymanager.edit.Label
+import com.claudeborne.gallerymanager.edit.Obscure
+import com.claudeborne.gallerymanager.edit.Pt
+import com.claudeborne.gallerymanager.edit.Sticker
 import com.claudeborne.gallerymanager.edit.autoEnhance
 import com.claudeborne.gallerymanager.edit.canReplace
 import com.claudeborne.gallerymanager.edit.frameSize
@@ -72,7 +77,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private val Panel = Color(0xFF0A1020)
-private val Danger = Color(0xFFFF6B6B)
+internal val Danger = Color(0xFFFF6B6B)
 
 /** Full-screen photo editor. Edits are a list of [EditState] snapshots, so every step can be undone; the file is only written on save. */
 @Composable
@@ -96,6 +101,19 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
     var tool by remember { mutableIntStateOf(1) }
     var aspect by remember { mutableStateOf(Aspect.FREE) }
     var which by remember { mutableStateOf(Adjust.EXPOSURE) }
+
+    // markup: the chosen tool, colour, sizes per tool, sticker, the selected text/sticker, and where new text is being added
+    var mtool by remember { mutableStateOf(MarkTool.PEN) }
+    var mcolor by remember { mutableIntStateOf(MarkPalette[0]) }
+    val sizes = remember { mutableStateMapOf(MarkTool.PEN to 0.006f, MarkTool.MARKER to 0.03f, MarkTool.TEXT to 0.07f, MarkTool.STICKER to 0.14f) }
+    var glyph by remember { mutableStateOf("😀") }
+    var selected by remember { mutableIntStateOf(-1) }
+    var textAt by remember { mutableStateOf<Pt?>(null) }
+    val selMark = state.marks.getOrNull(selected)?.takeIf { it.sizeOrNull() != null }
+    fun finishMarks() { // a drag that never grew into a real region leaves nothing behind
+        live?.let { s -> commit(s.copy(marks = s.marks.filterNot { it is Obscure && (it.r.w < 0.01f || it.r.h < 0.01f) })) }
+    }
+
     var showOriginal by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var dialog by remember { mutableIntStateOf(0) } // 1 save options, 2 discard
@@ -127,8 +145,8 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 ActionText("✕", DarkCb.inkDim) { close() }
                 Box(Modifier.weight(1f))
-                ActionText("UNDO", if (at > 0) DarkCb.ink else DarkCb.inkDim) { if (at > 0) { at--; live = null } }
-                ActionText("REDO", if (at < history.lastIndex) DarkCb.ink else DarkCb.inkDim) { if (at < history.lastIndex) { at++; live = null } }
+                ActionText("UNDO", if (at > 0) DarkCb.ink else DarkCb.inkDim) { if (at > 0) { at--; live = null; selected = -1 } }
+                ActionText("REDO", if (at < history.lastIndex) DarkCb.ink else DarkCb.inkDim) { if (at < history.lastIndex) { at++; live = null; selected = -1 } }
                 Box(Modifier.weight(1f))
                 ActionText("SAVE", if (state.isEdited) DarkCb.mint else DarkCb.inkDim) { if (state.isEdited) dialog = 1 else onClose() }
             }
@@ -141,6 +159,21 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                     EditCanvas(
                         bmp, if (showOriginal) EditState() else state, cropMode = tool == 0 && !showOriginal, aspect,
                         onCrop = { live = state.copy(crop = it) }, onCropDone = { live?.let(::commit) },
+                        overlay = if (tool == 3 && !showOriginal) {
+                            {
+                                MarkupOverlay(
+                                    mtool, state.crop, state.marks, mcolor, sizes[mtool] ?: 0.05f, glyph, selected,
+                                    onLive = { live = state.copy(marks = it) }, onDone = ::finishMarks, onSelect = { selected = it },
+                                    onText = { textAt = it },
+                                    onSticker = { p ->
+                                        val index = state.marks.size
+                                        commit(state.copy(marks = state.marks + Sticker(glyph, p.u, p.v, sizes.getValue(MarkTool.STICKER))))
+                                        selected = index
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        } else null,
                     )
                     Text(
                         "HOLD TO COMPARE",
@@ -153,8 +186,8 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
 
             Column(Modifier.fillMaxWidth().background(Panel).navigationBarsPadding()) {
                 Row(Modifier.fillMaxWidth()) {
-                    listOf("CROP", "ADJUST", "FILTERS").forEachIndexed { i, label ->
-                        Column(Modifier.weight(1f).clickable { tool = i }, horizontalAlignment = Alignment.CenterHorizontally) {
+                    listOf("CROP", "ADJUST", "FILTERS", "MARKUP").forEachIndexed { i, label ->
+                        Column(Modifier.weight(1f).clickable { tool = i; selected = -1 }, horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(Modifier.fillMaxWidth().height(2.dp).background(if (tool == i) DarkCb.mint else Color.Transparent))
                             Text(label, Modifier.padding(vertical = 12.dp), style = monoStyle(if (tool == i) DarkCb.mint else DarkCb.inkDim, 2.2.sp))
                         }
@@ -191,9 +224,26 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                             },
                             onReset = { commit(state.copy(adjust = emptyMap(), filter = 0, filterAmount = 1f)) },
                         )
-                        else -> FilterPanel(
+                        2 -> FilterPanel(
                             bmp, state, onPick = { commit(state.copy(filter = it)) },
                             onAmount = { live = state.copy(filterAmount = it) }, onAmountDone = { live?.let(::commit) },
+                        )
+                        else -> MarkupPanel(
+                            mtool, onTool = { mtool = it; selected = -1 }, mcolor,
+                            onColor = { c ->
+                                mcolor = c
+                                (selMark as? Label)?.let { label -> commit(state.copy(marks = state.marks.mapIndexed { i, m -> if (i == selected) label.copy(color = c) else m })) }
+                            },
+                            glyph, onGlyph = { glyph = it },
+                            size = selMark?.sizeOrNull() ?: sizes[mtool] ?: 0.05f,
+                            range = selMark?.let { sizeRange(if (it is Label) MarkTool.TEXT else MarkTool.STICKER) } ?: sizeRange(mtool),
+                            onSize = { v ->
+                                if (selMark != null) live = state.copy(marks = state.marks.mapIndexed { i, m -> if (i == selected) m.withSize(v) else m })
+                                else sizes[mtool] = v
+                            },
+                            onSizeDone = { live?.let(::commit) },
+                            canDelete = selMark != null,
+                            onDelete = { commit(state.copy(marks = state.marks.filterIndexed { i, _ -> i != selected })); selected = -1 },
                         )
                     }
                 }
@@ -214,6 +264,17 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                 }
             }
         }
+        textAt?.let { p ->
+            AddTextDialog(
+                onAdd = { words ->
+                    val index = state.marks.size
+                    commit(state.copy(marks = state.marks + Label(words, p.u, p.v, sizes.getValue(MarkTool.TEXT), mcolor)))
+                    selected = index
+                    textAt = null
+                },
+                onCancel = { textAt = null },
+            )
+        }
         if (saving) {
             Box(Modifier.fillMaxSize().background(Color(0xCC000000)).pointerInput(Unit) { detectTapGestures { } }, Alignment.Center) {
                 Text("SAVING…", style = monoStyle(DarkCb.mint, 2.6.sp))
@@ -232,7 +293,10 @@ private fun Choice(title: String, note: String, onClick: () -> Unit) {
 
 /** The picture, fitted to the space. In crop mode it shows the whole frame with the crop box on top. */
 @Composable
-private fun EditCanvas(bmp: Bitmap, st: EditState, cropMode: Boolean, lock: Aspect, onCrop: (Crop) -> Unit, onCropDone: () -> Unit) {
+private fun EditCanvas(
+    bmp: Bitmap, st: EditState, cropMode: Boolean, lock: Aspect, onCrop: (Crop) -> Unit, onCropDone: () -> Unit,
+    overlay: (@Composable () -> Unit)? = null,
+) {
     val shader = remember { EditShader() }
     val density = LocalDensity.current
     BoxWithConstraints(Modifier.fillMaxSize().padding(8.dp)) {
@@ -248,6 +312,7 @@ private fun EditCanvas(bmp: Bitmap, st: EditState, cropMode: Boolean, lock: Aspe
                 drawIntoCanvas { shader.draw(it.nativeCanvas, bmp, st, crop, size.width.roundToInt(), size.height.roundToInt()) }
             }
             if (cropMode) CropOverlay(st.crop, lock.lock(cw / ch), cw / ch, onCrop, onCropDone, Modifier.fillMaxSize())
+            overlay?.invoke()
         }
     }
 }
@@ -338,7 +403,7 @@ private fun CropOverlay(crop: Crop, lock: Float?, frameAspect: Float, onChange: 
 }
 
 @Composable
-private fun Chip(label: String, selected: Boolean = false, color: Color = DarkCb.inkDim, onClick: () -> Unit) {
+internal fun Chip(label: String, selected: Boolean = false, color: Color = DarkCb.inkDim, onClick: () -> Unit) {
     Text(
         label,
         Modifier.clickable(onClick = onClick).background(if (selected) DarkCb.surface3 else Color.Transparent).padding(horizontal = 10.dp, vertical = 8.dp),
@@ -347,7 +412,7 @@ private fun Chip(label: String, selected: Boolean = false, color: Color = DarkCb
 }
 
 @Composable
-private fun EditSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, display: String, onChange: (Float) -> Unit, onDone: () -> Unit, onReset: () -> Unit) {
+internal fun EditSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, display: String, onChange: (Float) -> Unit, onDone: () -> Unit, onReset: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
             Text(label, style = monoStyle(DarkCb.inkDim, 1.5.sp))

@@ -7,10 +7,13 @@ import android.graphics.Color
 import android.graphics.HardwareRenderer
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PixelFormat
+import android.graphics.RectF
 import android.graphics.RenderNode
 import android.graphics.RuntimeShader
 import android.graphics.Shader
+import android.graphics.Typeface
 import android.hardware.HardwareBuffer
 import android.media.ImageReader
 import kotlin.math.abs
@@ -33,12 +36,26 @@ uniform float saturation; uniform float vibrance; uniform float warmth; uniform 
 uniform float sharpness; uniform float clarity; uniform float vignette; uniform float grain;
 uniform float fSat; uniform float fContrast; uniform float fBright; uniform float fFade; uniform float fGlow; uniform float fAmt;
 uniform float3 fTint; uniform float3 fLift;
+uniform float snap; uniform float blurR; // mosaic cell size and blur radius for hidden regions; 0 = off
 
 float lum(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 float3 px(float2 p) { return float3(image.eval(p).rgb); }
 
 half4 main(float2 coord) {
+    if (snap > 0.0) coord = (floor(coord / snap) + 0.5) * snap;
     half4 src = image.eval(coord);
+    if (blurR > 0.0) {
+        float r = blurR;
+        float q = r * 0.7071;
+        float h = r * 0.5;
+        float g = h * 0.7071;
+        float3 sum = float3(src.rgb)
+            + px(coord + float2(r, 0)) + px(coord - float2(r, 0)) + px(coord + float2(0, r)) + px(coord - float2(0, r))
+            + px(coord + float2(q, q)) + px(coord - float2(q, q)) + px(coord + float2(q, -q)) + px(coord - float2(q, -q))
+            + px(coord + float2(h, 0)) + px(coord - float2(h, 0)) + px(coord + float2(0, h)) + px(coord - float2(0, h))
+            + px(coord + float2(g, g)) + px(coord - float2(g, g)) + px(coord + float2(g, -g)) + px(coord - float2(g, -g));
+        src = half4(half3(sum / 17.0), src.a);
+    }
     float3 base = float3(src.rgb);
     float3 c = base;
 
@@ -139,12 +156,78 @@ class EditShader {
         shader.setFloatUniform("fTint", f.tint)
         shader.setFloatUniform("fLift", f.lift)
 
+        shader.setFloatUniform("snap", 0f)
+        shader.setFloatUniform("blurR", 0f)
+        pass(canvas, src, m, outW, outH, null)
+
+        // hidden regions: the same picture again, pixelated or blurred, inside each region
+        val unit = max(src.width, src.height) / 1500f
+        st.marks.filterIsInstance<Obscure>().forEach { o ->
+            shader.setFloatUniform("snap", if (o.mosaic) unit * 14f else 0f)
+            shader.setFloatUniform("blurR", if (o.mosaic) 0f else unit * 12f)
+            val r = o.r
+            pass(canvas, src, m, outW, outH, RectF((r.l - crop.l) * outW / crop.w, (r.t - crop.t) * outH / crop.h, (r.r - crop.l) * outW / crop.w, (r.b - crop.t) * outH / crop.h))
+        }
+
+        canvas.save()
+        canvas.clipRect(0f, 0f, outW.toFloat(), outH.toFloat())
+        drawMarks(canvas, st.marks, crop, outW, outH)
+        canvas.restore()
+    }
+
+    private fun pass(canvas: Canvas, src: Bitmap, m: Matrix, outW: Int, outH: Int, region: RectF?) {
         paint.setShader(shader) // a Paint only picks up uniform changes when the shader is set again
         canvas.save()
         canvas.clipRect(0f, 0f, outW.toFloat(), outH.toFloat())
+        region?.let { canvas.clipRect(it) }
         canvas.concat(m)
         canvas.drawRect(0f, 0f, src.width.toFloat(), src.height.toFloat(), paint)
         canvas.restore()
+    }
+}
+
+/** Draws pens, text and stickers. Marks live in frame fractions; [crop] says which part of the frame the output shows. */
+private fun drawMarks(canvas: Canvas, marks: List<Mark>, crop: Crop, outW: Int, outH: Int) {
+    val sx = outW / crop.w // output pixels per frame width
+    val sy = outH / crop.h
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    for (m in marks) when (m) {
+        is Pen -> {
+            paint.style = Paint.Style.STROKE
+            paint.strokeCap = Paint.Cap.ROUND
+            paint.strokeJoin = Paint.Join.ROUND
+            paint.strokeWidth = m.width * sx
+            paint.color = if (m.marker) (m.color and 0x00FFFFFF) or 0x66000000 else m.color
+            if (m.pts.size == 1) {
+                paint.style = Paint.Style.FILL
+                canvas.drawCircle((m.pts[0].u - crop.l) * sx, (m.pts[0].v - crop.t) * sy, m.width * sx / 2f, paint)
+            } else {
+                val path = Path()
+                m.pts.forEachIndexed { i, p ->
+                    val x = (p.u - crop.l) * sx
+                    val y = (p.v - crop.t) * sy
+                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                canvas.drawPath(path, paint)
+            }
+        }
+        is Label -> {
+            paint.style = Paint.Style.FILL
+            paint.textAlign = Paint.Align.CENTER
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            paint.textSize = m.size * sx
+            paint.color = m.color
+            canvas.drawText(m.text, (m.u - crop.l) * sx, (m.v - crop.t) * sy + paint.textSize * 0.35f, paint)
+        }
+        is Sticker -> {
+            paint.style = Paint.Style.FILL
+            paint.textAlign = Paint.Align.CENTER
+            paint.typeface = Typeface.DEFAULT
+            paint.textSize = m.size * sx
+            paint.color = Color.BLACK
+            canvas.drawText(m.glyph, (m.u - crop.l) * sx, (m.v - crop.t) * sy + paint.textSize * 0.35f, paint)
+        }
+        is Obscure -> Unit // drawn with the picture itself
     }
 }
 

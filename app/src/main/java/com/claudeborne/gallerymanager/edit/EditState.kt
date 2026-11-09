@@ -13,6 +13,17 @@ data class Crop(val l: Float = 0f, val t: Float = 0f, val r: Float = 1f, val b: 
     val h get() = b - t
 }
 
+/** A point in the rotated, straightened frame, as fractions of its width and height (so crops made later never move it). */
+data class Pt(val u: Float, val v: Float)
+
+/** Things drawn on top of the picture. Sizes are fractions of the frame width. */
+sealed interface Mark
+data class Pen(val pts: List<Pt>, val color: Int, val width: Float, val marker: Boolean) : Mark
+data class Label(val text: String, val u: Float, val v: Float, val size: Float, val color: Int) : Mark
+data class Sticker(val glyph: String, val u: Float, val v: Float, val size: Float) : Mark
+/** A region of the picture hidden behind a mosaic or a blur. */
+data class Obscure(val r: Crop, val mosaic: Boolean) : Mark
+
 /** Everything the user changed, kept apart from the pixels so any step can be undone. */
 data class EditState(
     val turns: Int = 0, // quarter turns clockwise
@@ -23,6 +34,7 @@ data class EditState(
     val adjust: Map<Adjust, Float> = emptyMap(),
     val filter: Int = 0, // index into [Filters]
     val filterAmount: Float = 1f,
+    val marks: List<Mark> = emptyList(),
 ) {
     fun value(a: Adjust) = adjust[a] ?: 0f
     fun with(a: Adjust, v: Float) = copy(adjust = if (v == 0f) adjust - a else adjust + (a to v))
