@@ -60,7 +60,9 @@ import com.claudeborne.gallerymanager.edit.Aspect
 import com.claudeborne.gallerymanager.edit.Crop
 import com.claudeborne.gallerymanager.edit.EditShader
 import com.claudeborne.gallerymanager.edit.EditState
+import com.claudeborne.gallerymanager.edit.Backdrop
 import com.claudeborne.gallerymanager.edit.Filters
+import com.claudeborne.gallerymanager.edit.findSubject
 import com.claudeborne.gallerymanager.edit.Label
 import com.claudeborne.gallerymanager.edit.Obscure
 import com.claudeborne.gallerymanager.edit.Patch
@@ -88,6 +90,8 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
     val scope = rememberCoroutineScope()
 
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var mask by remember { mutableStateOf<Bitmap?>(null) } // the subject found by CUTOUT, the size of [bitmap]
+    var maskTried by remember { mutableStateOf(false) }
     LaunchedEffect(item.id) { bitmap = loadBitmap(context, item.uri, 2048) }
 
     val history = remember { mutableStateListOf(EditState()) }
@@ -101,6 +105,14 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
     }
 
     var tool by remember { mutableIntStateOf(1) }
+    // the subject is found the first time CUTOUT is opened (and again after "FIND AGAIN")
+    LaunchedEffect(tool, bitmap, maskTried) {
+        val b = bitmap
+        if (tool == 5 && b != null && mask == null && !maskTried) {
+            mask = findSubject(context, b)
+            maskTried = true
+        }
+    }
     var aspect by remember { mutableStateOf(Aspect.FREE) }
     var which by remember { mutableStateOf(Adjust.EXPOSURE) }
 
@@ -139,11 +151,17 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
         saving = true
         val edits = state
         scope.launch {
-            val out = runCatching { withContext(Dispatchers.Default) { renderEdited(loadBitmap(context, item.uri, 6144), edits) } }.getOrNull()
+            val see = edits.backdrop == Backdrop.TRANSPARENT && mask != null // a see-through background can only be kept in a PNG
+            val out = runCatching {
+                withContext(Dispatchers.Default) {
+                    val big = loadBitmap(context, item.uri, 6144)
+                    renderEdited(big, edits, 1f, mask?.let { Bitmap.createScaledBitmap(it, big.width, big.height, true) })
+                }
+            }.getOrNull()
             when {
                 out == null -> finish(false)
                 replace -> { saving = false; tools.write(listOf(item.uri)) { saving = true; finish(saveEdited(context, item, out, true)) } }
-                else -> finish(saveEdited(context, item, out, false))
+                else -> finish(saveEdited(context, item, out, false, asPng = see))
             }
         }
     }
@@ -167,6 +185,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                     EditCanvas(
                         bmp, if (showOriginal) EditState() else state, cropMode = tool == 0 && !showOriginal, aspect,
                         onCrop = { live = state.copy(crop = it) }, onCropDone = { live?.let(::commit) },
+                        mask = mask,
                         overlay = when {
                             showOriginal -> null
                             tool == 3 -> {
@@ -208,7 +227,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
 
             Column(Modifier.fillMaxWidth().background(Panel).navigationBarsPadding()) {
                 Row(Modifier.fillMaxWidth()) {
-                    listOf("CROP", "ADJUST", "FILTERS", "MARKUP", "RETOUCH").forEachIndexed { i, label ->
+                    listOf("CROP", "ADJUST", "FILTERS", "MARKUP", "RETOUCH", "CUTOUT").forEachIndexed { i, label ->
                         Column(Modifier.weight(1f).clickable { tool = i; selected = -1 }, horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(Modifier.fillMaxWidth().height(2.dp).background(if (tool == i) DarkCb.mint else Color.Transparent))
                             Text(label, Modifier.padding(vertical = 12.dp), style = monoStyle(if (tool == i) DarkCb.mint else DarkCb.inkDim, 2.2.sp))
@@ -267,10 +286,17 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                             canDelete = selMark != null,
                             onDelete = { commit(state.copy(marks = state.marks.filterIndexed { i, _ -> i != selected })); selected = -1 },
                         )
-                        else -> RetouchPanel(
+                        4 -> RetouchPanel(
                             rtool, onTool = { rtool = it }, rsize, onSize = { rsize = it },
                             sourceSet = cloneSrc != null, onNewSource = { cloneSrc = null; cloneOff = null },
                             canClear = state.marks.any { it is Patch }, onClear = { commit(state.copy(marks = state.marks.filterNot { it is Patch })) },
+                        )
+                        else -> CutoutPanel(
+                            state, found = mask != null, tried = maskTried,
+                            onFind = { maskTried = false; mask = null },
+                            onPick = { commit(state.copy(backdrop = it)) },
+                            onBlur = { live = state.copy(backdrop = Backdrop.BLUR, backdropBlur = it) }, onBlurDone = { live?.let(::commit) },
+                            onColor = { commit(state.copy(backdrop = Backdrop.COLOR, backdropColor = it)) },
                         )
                     }
                 }
@@ -279,8 +305,9 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
 
         when (dialog) {
             1 -> CbDialog("SAVE", { dialog = 0 }) {
-                Choice("SAVE AS COPY", "Keeps the original untouched.") { save(false) }
-                if (canReplace(item)) Choice("REPLACE ORIGINAL", "Overwrites this photo.") { save(true) }
+                val see = state.backdrop == Backdrop.TRANSPARENT && mask != null
+                Choice(if (see) "SAVE AS COPY (PNG)" else "SAVE AS COPY", if (see) "A see-through background needs PNG. The original stays untouched." else "Keeps the original untouched.") { save(false) }
+                if (!see && canReplace(item)) Choice("REPLACE ORIGINAL", "Overwrites this photo.") { save(true) }
                 Row(Modifier.fillMaxWidth(), Arrangement.End) { ActionText("CANCEL", DarkCb.inkDim) { dialog = 0 } }
             }
             2 -> CbDialog("DISCARD EDITS?", { dialog = 0 }) {
@@ -322,7 +349,7 @@ private fun Choice(title: String, note: String, onClick: () -> Unit) {
 @Composable
 private fun EditCanvas(
     bmp: Bitmap, st: EditState, cropMode: Boolean, lock: Aspect, onCrop: (Crop) -> Unit, onCropDone: () -> Unit,
-    overlay: (@Composable () -> Unit)? = null,
+    overlay: (@Composable () -> Unit)? = null, mask: Bitmap? = null,
 ) {
     val shader = remember { EditShader() }
     val density = LocalDensity.current
@@ -336,7 +363,21 @@ private fun EditCanvas(
         val h = w / ratio
         Box(Modifier.size(with(density) { w.toDp() }, with(density) { h.toDp() }).align(Alignment.Center)) {
             Canvas(Modifier.fillMaxSize()) {
-                drawIntoCanvas { shader.draw(it.nativeCanvas, bmp, st, crop, size.width.roundToInt(), size.height.roundToInt()) }
+                if (mask != null && st.backdrop == Backdrop.TRANSPARENT) { // chequerboard shows what is see-through
+                    val cell = 12.dp.toPx()
+                    var y = 0f
+                    var row = 0
+                    while (y < size.height) {
+                        var x = 0f
+                        var col = row
+                        while (x < size.width) {
+                            drawRect(if (col % 2 == 0) Color(0xFF5A5F6E) else Color(0xFF3A3F4E), Offset(x, y), Size(cell, cell))
+                            x += cell; col++
+                        }
+                        y += cell; row++
+                    }
+                }
+                drawIntoCanvas { shader.draw(it.nativeCanvas, bmp, st, crop, size.width.roundToInt(), size.height.roundToInt(), mask) }
             }
             if (cropMode) CropOverlay(st.crop, lock.lock(cw / ch), cw / ch, onCrop, onCropDone, Modifier.fillMaxSize())
             overlay?.invoke()

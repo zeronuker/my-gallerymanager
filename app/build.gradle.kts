@@ -58,6 +58,8 @@ dependencies {
     implementation("io.coil-kt:coil-video:2.7.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("androidx.print:print:1.0.0")
+    // ponytail: beta API; the model is fetched by Google Play services the first time it is needed
+    implementation("com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1")
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
 }

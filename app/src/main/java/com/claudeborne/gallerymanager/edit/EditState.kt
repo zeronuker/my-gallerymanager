@@ -37,6 +37,9 @@ data class EditState(
     val filter: Int = 0, // index into [Filters]
     val filterAmount: Float = 1f,
     val marks: List<Mark> = emptyList(),
+    val backdrop: Backdrop = Backdrop.KEEP,
+    val backdropColor: Int = 0xFFFFFFFF.toInt(),
+    val backdropBlur: Float = 0.5f,
 ) {
     fun value(a: Adjust) = adjust[a] ?: 0f
     fun with(a: Adjust, v: Float) = copy(adjust = if (v == 0f) adjust - a else adjust + (a to v))

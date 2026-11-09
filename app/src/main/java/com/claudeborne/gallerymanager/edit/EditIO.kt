@@ -83,8 +83,8 @@ fun canReplace(item: MediaItem) = item.mime == "image/jpeg" || item.mime == "ima
  * Writes [bitmap] as a new "<name>_edit" file next to [item], or over [item] itself when [replace] (the caller must already hold
  * write access). Camera and GPS details are copied over. Returns false if writing failed.
  */
-suspend fun saveEdited(context: Context, item: MediaItem, bitmap: Bitmap, replace: Boolean): Boolean = withContext(Dispatchers.IO) {
-    val png = item.mime == "image/png"
+suspend fun saveEdited(context: Context, item: MediaItem, bitmap: Bitmap, replace: Boolean, asPng: Boolean = false): Boolean = withContext(Dispatchers.IO) {
+    val png = item.mime == "image/png" || asPng
     val tags = if (png) emptyMap() else carriedTags(context, item) // read before a replace overwrites them
     val format = if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
 

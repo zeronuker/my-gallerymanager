@@ -29,6 +29,8 @@ import kotlin.math.sin
 // Order: filter look, manual tone and colour, sharpness/clarity from neighbouring pixels, vignette, grain.
 private const val AGSL = """
 uniform shader image;
+uniform shader maskImg; // how much of each pixel belongs to the subject (alpha)
+uniform float bgMode; uniform float bgBlurR; uniform float3 bgCol; // 0 off, 1 blur, 2 colour, 3 transparent
 uniform float unit;
 uniform float2 vigCenter;
 uniform float vigRadius;
@@ -65,6 +67,24 @@ half4 main(float2 coord) {
             + px(coord + float2(h, 0)) + px(coord - float2(h, 0)) + px(coord + float2(0, h)) + px(coord - float2(0, h))
             + px(coord + float2(g, g)) + px(coord - float2(g, g)) + px(coord + float2(g, -g)) + px(coord - float2(g, -g));
         src = half4(half3(sum / 17.0), src.a);
+    }
+    float m = 1.0;
+    if (bgMode > 0.5) {
+        m = smoothstep(0.25, 0.75, maskImg.eval(here).a);
+        if (bgMode < 1.5 && m < 0.999) {
+            // three rings of taps give a soft blur of everything behind the subject
+            // each pixel turns its taps by a random angle, so the gaps between taps become fine grain instead of ghost copies
+            float spin = fract(sin(dot(floor(here / unit), float2(12.9898, 78.233))) * 43758.5453) * 6.2832;
+            float3 acc = float3(src.rgb);
+            for (int k = 1; k <= 4; k++) {
+                float rr = bgBlurR * float(k) / 4.0;
+                for (int j = 0; j < 8; j++) {
+                    float a = float(j) * 0.7854 + spin + float(k) * 0.6;
+                    acc += px(coord + float2(cos(a), sin(a)) * rr);
+                }
+            }
+            src = half4(half3(mix(acc / 33.0, float3(src.rgb), m)), src.a);
+        }
     }
     float3 base = float3(src.rgb);
     if (heal > 0.5) base += ring(here, healR) - ring(coord, healR); // carry over the colour of the area around the spot
@@ -107,7 +127,9 @@ half4 main(float2 coord) {
     float n = fract(sin(dot(floor(here / unit * 0.5), float2(12.9898, 78.233))) * 43758.5453) - 0.5;
     c += n * grain * 0.3;
 
-    return half4(half3(clamp(c, 0.0, 1.0)), src.a);
+    if (bgMode > 1.5 && bgMode < 2.5) c = mix(bgCol, c, m);
+    float outA = bgMode > 2.5 ? m * src.a : src.a;
+    return half4(half3(clamp(c, 0.0, 1.0)) * outA, outA); // premultiplied
 }
 """
 
@@ -140,9 +162,22 @@ class EditShader {
     private val shader = RuntimeShader(AGSL)
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var bound: Bitmap? = null
+    private var boundMask: Bitmap? = null
+    private val dummyMask = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
 
     /** Draws [src] with [st] into the top-left [outW] x [outH] of [canvas], showing only [crop]. */
-    fun draw(canvas: Canvas, src: Bitmap, st: EditState, crop: Crop, outW: Int, outH: Int) {
+    fun draw(canvas: Canvas, src: Bitmap, st: EditState, crop: Crop, outW: Int, outH: Int, mask: Bitmap? = null) {
+        val cutout = mask != null && st.backdrop != Backdrop.KEEP
+        val maskBmp = mask ?: dummyMask
+        if (boundMask !== maskBmp || bound !== src) {
+            // the mask is stretched over the picture whatever its own size
+            val ms = BitmapShader(maskBmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
+                setFilterMode(BitmapShader.FILTER_MODE_LINEAR)
+                setLocalMatrix(Matrix().apply { setScale(src.width.toFloat() / maskBmp.width, src.height.toFloat() / maskBmp.height) })
+            }
+            shader.setInputShader("maskImg", ms)
+            boundMask = maskBmp
+        }
         if (bound !== src) {
             shader.setInputShader("image", BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply { setFilterMode(BitmapShader.FILTER_MODE_LINEAR) })
             bound = src
@@ -166,6 +201,9 @@ class EditShader {
         shader.setFloatUniform("fAmt", if (st.filter == 0) 0f else st.filterAmount)
         shader.setFloatUniform("fTint", f.tint)
         shader.setFloatUniform("fLift", f.lift)
+        shader.setFloatUniform("bgMode", if (!cutout) 0f else when (st.backdrop) { Backdrop.BLUR -> 1f; Backdrop.COLOR -> 2f; else -> 3f })
+        shader.setFloatUniform("bgBlurR", max(src.width, src.height) / 1500f * (10f + 40f * st.backdropBlur))
+        shader.setFloatUniform("bgCol", Color.red(st.backdropColor) / 255f, Color.green(st.backdropColor) / 255f, Color.blue(st.backdropColor) / 255f)
 
         setPass()
         pass(canvas, src, m, outW, outH, null)
@@ -285,16 +323,19 @@ private fun drawMarks(canvas: Canvas, marks: List<Mark>, crop: Crop, outW: Int, 
 }
 
 /** Renders [src] with [st] at full resolution (times [scale]), cropped, off screen on the GPU. */
-fun renderEdited(src: Bitmap, st: EditState, scale: Float = 1f): Bitmap {
+fun renderEdited(src: Bitmap, st: EditState, scale: Float = 1f, mask: Bitmap? = null): Bitmap {
     val (cw, ch) = frameSize(src.width, src.height, st.turns)
     val w = (st.crop.w * cw * scale).toInt().coerceAtLeast(1)
     val h = (st.crop.h * ch * scale).toInt().coerceAtLeast(1)
     val reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 1, HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE or HardwareBuffer.USAGE_GPU_COLOR_OUTPUT)
     val node = RenderNode("edit").apply { setPosition(0, 0, w, h) }
     val canvas = node.beginRecording()
-    EditShader().draw(canvas, src, st, st.crop, w, h)
+    EditShader().draw(canvas, src, st, st.crop, w, h, mask)
     node.endRecording()
-    val renderer = HardwareRenderer().apply { setSurface(reader.surface); setContentRoot(node) }
+    val renderer = HardwareRenderer().apply {
+        setSurface(reader.surface); setContentRoot(node)
+        if (mask != null && st.backdrop == Backdrop.TRANSPARENT) isOpaque = false // keep the see-through background
+    }
     renderer.createRenderRequest().syncAndDraw()
     // the GPU finishes asynchronously, so wait for the frame to arrive
     var image = reader.acquireNextImage()
