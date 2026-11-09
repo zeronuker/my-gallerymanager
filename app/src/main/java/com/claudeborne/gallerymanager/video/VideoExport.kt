@@ -38,6 +38,7 @@ import kotlin.coroutines.resume
 /** The picture effects for [edit], in the order they must run: turn and flip, centred crop, then shrink. Also used for the live preview. */
 @OptIn(UnstableApi::class)
 fun pictureEffects(edit: VideoEdit, info: VideoInfo): List<Effect> = buildList {
+    addAll(lookEffects(edit)) // colour first, so crop and shrink only touch the finished colours
     if (edit.turns % 4 != 0 || edit.flip) {
         add(ScaleAndRotateTransformation.Builder().setRotationDegrees(-90f * (edit.turns % 4)).setScale(if (edit.flip) -1f else 1f, 1f).build())
     }
@@ -52,6 +53,7 @@ fun pictureEffects(edit: VideoEdit, info: VideoInfo): List<Effect> = buildList {
     // shrink only: a picture already smaller than the chosen height is left alone
     if (edit.size.height > 0 && edit.size.height < edit.copy(size = VideoSize.ORIGINAL).outputHeight(info)) add(Presentation.createForHeight(edit.size.height))
     if (edit.speed != 1f) add(SpeedChangeEffect(edit.speed))
+    overlayEffect(edit, info)?.let { add(it) } // last, so it lines up with the finished picture
 }
 
 @OptIn(UnstableApi::class)

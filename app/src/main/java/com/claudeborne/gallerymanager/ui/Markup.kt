@@ -218,11 +218,11 @@ internal fun MarkupOverlay(
 internal fun MarkupPanel(
     tool: MarkTool, onTool: (MarkTool) -> Unit, color: Int, onColor: (Int) -> Unit, glyph: String, onGlyph: (String) -> Unit,
     size: Float, range: ClosedFloatingPointRange<Float>, onSize: (Float) -> Unit, onSizeDone: () -> Unit, canDelete: Boolean, onDelete: () -> Unit,
-    rot: Float?, onRot: (Float) -> Unit, onEditText: (() -> Unit)?,
+    rot: Float?, onRot: (Float) -> Unit, onEditText: (() -> Unit)?, tools: List<MarkTool> = MarkTool.entries,
 ) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
         LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
-            items(MarkTool.entries) { Chip(it.label, tool == it) { onTool(it) } }
+            items(tools) { Chip(it.label, tool == it) { onTool(it) } }
             if (onEditText != null) item { Chip("EDIT TEXT", color = DarkCb.mint, onClick = onEditText) }
             if (canDelete) item { Chip("DELETE", color = Danger, onClick = onDelete) }
         }

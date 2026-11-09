@@ -29,10 +29,18 @@ data class VideoEdit(
     val aspect: VideoAspect = VideoAspect.ORIGINAL,
     val size: VideoSize = VideoSize.ORIGINAL,
     val quality: VideoQuality = VideoQuality.HIGH,
+    val brightness: Float = 0f, // -1..1, 0 = unchanged
+    val contrast: Float = 0f,
+    val saturation: Float = 0f,
+    val warmth: Float = 0f,
+    val filter: Int = 0, // index into the photo Filters list
+    val filterAmount: Float = 1f,
+    val marks: List<com.claudeborne.gallerymanager.edit.Mark> = emptyList(), // text, stickers and pen strokes over the whole video
     val exactCut: Boolean = false, // cut at exactly the chosen frames (re-encodes) instead of the nearest key frame (instant, lossless)
 ) {
     /** True when the picture or sound has to be re-encoded. A plain trim, with or without the sound, is just copied. */
-    val needsEncode get() = exactCut || speed != 1f || (volume > 0f && volume != 1f) || turns != 0 || flip || aspect != VideoAspect.ORIGINAL || size != VideoSize.ORIGINAL || quality != VideoQuality.HIGH
+    val hasLook get() = brightness != 0f || contrast != 0f || saturation != 0f || warmth != 0f || filter != 0
+    val needsEncode get() = exactCut || hasLook || marks.isNotEmpty() || speed != 1f || (volume > 0f && volume != 1f) || turns != 0 || flip || aspect != VideoAspect.ORIGINAL || size != VideoSize.ORIGINAL || quality != VideoQuality.HIGH
 }
 
 /** Facts about a video, as it is shown (after its rotation flag is applied). */

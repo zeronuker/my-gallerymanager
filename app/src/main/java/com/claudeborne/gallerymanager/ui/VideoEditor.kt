@@ -61,6 +61,20 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.claudeborne.gallerymanager.R
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import com.claudeborne.gallerymanager.edit.Crop
+import com.claudeborne.gallerymanager.edit.Filters
+import com.claudeborne.gallerymanager.edit.Label
+import com.claudeborne.gallerymanager.edit.Pt
+import com.claudeborne.gallerymanager.edit.Sticker
+import com.claudeborne.gallerymanager.edit.drawMarks
+import com.claudeborne.gallerymanager.video.previewMatrix
 import com.claudeborne.gallerymanager.data.MediaItem
 import com.claudeborne.gallerymanager.data.Settings
 import com.claudeborne.gallerymanager.edit.insertImage
@@ -118,6 +132,14 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit) {
     var progress by remember { mutableFloatStateOf(0f) }
     var job by remember { mutableStateOf<Job?>(null) }
     var askDiscard by remember { mutableStateOf(false) }
+    var lookWhich by remember { mutableIntStateOf(0) } // LOOK slider shown: 0 brightness, 1 contrast, 2 saturation, 3 warmth, 4 filter strength
+    var mtool by remember { mutableStateOf(MarkTool.PEN) }
+    var mcolor by remember { mutableIntStateOf(MarkPalette[0]) }
+    val msizes = remember { mutableStateMapOf(MarkTool.PEN to 0.006f, MarkTool.MARKER to 0.03f, MarkTool.TEXT to 0.07f, MarkTool.STICKER to 0.14f) }
+    var glyph by remember { mutableStateOf("😀") }
+    var selected by remember { mutableIntStateOf(-1) }
+    var textAt by remember { mutableStateOf<Pt?>(null) }
+    var editText by remember { mutableStateOf(false) }
 
     val player = remember {
         ExoPlayer.Builder(context).build().apply {
@@ -150,6 +172,7 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit) {
     }
 
     val changed = edit != VideoEdit()
+    val selMark = edit.marks.getOrNull(selected)?.takeIf { it.sizeOrNull() != null }
     fun close() { if (saving) return; if (changed) askDiscard = true else onClose() }
     BackHandler { close() }
 
@@ -208,6 +231,7 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit) {
                     Pair(w0 * s, h0 * s)
                 }
                 val density = androidx.compose.ui.platform.LocalDensity.current
+                val look = edit.previewMatrix()
                 if (shown != null) {
                     Box(
                         Modifier.align(Alignment.Center).size(with(density) { shown.first.toDp() }, with(density) { shown.second.toDp() })
@@ -216,6 +240,12 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit) {
                         AndroidView(
                             { ctx -> (LayoutInflater.from(ctx).inflate(R.layout.player_texture, null) as PlayerView).also { it.player = player } },
                             Modifier.fillMaxSize(),
+                            // the colour look is shown by giving the video's own surface a colour filter
+                            update = { pv ->
+                                (pv.videoSurfaceView as? android.view.TextureView)?.setLayerPaint(
+                                    look?.let { android.graphics.Paint().apply { colorFilter = android.graphics.ColorMatrixColorFilter(it) } },
+                                )
+                            },
                         )
                     }
                     // dim what a crop will cut away
@@ -234,6 +264,32 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit) {
                             drawRect(dim, Offset(cl, t), Size(l - cl, kh))
                             drawRect(dim, Offset(l + kw, t), Size(cl + cw - (l + kw), kh))
                             drawRect(DarkCb.mint, Offset(l, t), Size(kw, kh), style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx()))
+                        }
+                    }
+                }
+                if (shown != null) {
+                    // the finished picture's frame: text, stickers and pen strokes are placed on it
+                    val cw = if (turned) shown.second else shown.first
+                    val ch = if (turned) shown.first else shown.second
+                    val r = edit.aspect.ratio
+                    val fw = if (r > 0f) (if (cw / ch > r) ch * r else cw) else cw
+                    val fh = if (r > 0f) fw / r else ch
+                    Box(Modifier.align(Alignment.Center).size(with(density) { fw.toDp() }, with(density) { fh.toDp() })) {
+                        Canvas(Modifier.fillMaxSize()) {
+                            drawIntoCanvas { drawMarks(it.nativeCanvas, edit.marks, Crop(), size.width.roundToInt(), size.height.roundToInt()) }
+                        }
+                        if (tool == 6) {
+                            MarkupOverlay(
+                                mtool, Crop(), edit.marks, mcolor, msizes[mtool] ?: 0.05f, glyph, selected,
+                                onLive = { edit = edit.copy(marks = it) }, onDone = {}, onSelect = { selected = it },
+                                onText = { textAt = it },
+                                onSticker = { p ->
+                                    val index = edit.marks.size
+                                    edit = edit.copy(marks = edit.marks + Sticker(glyph, p.u, p.v, msizes.getValue(MarkTool.STICKER)))
+                                    selected = index
+                                },
+                                modifier = Modifier.fillMaxSize(),
+                            )
                         }
                     }
                 }
@@ -256,15 +312,15 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit) {
                         onSeek = { t -> player.seekTo(t) },
                         Modifier.fillMaxWidth().padding(horizontal = 32.dp).height(56.dp), // margin keeps the end handles clear of Android's Back-swipe zone
                     )
-                    Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                        listOf("TRIM", "SPEED", "AUDIO", "ROTATE", "CROP", "COMPRESS").forEachIndexed { n, label ->
-                            Column(Modifier.weight(1f).clickable { tool = n }, horizontalAlignment = Alignment.CenterHorizontally) {
-                                Box(Modifier.fillMaxWidth().height(2.dp).background(if (tool == n) DarkCb.mint else Color.Transparent))
+                    Row(Modifier.fillMaxWidth().padding(top = 4.dp).horizontalScroll(rememberScrollState())) {
+                        listOf("TRIM", "SPEED", "AUDIO", "ROTATE", "CROP", "LOOK", "MARKUP", "COMPRESS").forEachIndexed { n, label ->
+                            Column(Modifier.clickable { tool = n; selected = -1 }.padding(horizontal = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Box(Modifier.width(48.dp).height(2.dp).background(if (tool == n) DarkCb.mint else Color.Transparent))
                                 Text(label, Modifier.padding(vertical = 10.dp), style = monoStyle(if (tool == n) DarkCb.mint else DarkCb.inkDim, 0.8.sp).copy(fontSize = 10.sp))
                             }
                         }
                     }
-                    Box(Modifier.fillMaxWidth().height(130.dp)) {
+                    Box(Modifier.fillMaxWidth().height(when (tool) { 5 -> 200.dp; 6 -> if (selMark != null) 240.dp else 200.dp; else -> 130.dp })) {
                         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
                             when (tool) {
                                 0 -> {
@@ -303,6 +359,55 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit) {
                                     }
                                     Hint("CUTS THE VIDEO DOWN TO THIS SHAPE, FROM THE MIDDLE.")
                                 }
+                                5 -> {
+                                    LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
+                                        listOf("BRIGHTNESS", "CONTRAST", "SATURATION", "WARMTH").forEachIndexed { n, label -> item { Chip(label, lookWhich == n) { lookWhich = n } } }
+                                        if (edit.filter != 0) item { Chip("STRENGTH", lookWhich == 4) { lookWhich = 4 } }
+                                        item {
+                                            Chip("RESET", color = DarkCb.inkDim) {
+                                                edit = edit.copy(brightness = 0f, contrast = 0f, saturation = 0f, warmth = 0f, filter = 0, filterAmount = 1f)
+                                                lookWhich = 0
+                                            }
+                                        }
+                                    }
+                                    LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
+                                        itemsIndexed(Filters) { n, f -> Chip(f.name, edit.filter == n) { edit = edit.copy(filter = n); if (n == 0 && lookWhich == 4) lookWhich = 0 } }
+                                    }
+                                    val strength = lookWhich == 4 && edit.filter != 0
+                                    val which = if (strength) 4 else lookWhich.coerceAtMost(3)
+                                    val value = when (which) { 0 -> edit.brightness; 1 -> edit.contrast; 2 -> edit.saturation; 3 -> edit.warmth; else -> edit.filterAmount }
+                                    val reset = if (which == 4) 1f else 0f
+                                    val set = { v: Float ->
+                                        edit = when (which) {
+                                            0 -> edit.copy(brightness = v); 1 -> edit.copy(contrast = v); 2 -> edit.copy(saturation = v); 3 -> edit.copy(warmth = v)
+                                            else -> edit.copy(filterAmount = v)
+                                        }
+                                    }
+                                    EditSlider(
+                                        listOf("BRIGHTNESS", "CONTRAST", "SATURATION", "WARMTH", "STRENGTH")[which], value, if (which == 4) 0f..1f else -1f..1f,
+                                        if (which == 4) "${(value * 100).roundToInt()}" else "%+d".format((value * 100).roundToInt()), set, {},
+                                    ) { set(reset) }
+                                }
+                                6 -> MarkupPanel(
+                                    mtool, onTool = { mtool = it; selected = -1 }, mcolor,
+                                    onColor = { c ->
+                                        mcolor = c
+                                        (selMark as? Label)?.let { l -> edit = edit.copy(marks = edit.marks.mapIndexed { n, m -> if (n == selected) l.copy(color = c) else m }) }
+                                    },
+                                    glyph, onGlyph = { glyph = it },
+                                    size = selMark?.sizeOrNull() ?: msizes[mtool] ?: 0.05f,
+                                    range = selMark?.let { sizeRange(if (it is Label) MarkTool.TEXT else MarkTool.STICKER) } ?: sizeRange(mtool),
+                                    onSize = { v ->
+                                        if (selMark != null) edit = edit.copy(marks = edit.marks.mapIndexed { n, m -> if (n == selected) m.withSize(v) else m }) else msizes[mtool] = v
+                                    },
+                                    onSizeDone = {},
+                                    canDelete = selMark != null,
+                                    onDelete = { edit = edit.copy(marks = edit.marks.filterIndexed { n, _ -> n != selected }); selected = -1 },
+                                    rot = selMark?.rotOrNull(),
+                                    onRot = { v -> edit = edit.copy(marks = edit.marks.mapIndexed { n, m -> if (n == selected) m.withRot(v) else m }) },
+                                    onEditText = if (selMark is Label) ({ editText = true }) else null,
+                                    tools = listOf(MarkTool.PEN, MarkTool.MARKER, MarkTool.ERASER, MarkTool.TEXT, MarkTool.STICKER),
+                                )
                                 else -> {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
                                         items(VideoSize.entries) { s -> Chip(s.label, edit.size == s) { edit = edit.copy(size = s) } }
@@ -320,6 +425,25 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit) {
             }
         }
 
+        textAt?.let { p ->
+            AddTextDialog(
+                initial = "",
+                onAdd = { words ->
+                    val index = edit.marks.size
+                    edit = edit.copy(marks = edit.marks + Label(words, p.u, p.v, msizes.getValue(MarkTool.TEXT), mcolor))
+                    selected = index
+                    textAt = null
+                },
+                onCancel = { textAt = null },
+            )
+        }
+        if (editText && selMark is Label) {
+            AddTextDialog(
+                initial = selMark.text,
+                onAdd = { words -> edit = edit.copy(marks = edit.marks.mapIndexed { n, m -> if (n == selected && m is Label) m.copy(text = words) else m }); editText = false },
+                onCancel = { editText = false },
+            )
+        }
         if (askDiscard) {
             CbDialog("DISCARD EDITS?", { askDiscard = false }) {
                 Text("Your changes will be lost.", style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = DarkCb.ink2))

@@ -394,7 +394,7 @@ class EditShader {
 }
 
 /** Draws pens, text and stickers. Marks live in frame fractions; [crop] says which part of the frame the output shows. */
-private fun drawMarks(canvas: Canvas, marks: List<Mark>, crop: Crop, outW: Int, outH: Int) {
+internal fun drawMarks(canvas: Canvas, marks: List<Mark>, crop: Crop, outW: Int, outH: Int) {
     val sx = outW / crop.w // output pixels per frame width
     val sy = outH / crop.h
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
