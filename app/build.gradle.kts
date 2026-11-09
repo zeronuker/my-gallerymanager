@@ -16,8 +16,8 @@ android {
         applicationId = "com.claudeborne.gallerymanager"
         minSdk = 33
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     signingConfigs {
@@ -38,6 +38,9 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
             // ponytail: no keystore (local builds) falls back to the debug key so the APK still installs
             signingConfig = signingConfigs.getByName(if (keystore != null) "release" else "debug")
+            // phones are arm64; the AI libraries ship native code per CPU type, so dropping the rest roughly halves the APK.
+            // ponytail: pass -Pemulator to also keep x86_64 so a release build can be tried on the emulator
+            ndk { abiFilters += if (project.hasProperty("emulator")) listOf("arm64-v8a", "x86_64") else listOf("arm64-v8a") }
         }
     }
 

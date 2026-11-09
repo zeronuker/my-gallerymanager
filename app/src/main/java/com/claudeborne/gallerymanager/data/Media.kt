@@ -90,7 +90,10 @@ suspend fun readExif(context: Context, item: MediaItem): List<Pair<String, Strin
     stream.use {
         val e = ExifInterface(it)
         buildList {
-            val camera = listOfNotNull(e.getAttribute(ExifInterface.TAG_MAKE), e.getAttribute(ExifInterface.TAG_MODEL)).joinToString(" ")
+            val make = e.getAttribute(ExifInterface.TAG_MAKE).orEmpty().trim()
+            val model = e.getAttribute(ExifInterface.TAG_MODEL).orEmpty().trim()
+            // many cameras put their brand in the model too ("Canon" + "Canon EOS 600D"); show it once
+            val camera = if (model.startsWith(make, ignoreCase = true)) model.ifEmpty { make } else "$make $model".trim()
             if (camera.isNotEmpty()) add("CAMERA" to camera)
             val lens = listOfNotNull(
                 e.getAttributeDouble(ExifInterface.TAG_F_NUMBER, 0.0).takeIf { it > 0 }?.let { "f/%.1f".format(it) },
