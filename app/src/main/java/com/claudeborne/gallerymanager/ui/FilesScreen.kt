@@ -327,6 +327,11 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
                     })
                     add(BarItem("COPY", cb.mint) { pickTarget(false, chosen.map { it.file }) })
                     add(BarItem("MOVE", cb.mint) { pickTarget(true, chosen.map { it.file }) })
+                    // straight to the Send page; the selection stays ticked until something was sent, so backing out loses nothing
+                    add(BarItem("TRANSFER", cb.mint) {
+                        val files = chosen.map { it.file }
+                        scope.launch { transfer = withContext(Dispatchers.IO) { expandForSend(files) } }
+                    })
                     add(BarItem("SAFE", cb.mint) { vault = chosen.map { it.file }; selected = emptySet() })
                     add(BarItem("ZIP", cb.mint) { dialog = FileDialog.Zip(chosen.map { it.file }) })
                     if (chosen.size == 1) {
@@ -351,7 +356,7 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
                 val label = roots.firstOrNull { it.second.path == start }?.first ?: File(start).name
                 StorageMapScreen(File(start), label, backEnabled, onClose = { mapRoot = null }, onBrowse = { go(it); mapRoot = null }, onOpen = ::open, onChanged = { refresh++; onChanged() })
             }
-            3 -> lastTransfer?.let { files -> androidx.compose.runtime.key(files) { TransferScreen(files, backEnabled, onClose = { transfer = null }, onPick = ::pickToSend) } } // a new list starts the screen afresh, on the send page
+            3 -> lastTransfer?.let { files -> androidx.compose.runtime.key(files) { TransferScreen(files, backEnabled, onClose = { finished -> transfer = null; if (finished) selected = emptySet() }, onPick = ::pickToSend) } } // a new list starts the screen afresh, on the send page
             4 -> lastDual?.let { DualPaneScreen(it, roots, backEnabled, onClose = { dualPath = null }, onChanged = { refresh++; onChanged() }, onOpen = ::open) }
             5 -> lastVault?.let { VaultScreen(it, backEnabled, onClose = { vault = null }, onChanged = { refresh++; onChanged() }) }
             6 -> DuplicatesScreen(roots.map { it.second }, backEnabled, onClose = { inDupes = false }, onOpen = ::open, onChanged = { refresh++; onChanged() })

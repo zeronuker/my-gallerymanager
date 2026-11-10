@@ -83,7 +83,7 @@ private enum class Mode { HOME, RECEIVE, COMPUTER, PHONE }
  * A computer needs only a browser; another phone needs this app.
  */
 @Composable
-internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolean, onClose: () -> Unit, onPick: () -> Unit) {
+internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolean, onClose: (finished: Boolean) -> Unit, onPick: () -> Unit) {
     val cb = LocalCb.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -152,7 +152,7 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
     val moving = sending || rows.any { !it.finished && it.error == null } // a transfer is under way, so leaving needs a confirm
 
     // back goes one step up: a computer send goes back to the phone list; with files selected the send page is the first page, so back leaves
-    fun back() { if (mode == Mode.COMPUTER) mode = Mode.PHONE else if (mode != Mode.HOME && files.isEmpty()) mode = Mode.HOME else onClose() }
+    fun back() { if (mode == Mode.COMPUTER) mode = Mode.PHONE else if (mode != Mode.HOME && files.isEmpty()) mode = Mode.HOME else onClose(false) }
     fun requestBack() { if (moving) confirmStop = true else back() }
     BackHandler(enabled = backEnabled) { requestBack() }
 
@@ -281,8 +281,8 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
     // how a transfer ended, on each phone, until the user taps OK; OK then goes back to Files, where Transfer starts the next one
     // (a send that never reached the other phone stays here, so it can be tried again)
     val received = remember(tick) { LocalSend.result }
-    received?.let { o -> ResultDialog(o.text, o.ok) { LocalSend.clearResult(); onClose() } }
-    sendResult?.let { r -> ResultDialog(r.message, r.ok) { sendResult = null; if (r.reached) onClose() } }
+    received?.let { o -> ResultDialog(o.text, o.ok) { LocalSend.clearResult(); onClose(true) } }
+    sendResult?.let { r -> ResultDialog(r.message, r.ok) { sendResult = null; if (r.reached) onClose(true) } }
     if (confirmStop) {
         CbDialog("STOP?", { confirmStop = false }) {
             Text("This cancels the transfer that is running.", style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2))
