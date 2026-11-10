@@ -124,6 +124,8 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
     var inBin by rememberSaveable { mutableStateOf(false) }
     var mapRoot by rememberSaveable { mutableStateOf<String?>(null) } // set while the storage map of that folder is open
     var inDupes by rememberSaveable { mutableStateOf(false) }
+    var dualPath by rememberSaveable { mutableStateOf<String?>(null) } // the dual-pane screen is open while this is set; both panes start in this folder (saved, so turning the phone keeps it open)
+    val dual = dualPath?.let(::File)
     var vault by remember { mutableStateOf<List<File>?>(null) } // the safe folder is open while this is set; the files in it are waiting to be moved in
     var transfer by remember { mutableStateOf<List<Pair<File, String>>?>(null) } // the files to send while the Transfer screen is open (empty: receive only)
     var sort by rememberSaveable { mutableStateOf(SortBy.NAME) }
@@ -171,7 +173,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
 
     val chosen = entries.filter { it.file.path in selected }
     val selecting = chosen.isNotEmpty()
-    BackHandler(enabled = backEnabled && !inBin && mapRoot == null && !inDupes && transfer == null && vault == null && (selecting || searching || cat != null || dir != null)) {
+    BackHandler(enabled = backEnabled && !inBin && mapRoot == null && !inDupes && transfer == null && vault == null && dual == null && (selecting || searching || cat != null || dir != null)) {
         when {
             selecting -> selected = emptySet()
             searching -> { searching = false; query = "" }
@@ -211,6 +213,10 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
         TransferScreen(files, backEnabled, onClose = { transfer = null })
         return
     }
+    dual?.let { start ->
+        DualPaneScreen(start, roots, backEnabled, onClose = { dualPath = null }, onChanged = { refresh++; onChanged() }, onOpen = ::open)
+        return
+    }
     vault?.let { files ->
         VaultScreen(files, backEnabled, onClose = { vault = null }, onChanged = { refresh++; onChanged() })
         return
@@ -245,6 +251,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                 if (dir != null) ActionText("+ FOLDER", cb.mint) { dialog = FileDialog.NewFolder }
                 if (dir != null) ActionText("MAP", cb.mint) { mapRoot = dir.path }
+                if (dir != null) ActionText("SPLIT", cb.mint) { dualPath = dir.path }
                 ActionText("SEARCH", if (searching) cb.mint else cb.inkDim) { searching = !searching; if (!searching) query = "" }
                 if (dir != null) {
                     SortBy.entries.forEach { s ->
@@ -262,7 +269,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (onHome && !showResults) {
-                HomeList(roots, binCount, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true }, onMap = { mapRoot = roots.first().second.path }, onDupes = { inDupes = true }, onTransfer = { transfer = emptyList() }, onVault = { vault = emptyList() })
+                HomeList(roots, binCount, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true }, onMap = { mapRoot = roots.first().second.path }, onDupes = { inDupes = true }, onTransfer = { transfer = emptyList() }, onVault = { vault = emptyList() }, onDual = { dualPath = roots.first().second.path })
             } else {
                 FileList(
                     entries, grid && cat == null && !showResults, selected, showPath = showResults || cat != null,
@@ -390,7 +397,7 @@ private fun PermissionGate(context: Context) {
 
 /** The home screen: shortcut categories, the bin, then the storage volumes. */
 @Composable
-private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (File) -> Unit, onCategory: (Category) -> Unit, onBin: () -> Unit, onMap: () -> Unit, onDupes: () -> Unit, onTransfer: () -> Unit, onVault: () -> Unit) {
+private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (File) -> Unit, onCategory: (Category) -> Unit, onBin: () -> Unit, onMap: () -> Unit, onDupes: () -> Unit, onTransfer: () -> Unit, onVault: () -> Unit, onDual: () -> Unit) {
     val context = LocalContext.current
     LazyColumn(Modifier.fillMaxSize()) {
         item { SectionLabel("SHORTCUTS") }
@@ -401,6 +408,7 @@ private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (
         item { HomeRow("LARGE FILES", "${Formatter.formatShortFileSize(context, LARGE_FILE_BYTES).uppercase()} AND ABOVE") { onCategory(Category.LARGE) } }
         item { HomeRow("STORAGE MAP", "SEE WHAT USES THE SPACE", onClick = onMap) }
         item { HomeRow("DUPLICATES", "THE SAME FILE IN SEVERAL PLACES", onClick = onDupes) }
+        item { HomeRow("DUAL PANE", "TWO FOLDERS AT ONCE, COPY AND MOVE BETWEEN THEM", onClick = onDual) }
         item { HomeRow("SAFE FOLDER", "ENCRYPTED, OPENS WITH YOUR FINGERPRINT OR PIN", onClick = onVault) }
         item { HomeRow("TRANSFER", "SEND OR RECEIVE FILES OVER WI-FI", onClick = onTransfer) }
         item { HomeRow("BIN", "$binCount ITEMS · KEPT $BIN_DAYS DAYS", onClick = onBin) }
@@ -441,7 +449,7 @@ private fun SearchRow(query: String, onQuery: (String) -> Unit, showScope: Boole
 
 /** Path from the storage root to [dir]; each part is tappable. */
 @Composable
-private fun Crumbs(root: File, rootLabel: String, dir: File, onGo: (File) -> Unit) {
+internal fun Crumbs(root: File, rootLabel: String, dir: File, onGo: (File) -> Unit) {
     val cb = LocalCb.current
     val parts = generateSequence(dir) { if (it.path == root.path) null else it.parentFile }.toList().reversed()
     val scroll = rememberScrollState(Int.MAX_VALUE) // starts scrolled to the current folder
