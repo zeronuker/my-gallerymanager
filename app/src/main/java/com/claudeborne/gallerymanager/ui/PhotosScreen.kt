@@ -88,6 +88,8 @@ fun PhotosScreen(
     onJoin: (List<MediaItem>) -> Unit,
     gridState: LazyGridState = rememberLazyGridState(),
     onBack: (() -> Unit)? = null,
+    empty: String = "NO PHOTOS OR VIDEOS",
+    belowHeader: @Composable () -> Unit = {}, // the Gallery sub-tabs, which sit between the header and the grid
     onOpen: (MediaItem) -> Unit,
 ) {
     val cb = LocalCb.current
@@ -106,11 +108,12 @@ fun PhotosScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader(title, if (selecting) "${chosen.size} SELECTED" else "${items.size} ITEMS", onBack, backLabel = "ALBUMS")
+        ScreenHeader(title, if (selecting) "${chosen.size} SELECTED" else "${items.size} ITEMS", onBack, backLabel = "ALBUMS", shortcuts = true)
+        belowHeader()
 
         if (items.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("NO PHOTOS OR VIDEOS", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
+                Text(empty, style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
             }
             return@Column
         }

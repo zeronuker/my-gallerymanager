@@ -35,6 +35,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -107,7 +108,7 @@ private sealed interface FileDialog {
 
 /** The Files tab: a home screen (categories, bin, storage), folder browsing, search, and the file actions. */
 @Composable
-fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () -> Unit, onOpenMedia: (MediaItem) -> Unit) {
+fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () -> Unit, onDeep: (Boolean) -> Unit, onOpenMedia: (MediaItem) -> Unit) {
     val cb = LocalCb.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -151,6 +152,9 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
     val cat = category
     val term = query.trim()
     val showResults = searching && term.isNotEmpty()
+    // the tools (map, dual pane, bin...) are screens of their own, so swiping sideways must not carry the user off to the Gallery
+    val deep = inBin || mapRoot != null || inDupes || dual != null || vault != null || transfer != null
+    SideEffect { onDeep(deep) }
 
     LaunchedEffect(refresh, inBin) {
         withContext(Dispatchers.IO) { purgeExpiredBin(context); binCount = listBin(context).size }
@@ -250,7 +254,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
     }
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("FILES", count, onBack, backLabel.uppercase())
+        ScreenHeader("FILES", count, onBack, backLabel.uppercase(), shortcuts = true)
 
         if (dir != null && root != null && !searching) Crumbs(root, rootLabel, dir) { go(it) }
         if (cat == null) {

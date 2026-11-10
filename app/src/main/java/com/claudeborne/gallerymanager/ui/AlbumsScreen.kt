@@ -38,7 +38,7 @@ import com.claudeborne.gallerymanager.data.MediaItem
 private class Album(val id: Long, val name: String, val cover: MediaItem?, val count: Int)
 
 @Composable
-fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, onOpen: (Long) -> Unit) {
+fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, belowHeader: @Composable () -> Unit = {}, onOpen: (Long) -> Unit) {
     // items arrive newest first, so the first of each bucket is its cover and albums sort by recent activity;
     // Favorites is a virtual album that always comes first
     val albums = remember(items, favorites) {
@@ -48,7 +48,8 @@ fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, onOpen: (Long) ->
     }
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("ALBUMS", "${albums.size - 1} ALBUMS") // Favorites is not counted
+        ScreenHeader("ALBUMS", "${albums.size - 1} ALBUMS", shortcuts = true) // Favorites is not counted
+        belowHeader()
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxSize(),

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -24,6 +25,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -60,17 +63,30 @@ private fun BrandBanner() {
     }
 }
 
-/** Brand banner on the left; screen title with its count underneath on the right. An [onBack] adds a back link on the left, under the banner. */
+/** What the trash and settings icons in a main screen's header open; provided by the main shell. */
+class Shortcuts(val onTrash: () -> Unit, val onSettings: () -> Unit)
+
+val LocalShortcuts = compositionLocalOf<Shortcuts?> { null }
+
+/**
+ * Brand banner on the left; screen title with its count underneath on the right. An [onBack] adds a back link on the left, under the banner.
+ * With [shortcuts], the trash and settings icons sit above the title.
+ */
 @Composable
-fun ScreenHeader(title: String, count: String, onBack: (() -> Unit)? = null, backLabel: String = "") {
+fun ScreenHeader(title: String, count: String, onBack: (() -> Unit)? = null, backLabel: String = "", shortcuts: Boolean = false) {
     val cb = LocalCb.current
+    val icons = if (shortcuts) LocalShortcuts.current else null
     Column {
-        Row(Modifier.fillMaxWidth().padding(end = 16.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(end = 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             BrandBanner()
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+            Column(Modifier.weight(1f).padding(end = 8.dp), horizontalAlignment = Alignment.End) {
+                if (icons != null) Row {
+                    HeaderIcon(Icon.TRASH, "Trash", icons.onTrash)
+                    HeaderIcon(Icon.SETTINGS, "Settings", icons.onSettings)
+                }
                 Text(
                     title, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    style = TextStyle(fontFamily = Tourney, fontWeight = FontWeight.Bold, fontSize = 28.sp, brush = cb.grad),
+                    style = TextStyle(fontFamily = Tourney, fontWeight = FontWeight.Bold, fontSize = if (icons != null) 22.sp else 28.sp, brush = cb.grad),
                 )
                 Text(count, style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 1.sp, color = cb.inkDim))
             }
@@ -81,5 +97,13 @@ fun ScreenHeader(title: String, count: String, onBack: (() -> Unit)? = null, bac
                 style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.6.sp, color = cb.mint),
             )
         }
+    }
+}
+
+/** A 36dp icon button for the header's top-right corner. */
+@Composable
+private fun HeaderIcon(icon: Icon, description: String, onClick: () -> Unit) {
+    Box(Modifier.size(36.dp).semantics { contentDescription = description }.clickable(onClick = onClick), Alignment.Center) {
+        CbIcon(icon, LocalCb.current.inkDim, size = 22.dp)
     }
 }

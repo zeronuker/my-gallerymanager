@@ -41,7 +41,7 @@ private const val DAY_MS = 86_400_000L
 
 /** Items in the system trash: tap to select, then restore them or delete them for good. Android asks to confirm both. */
 @Composable
-fun TrashScreen(items: List<MediaItem>, onChanged: () -> Unit) {
+fun TrashScreen(items: List<MediaItem>, onChanged: () -> Unit, onBack: () -> Unit) {
     val cb = LocalCb.current
     val context = LocalContext.current
     var selected by remember { mutableStateOf(emptySet<Long>()) }
@@ -55,7 +55,7 @@ fun TrashScreen(items: List<MediaItem>, onChanged: () -> Unit) {
     fun plainUris() = chosen.map { it.uri.buildUpon().clearQuery().build() }
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("TRASH", if (chosen.isEmpty()) "${items.size} ITEMS" else "${chosen.size} SELECTED")
+        ScreenHeader("TRASH", if (chosen.isEmpty()) "${items.size} ITEMS" else "${chosen.size} SELECTED", onBack, "BACK")
 
         if (items.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

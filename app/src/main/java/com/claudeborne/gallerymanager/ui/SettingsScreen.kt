@@ -49,7 +49,7 @@ private fun folderSize(f: File): Long = if (f.isFile) f.length() else f.listFile
 
 /** App settings. Every change is applied and saved immediately. */
 @Composable
-fun SettingsScreen(favorites: Favorites) {
+fun SettingsScreen(favorites: Favorites, onBack: () -> Unit) {
     val cb = LocalCb.current
     val context = LocalContext.current
     val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty() }
@@ -58,7 +58,7 @@ fun SettingsScreen(favorites: Favorites) {
     var showLicences by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("SETTINGS", "v$version")
+        ScreenHeader("SETTINGS", "v$version", onBack, "BACK")
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Section("LOOK") {
                 Choice("THEME", listOf("PHONE", "DARK", "LIGHT"), Settings.theme) { Settings.update { theme = it } }
