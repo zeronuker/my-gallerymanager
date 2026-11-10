@@ -120,6 +120,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
     var path by rememberSaveable { mutableStateOf<String?>(null) } // null: the home screen, or a category view
     var category by rememberSaveable { mutableStateOf<Category?>(null) }
     var inBin by rememberSaveable { mutableStateOf(false) }
+    var mapRoot by rememberSaveable { mutableStateOf<String?>(null) } // set while the storage map of that folder is open
     var sort by rememberSaveable { mutableStateOf(SortBy.NAME) }
     var ascending by rememberSaveable { mutableStateOf(true) }
     var hidden by rememberSaveable { mutableStateOf(false) }
@@ -165,7 +166,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
 
     val chosen = entries.filter { it.file.path in selected }
     val selecting = chosen.isNotEmpty()
-    BackHandler(enabled = backEnabled && !inBin && (selecting || searching || cat != null || dir != null)) {
+    BackHandler(enabled = backEnabled && !inBin && mapRoot == null && (selecting || searching || cat != null || dir != null)) {
         when {
             selecting -> selected = emptySet()
             searching -> { searching = false; query = "" }
@@ -179,16 +180,28 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
         return
     }
 
-    // a media file opens in our viewer when the library knows it, a zip offers to extract, anything else goes to another app
+    // a media file opens in our viewer when the library knows it, anything else goes to another app
     val byPath = remember(library) { library.associateBy { it.path + it.name } }
     fun open(file: File) {
-        if (file.extension.equals("zip", ignoreCase = true)) { dialog = FileDialog.Unzip(file); return }
         val key = rootOf(file)?.let { file.relativeTo(it).path.replace('\\', '/') }
         val media = key?.let { byPath[it] }
         if (media != null) onOpenMedia(media) else openWithApp(context, file)
     }
-    fun tap(e: Entry) { if (selecting) selected = toggle(selected, e.file.path) else if (e.isDir) go(e.file) else open(e.file) }
+    fun tap(e: Entry) {
+        when {
+            selecting -> selected = toggle(selected, e.file.path)
+            e.isDir -> go(e.file)
+            e.file.extension.equals("zip", ignoreCase = true) -> dialog = FileDialog.Unzip(e.file) // a zip offers to extract
+            else -> open(e.file)
+        }
+    }
     fun longPress(e: Entry) { selected = toggle(selected, e.file.path) }
+
+    mapRoot?.let { start ->
+        val label = roots.firstOrNull { it.second.path == start }?.first ?: File(start).name
+        StorageMapScreen(File(start), label, backEnabled, onClose = { mapRoot = null }, onBrowse = { go(it); mapRoot = null }, onOpen = ::open, onChanged = { refresh++; onChanged() })
+        return
+    }
 
     val onHome = dir == null && cat == null
     val rootLabel = roots.firstOrNull { it.second.path == root?.path }?.first.orEmpty()
@@ -214,6 +227,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
         if (cat == null) {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                 if (dir != null) ActionText("+ FOLDER", cb.mint) { dialog = FileDialog.NewFolder }
+                if (dir != null) ActionText("MAP", cb.mint) { mapRoot = dir.path }
                 ActionText("SEARCH", if (searching) cb.mint else cb.inkDim) { searching = !searching; if (!searching) query = "" }
                 if (dir != null) {
                     SortBy.entries.forEach { s ->
@@ -231,7 +245,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (onHome && !showResults) {
-                HomeList(roots, binCount, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true })
+                HomeList(roots, binCount, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true }, onMap = { mapRoot = roots.first().second.path })
             } else {
                 FileList(
                     entries, grid && cat == null && !showResults, selected, showPath = showResults || cat != null,
@@ -354,7 +368,7 @@ private fun PermissionGate(context: Context) {
 
 /** The home screen: shortcut categories, the bin, then the storage volumes. */
 @Composable
-private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (File) -> Unit, onCategory: (Category) -> Unit, onBin: () -> Unit) {
+private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (File) -> Unit, onCategory: (Category) -> Unit, onBin: () -> Unit, onMap: () -> Unit) {
     val context = LocalContext.current
     LazyColumn(Modifier.fillMaxSize()) {
         item { SectionLabel("SHORTCUTS") }
@@ -363,6 +377,7 @@ private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (
         item { HomeRow("DOCUMENTS", "PDF, OFFICE AND TEXT FILES") { onCategory(Category.DOCUMENTS) } }
         item { HomeRow("APKS", "APP INSTALLERS") { onCategory(Category.APKS) } }
         item { HomeRow("LARGE FILES", "${Formatter.formatShortFileSize(context, LARGE_FILE_BYTES).uppercase()} AND ABOVE") { onCategory(Category.LARGE) } }
+        item { HomeRow("STORAGE MAP", "SEE WHAT USES THE SPACE", onClick = onMap) }
         item { HomeRow("BIN", "$binCount ITEMS · KEPT $BIN_DAYS DAYS", onClick = onBin) }
         item { SectionLabel("STORAGE") }
         items(roots, key = { it.second.path }) { (label, folder) ->
@@ -553,7 +568,7 @@ private fun openWithApp(context: Context, file: File) {
     try { context.startActivity(view) } catch (_: ActivityNotFoundException) { Toast.makeText(context, "No app can open this", Toast.LENGTH_SHORT).show() }
 }
 
-private fun shareFiles(context: Context, files: List<File>) {
+internal fun shareFiles(context: Context, files: List<File>) {
     val uris = ArrayList(files.map { fileUri(context, it) })
     val send = if (uris.size == 1) Intent(Intent.ACTION_SEND).putExtra(Intent.EXTRA_STREAM, uris[0]).setType(files[0].mime().ifEmpty { "*/*" })
     else Intent(Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris).setType("*/*")
