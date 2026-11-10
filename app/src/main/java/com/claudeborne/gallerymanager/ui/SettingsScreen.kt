@@ -2,6 +2,7 @@ package com.claudeborne.gallerymanager.ui
 
 import android.text.format.Formatter
 import android.widget.Toast
+import android.os.Environment
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateDpAsState
@@ -53,7 +54,7 @@ private fun folderSize(f: File): Long = if (f.isFile) f.length() else f.listFile
 
 /** App settings. Every change is applied and saved immediately. */
 @Composable
-fun SettingsScreen(favorites: Favorites, onBack: () -> Unit) {
+internal fun SettingsScreen(favorites: Favorites, onBack: () -> Unit, openPicker: (PickerRequest) -> Unit) {
     val cb = LocalCb.current
     val context = LocalContext.current
     val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty() }
@@ -89,7 +90,20 @@ fun SettingsScreen(favorites: Favorites, onBack: () -> Unit) {
                 )
                 EditSlider("EDIT QUALITY", Settings.editQuality.toFloat(), 50f..100f, "${Settings.editQuality}", { Settings.update { editQuality = it.toInt() } }, {}) { Settings.update { editQuality = 95 } }
                 EditSlider("EXPORT QUALITY", Settings.exportQuality.toFloat(), 50f..100f, "${Settings.exportQuality}", { Settings.update { exportQuality = it.toInt() } }, {}) { Settings.update { exportQuality = 90 } }
-                Row(Modifier.fillMaxWidth().clickable { dialog = 1 }.padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        // the collage folder lives inside Pictures, so the picker cannot leave it
+                        val pictures = File(Environment.getExternalStorageDirectory(), "Pictures").also { it.mkdirs() }
+                        openPicker(
+                            PickerRequest(
+                                title = "COLLAGE FOLDER", pickFiles = false, confirmLabel = "SELECT", roots = emptyList(), limit = pictures,
+                                hint = { d -> if (d == pictures) "Open or create a folder in Pictures" else null },
+                                onFolder = { d -> Settings.update { collageFolder = d.relativeTo(pictures).path } },
+                            ),
+                        )
+                    }.padding(vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
                     Text("COLLAGE FOLDER", style = monoStyle(cb.inkDim, 1.5.sp))
                     Text("Pictures/${Settings.collageFolder}", style = monoStyle(cb.mint, 1.sp))
                 }
@@ -143,7 +157,6 @@ fun SettingsScreen(favorites: Favorites, onBack: () -> Unit) {
     }
 
     when (dialog) {
-        1 -> FolderNameDialog(Settings.collageFolder, { name -> Settings.update { collageFolder = name }; dialog = 0 }) { dialog = 0 }
         2 -> CbDialog("CLEAR FAVORITES?", { dialog = 0 }) {
             Text("Your photos stay where they are. Only the Favorites list is emptied.", style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = DarkCb.ink2))
             Row(Modifier.fillMaxWidth(), Arrangement.End) {
@@ -155,24 +168,9 @@ fun SettingsScreen(favorites: Favorites, onBack: () -> Unit) {
 }
 
 @Composable
-private fun FolderNameDialog(current: String, onSave: (String) -> Unit, onCancel: () -> Unit) {
-    var text by remember { mutableStateOf(current) }
-    val name = text.trim()
-    val valid = name.isNotEmpty() && '/' !in name && '\\' !in name
-    CbDialog("COLLAGE FOLDER", onCancel) {
-        CbTextField(text, { text = it })
-        Text("Inside Pictures. Created the first time a collage is saved.", style = monoStyle(DarkCb.inkDim, 0.4.sp))
-        Row(Modifier.fillMaxWidth(), Arrangement.End) {
-            ActionText("CANCEL", DarkCb.inkDim, onCancel)
-            ActionText("SAVE", if (valid) DarkCb.mint else DarkCb.inkDim) { if (valid) onSave(name) }
-        }
-    }
-}
-
-@Composable
 private fun Section(title: String, content: @Composable () -> Unit) {
     val cb = LocalCb.current
-    Column(Modifier.fillMaxWidth().doubleChamferFrame(cb.mint).padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxWidth().doubleChamferFrame(cb).padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(title, style = monoStyle(cb.mint, 2.6.sp))
         content()
     }

@@ -45,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import android.os.Environment
+import java.io.File
 import com.claudeborne.gallerymanager.data.MediaItem
 import com.claudeborne.gallerymanager.data.copyItems
 import com.claudeborne.gallerymanager.data.moveItems
@@ -76,13 +78,24 @@ class FileTools internal constructor(
     fun move(selection: List<MediaItem>, onDone: () -> Unit = {}) = pickFolder(selection, move = true, onDone)
     fun copy(selection: List<MediaItem>, onDone: () -> Unit = {}) = pickFolder(selection, move = false, onDone)
 
-    private fun pickFolder(selection: List<MediaItem>, move: Boolean, onDone: () -> Unit) {
-        if (selection.isNotEmpty()) dialog = ToolDialog.Folder(selection, move, 0, onDone)
-    }
+    /** Set by the main scaffold: shows the shared picker over the whole app. */
+    internal var openPicker: (PickerRequest) -> Unit = {}
 
-    /** Folders that already hold photos or videos, as (relative path, display name). */
-    internal fun folders() = library().filter { it.path.isNotEmpty() }.distinctBy { it.path }
-        .map { it.path to it.bucketName.ifEmpty { it.path } }.sortedBy { it.second.lowercase() }
+    /** Photos and videos can only be moved inside the phone's main storage (Android's media library does it), so the picker stays there. */
+    private fun pickFolder(selection: List<MediaItem>, move: Boolean, onDone: () -> Unit) {
+        if (selection.isEmpty()) return
+        val base = Environment.getExternalStorageDirectory()
+        val count = if (selection.size > 1) "${selection.size} " else ""
+        val here = selection.map { it.path }.toSet().singleOrNull() // moving into the folder they are already in does nothing
+        openPicker(
+            PickerRequest(
+                title = "${if (move) "MOVE" else "COPY"} $count" + "TO", pickFiles = false, confirmLabel = if (move) "MOVE HERE" else "COPY HERE",
+                roots = listOf("INTERNAL STORAGE" to base), shortcuts = photoFolders(library()),
+                hint = { dir -> if (move && here != null && dir == File(base, here)) "Already here" else null },
+                onFolder = { dir -> doFolder(ToolDialog.Folder(selection, move, 0, onDone), dir.relativeTo(base).path.trimEnd('/') + "/") },
+            ),
+        )
+    }
 
     internal fun doRename(item: MediaItem, baseName: String) {
         dialog = null
@@ -133,24 +146,29 @@ fun FileToolDialogs(tools: FileTools) {
     when (val d = tools.dialog) {
         is ToolDialog.Rename -> RenameDialog(d.item.name.substringBeforeLast('.'), d.item.name.substringAfterLast('.', ""), { tools.doRename(d.item, it) }) { tools.dialog = null }
         is ToolDialog.AlbumName -> RenameDialog(d.items.first().bucketName, "", { tools.doRenameAlbum(d.items, it) }) { tools.dialog = null }
-        is ToolDialog.Folder -> FolderDialog(d, tools.folders(), { tools.doFolder(d, it) }) { tools.dialog = null }
+        is ToolDialog.Folder -> Unit
         null -> Unit
     }
 }
 
 /** Brand dialog: chamfered double-border card over a dimmed screen. */
 @Composable
-internal fun CbDialog(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun CbDialog(title: String, onDismiss: () -> Unit, subtitle: String? = null, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false)) {
         // the card fades and grows in; the window itself fades out when it closes
         val shown = remember { MutableTransitionState(false).apply { targetState = true } }
         AnimatedVisibility(shown, enter = popEnter) {
-            Column(
-                Modifier.padding(horizontal = 24.dp).fillMaxWidth().doubleChamferFrame(DarkCb.mint, DarkCb.surface1).padding(22.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Text(title, style = monoStyle(DarkCb.mint, 2.6.sp))
-                content()
+            androidx.compose.runtime.CompositionLocalProvider(LocalInDialog provides true) {
+                Column(
+                    Modifier.padding(horizontal = 24.dp).fillMaxWidth().doubleChamferFrame(DarkCb, DarkCb.surface1).padding(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(title, style = monoStyle(DarkCb.mint, 2.6.sp))
+                        subtitle?.let { Text(it, style = monoStyle(DarkCb.inkDim, 1.sp)) }
+                    }
+                    content()
+                }
             }
         }
     }
@@ -183,37 +201,3 @@ private fun RenameDialog(base: String, ext: String, onRename: (String) -> Unit, 
     }
 }
 
-@Composable
-private fun FolderDialog(d: ToolDialog.Folder, folders: List<Pair<String, String>>, onPick: (String) -> Unit, onCancel: () -> Unit) {
-    var naming by remember { mutableStateOf(false) }
-    var newName by remember { mutableStateOf("") }
-    val here = d.items.map { it.path }.toSet().singleOrNull() // moving into the folder they are already in does nothing
-    val count = if (d.items.size > 1) "${d.items.size} " else ""
-    CbDialog("${if (d.move) "MOVE" else "COPY"} $count" + "TO", onCancel) {
-        if (naming) {
-            val name = newName.trim()
-            val valid = name.isNotEmpty() && '/' !in name
-            CbTextField(newName, { newName = it })
-            Row(Modifier.fillMaxWidth(), Arrangement.End) {
-                ActionText("BACK", DarkCb.inkDim) { naming = false }
-                ActionText("CREATE", if (valid) DarkCb.mint else DarkCb.inkDim) { if (valid) onPick("Pictures/$name/") }
-            }
-        } else {
-            LazyColumn(Modifier.heightIn(max = 320.dp)) {
-                item { FolderRow("NEW FOLDER…", "Pictures/", DarkCb.mint) { naming = true } }
-                items(folders.filter { !d.move || it.first != here }, key = { it.first }) { (path, label) ->
-                    FolderRow(label, path, DarkCb.ink) { onPick(path) }
-                }
-            }
-            Row(Modifier.fillMaxWidth(), Arrangement.End) { ActionText("CANCEL", DarkCb.inkDim, onCancel) }
-        }
-    }
-}
-
-@Composable
-private fun FolderRow(label: String, path: String, color: Color, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp)) {
-        Text(label, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = color))
-        Text(path, style = monoStyle(DarkCb.inkDim, 1.sp))
-    }
-}

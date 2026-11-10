@@ -129,11 +129,4 @@ private fun PermissionScreen(denied: Boolean, onGrant: () -> Unit, onSettings: (
 }
 
 @Composable
-private fun CbButton(label: String, onClick: () -> Unit) {
-    val cb = LocalCb.current
-    Text(
-        label,
-        Modifier.background(cb.grad).clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 12.dp),
-        style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 2.2.sp, color = DarkCb.surface0),
-    )
-}
+private fun CbButton(label: String, onClick: () -> Unit) = BrandButton(label, primary = true, onClick = onClick)

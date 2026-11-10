@@ -226,7 +226,7 @@ private fun BoxScope.NavArrow(glyph: String, at: Alignment, visible: Boolean, on
 /** Menu of file tools; tapping a row closes it with [onDone] and runs that action. */
 @Composable
 private fun MorePanel(actions: List<Pair<String, () -> Unit>>, modifier: Modifier, onDone: () -> Unit) {
-    Column(modifier.fillMaxWidth().padding(12.dp).doubleChamferFrame(DarkCb.mint, DarkCb.surface1).padding(16.dp)) {
+    Column(modifier.fillMaxWidth().padding(12.dp).doubleChamferFrame(DarkCb, DarkCb.surface1).padding(16.dp)) {
         Text("MORE", Modifier.padding(bottom = 4.dp), style = monoStyle(DarkCb.mint, 2.6.sp))
         actions.forEach { (label, run) ->
             Text(
@@ -277,7 +277,7 @@ private fun InfoPanel(item: MediaItem, modifier: Modifier) {
         half?.let { add(listOf(it)) }
     }
     Column(
-        modifier.fillMaxWidth().padding(12.dp).heightIn(max = 360.dp).doubleChamferFrame(DarkCb.mint, DarkCb.surface1)
+        modifier.fillMaxWidth().padding(12.dp).heightIn(max = 360.dp).doubleChamferFrame(DarkCb, DarkCb.surface1)
             .verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {

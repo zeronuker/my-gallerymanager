@@ -72,6 +72,9 @@ val LightCb = CbColors(
 
 val LocalCb = staticCompositionLocalOf { DarkCb }
 
+/** The amber of a warning line (success lines are mint), as in the web apps' result dialogs. */
+val Warn = Color(0xFFE0A030)
+
 val Tourney = FontFamily(
     Font(R.font.tourney_400, FontWeight.Normal),
     Font(R.font.tourney_700, FontWeight.Bold),

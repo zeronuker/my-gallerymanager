@@ -64,6 +64,7 @@ import com.claudeborne.gallerymanager.transfer.DirectGroup
 import com.claudeborne.gallerymanager.transfer.DirectJoin
 import com.claudeborne.gallerymanager.transfer.DirectLink
 import com.claudeborne.gallerymanager.transfer.LocalSend
+import com.claudeborne.gallerymanager.transfer.SendResult
 import com.claudeborne.gallerymanager.transfer.TransferHub
 import com.claudeborne.gallerymanager.transfer.TransferService
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -145,7 +146,7 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
         }
     }
     val rows = remember(tick, mode) { TransferHub.items.toList().asReversed() }
-    var sendResult by remember { mutableStateOf<String?>(null) } // how the send ended, until the user taps OK
+    var sendResult by remember { mutableStateOf<SendResult?>(null) } // how the send ended, until the user taps OK
     var typing by rememberSaveable { mutableStateOf(false) } // the code field is shown after ENTER CODE
     var confirmStop by remember { mutableStateOf(false) }
     val moving = sending || rows.any { !it.finished && it.error == null } // a transfer is under way, so leaving needs a confirm
@@ -157,7 +158,7 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
 
     fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
 
-    fun finish(message: String) { leave?.invoke(); leave = null; sending = false; status = ""; sendResult = message }
+    fun finish(result: SendResult) { leave?.invoke(); leave = null; sending = false; status = ""; sendResult = result }
 
     /** Asks the phone or LocalSend device at [peer] to take the files (the user there accepts or declines), then sends them. */
     fun runSend(peer: LocalSend.Peer, network: Network?) {
@@ -186,7 +187,7 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
                 joinHelp = "When Android asks, choose the network $ssid in the list and confirm. It can take a few seconds to appear."
                 leave = DirectJoin.join(context, ssid, pass, { runSend(peer, it) }, {
                     joinHelp = "Could not join automatically. Open the phone's Wi-Fi settings, join $ssid with the password $pass, then scan again."
-                    finish("Could not join the other phone's direct link")
+                    finish(SendResult("Could not join the other phone's direct link.", ok = false, reached = false))
                 })
             }
         }
@@ -215,6 +216,7 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
             }
             Mode.RECEIVE, Mode.COMPUTER -> Box(Modifier.fillMaxSize()) {
                 Progress(rows) {
+                    if (shown == Mode.RECEIVE && rows.isEmpty()) WaitingLine("WAITING FOR THE OTHER DEVICE…")
                     Connection(tick, group, computer = shown == Mode.COMPUTER)
                     FasterOptions(group, linkBusy, wifi, onStart = { requestDirect() }, onStop = { link.stop(); group = null })
                     AnimatedOverlay(linkError, expandEnter, shrinkExit) { Text(it, Modifier.padding(horizontal = 16.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = RED)) }
@@ -231,22 +233,25 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
                     Text("PHONES NEARBY", Modifier.padding(start = 16.dp, top = 8.dp), style = monoStyle(cb.mint, 2.4.sp))
                     if (peers.isEmpty()) Text("None found. The other phone must be on Receive.", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim))
                     peers.forEach { p -> HomeRow(p.alias, "${p.deviceType.uppercase()} · ${p.host}") { sendToPeer(p) } }
-                    ActionText(if (sending) status.ifEmpty { "SENDING…" } else "SEARCH AGAIN", cb.mint) { if (!sending) TransferHub.rediscover() }
+                    val out = rows.filter { !it.incoming }
+                    val moved = out.sumOf { it.done }
+                    val sendingLine = if (moved > 0) "SENDING… ${Formatter.formatShortFileSize(context, moved).uppercase()} OF ${Formatter.formatShortFileSize(context, out.sumOf { it.size }).uppercase()}" else status.ifEmpty { "SENDING…" }
+                    ActionText(if (sending) sendingLine else "SEARCH AGAIN", cb.mint) { if (!sending) TransferHub.rediscover() }
                     Text("OTHER WAYS", Modifier.padding(start = 16.dp, top = 8.dp), style = monoStyle(cb.mint, 2.4.sp))
                     HomeRow("TO A COMPUTER", "OPENS A WEB PAGE") { mode = Mode.COMPUTER }
                     Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row {
-                            ActionText("SCAN CODE", cb.mint) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            BrandButton("SCAN CODE", Modifier.weight(1f), primary = true) {
                                 GmsBarcodeScanning.getClient(context, GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()).startScan()
                                     .addOnSuccessListener { address = it.rawValue.orEmpty(); beginSend(address) }
                                     .addOnFailureListener { toast("The scanner is not available. Use ENTER CODE.") }
                             }
-                            ActionText("ENTER CODE", if (typing) cb.mint else cb.inkDim) { typing = !typing }
+                            BrandButton("ENTER CODE", Modifier.weight(1f), onClick = { typing = !typing })
                         }
                         Visible(typing, enter = expandEnter, exit = shrinkExit) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 CbTextField(address, { address = it }) // the keyboard opens only because the user asked for this field
-                                ActionText(if (sending) "SENDING…" else "SEND", if (sending) cb.inkDim else cb.mint) { beginSend(address) }
+                                BrandButton(if (sending) "SENDING…" else "SEND", Modifier.fillMaxWidth(), primary = true, enabled = !sending) { beginSend(address) }
                             }
                         }
                     }
@@ -258,9 +263,9 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
     // another device (the LocalSend app, or one like it) wants to send files: nothing is saved until the user says yes
     val incoming = remember(tick) { LocalSend.pending }
     incoming?.let { p ->
-        CbDialog("INCOMING FILES", { p.answer.complete(false) }) {
+        CbDialog("INCOMING FILES", { p.answer.complete(false) }, subtitle = "${p.alias} · ${p.from}") {
             Text(
-                "${p.alias} (${p.from}) wants to send ${p.count} ${if (p.count == 1) "file" else "files"} (${Formatter.formatShortFileSize(context, p.bytes)}).",
+                "${p.count} ${if (p.count == 1) "file" else "files"} · ${Formatter.formatShortFileSize(context, p.bytes)}",
                 style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2),
             )
             Text(
@@ -273,10 +278,11 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
             }
         }
     }
-    // how a transfer ended, on each phone, until the user taps OK; the receiver then goes on waiting
+    // how a transfer ended, on each phone, until the user taps OK; OK then goes back to Files, where Transfer starts the next one
+    // (a send that never reached the other phone stays here, so it can be tried again)
     val received = remember(tick) { LocalSend.result }
-    received?.let { ResultDialog(it) { LocalSend.clearResult() } }
-    sendResult?.let { ResultDialog(it) { sendResult = null } }
+    received?.let { o -> ResultDialog(o.text, o.ok) { LocalSend.clearResult(); onClose() } }
+    sendResult?.let { r -> ResultDialog(r.message, r.ok) { sendResult = null; if (r.reached) onClose() } }
     if (confirmStop) {
         CbDialog("STOP?", { confirmStop = false }) {
             Text("This cancels the transfer that is running.", style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2))
@@ -288,11 +294,12 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
     }
 }
 
+/** The end of a transfer, as in the web apps' result dialog: a mint line when it all worked, an amber one when it did not. */
 @Composable
-private fun ResultDialog(text: String, onOk: () -> Unit) {
-    CbDialog("TRANSFER", onOk) {
-        Text(text, style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = LocalCb.current.ink2))
-        Row(Modifier.fillMaxWidth(), Arrangement.End) { ActionText("OK", LocalCb.current.mint, onOk) }
+private fun ResultDialog(text: String, ok: Boolean, onOk: () -> Unit) {
+    CbDialog("TRANSFER", onOk, subtitle = if (ok) "DONE" else "NOT COMPLETE") {
+        Text(text, style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = if (ok) DarkCb.mint else Warn))
+        Row(Modifier.fillMaxWidth(), Arrangement.End) { ActionText("OK", DarkCb.mint, onOk) }
     }
 }
 
@@ -363,17 +370,8 @@ private fun qrBitmap(text: String): ImageBitmap {
     return Bitmap.createBitmap(pixels, m.width, m.height, Bitmap.Config.ARGB_8888).asImageBitmap()
 }
 
-/** A full-width button: [primary] is the filled one; a disabled one is dim and does nothing. */
 @Composable
-private fun ChoiceButton(label: String, enabled: Boolean, primary: Boolean, onClick: () -> Unit) {
-    val cb = LocalCb.current
-    val base = Modifier.fillMaxWidth()
-    val framed = if (primary) base.background(cb.grad) else base.border(1.dp, glide(enabled, cb.mint, cb.line))
-    Text(
-        label, (if (enabled) framed.clickable(onClick = onClick) else framed).padding(vertical = 14.dp),
-        style = monoStyle(glide(enabled, if (primary) DarkCb.surface0 else cb.mint, cb.inkDim), 2.2.sp).copy(fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
-    )
-}
+private fun ChoiceButton(label: String, enabled: Boolean, primary: Boolean, onClick: () -> Unit) = WideBrandButton(label, primary, enabled, onClick)
 
 /** Offline transfer: the ways that need no router (the direct link, and a USB cable). Folded away until asked for. */
 @Composable

@@ -74,7 +74,8 @@ object LocalSend {
     @Volatile private var session: Session? = null
 
     /** What to tell the user once a transfer to this phone ended (all arrived, some failed, cancelled, or it went quiet); the screen shows it and calls [clearResult]. */
-    @Volatile var result: String? = null
+    class Outcome(val text: String, val ok: Boolean)
+    @Volatile var result: Outcome? = null
         private set
     fun clearResult() { result = null }
 
@@ -101,7 +102,7 @@ object LocalSend {
     private fun finishSession(s: Session, why: String? = null) {
         val total = s.files.size
         val ok = s.files.values.count { it.done }
-        result = if (ok == total) "Received $ok of $total from ${s.alias}." else "Received $ok of $total from ${s.alias}. ${why ?: "Some files failed."}"
+        result = if (ok == total) Outcome("Received $ok of $total from ${s.alias}.", true) else Outcome("Received $ok of $total from ${s.alias}. ${why ?: "Some files failed."}", false)
         session = null
     }
 
@@ -159,7 +160,7 @@ object LocalSend {
         pending = p
         var timedOut = false
         val accepted = try { p.answer.get(120, TimeUnit.SECONDS) } catch (_: java.util.concurrent.TimeoutException) { timedOut = true; false } catch (_: Exception) { false } finally { pending = null }
-        if (timedOut) { result = "No answer, so the request from $alias expired."; return res.send(408, "text/plain", "no answer".toByteArray()) }
+        if (timedOut) { result = Outcome("No answer, so the request from $alias expired.", false); return res.send(408, "text/plain", "no answer".toByteArray()) }
         if (!accepted) return res.send(403, "text/plain", "rejected".toByteArray())
 
         val s = Session(randomId(), alias, files)

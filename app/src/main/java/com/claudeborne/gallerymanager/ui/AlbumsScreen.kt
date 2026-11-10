@@ -119,11 +119,15 @@ internal fun chamfered(w: Float, h: Float, inset: Float, leg: Float) = Path().ap
     lineTo(r - leg, b); lineTo(inset + leg, b); lineTo(inset, b - leg); lineTo(inset, inset + leg); close()
 }
 
-/** Brand card frame: chamfered double line (outer 1.5dp, inner 1dp) with an optional chamfered [fill]. Content needs about 6dp of padding. */
-internal fun Modifier.doubleChamferFrame(color: Color, fill: Color? = null) = drawBehind {
+/**
+ * Brand card frame, as ChamferFrame in the web apps: a chamfered double line (outer 1.5dp, inner 1dp) in the brand gradient (mint, blue, violet),
+ * with an optional chamfered [fill]. Content needs about 6dp of padding.
+ */
+internal fun Modifier.doubleChamferFrame(cb: CbColors, fill: Color? = null) = drawBehind {
+    val line = androidx.compose.ui.graphics.Brush.linearGradient(listOf(cb.mint, cb.blue, cb.violet), androidx.compose.ui.geometry.Offset.Zero, androidx.compose.ui.geometry.Offset(size.width, size.height))
     if (fill != null) drawPath(chamfered(size.width, size.height, OUTER_AT * density, CUT * density), fill)
-    drawPath(chamfered(size.width, size.height, OUTER_AT * density, CUT * density), color, style = Stroke(1.5f * density, join = StrokeJoin.Miter))
-    drawPath(chamfered(size.width, size.height, INNER_AT * density, chamferLeg(INNER_AT) * density), color, style = Stroke(1f * density, join = StrokeJoin.Miter))
+    drawPath(chamfered(size.width, size.height, OUTER_AT * density, CUT * density), line, style = Stroke(1.5f * density, join = StrokeJoin.Miter))
+    drawPath(chamfered(size.width, size.height, INNER_AT * density, chamferLeg(INNER_AT) * density), line, style = Stroke(1f * density, join = StrokeJoin.Miter))
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -133,7 +137,7 @@ private fun AlbumCard(album: Album, selected: Boolean, onClick: () -> Unit, onLo
     val dp = LocalDensity.current.density
     val pictureShape = remember(dp) { GenericShape { size, _ -> addPath(chamfered(size.width, size.height, 0f, chamferLeg(PICTURE_AT) * dp)) } }
     Column(
-        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick).doubleChamferFrame(cb.mint, glide(selected, cb.surface2, Color.Transparent)).padding(PICTURE_AT.dp),
+        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick).doubleChamferFrame(cb, glide(selected, cb.surface2, Color.Transparent)).padding(PICTURE_AT.dp),
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(pictureShape).background(cb.surface2), Alignment.Center) {
             if (album.cover != null) AsyncImage(album.cover.uri, album.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)

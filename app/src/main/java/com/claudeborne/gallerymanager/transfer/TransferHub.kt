@@ -28,6 +28,9 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
+/** How a send ended: what to tell the user, whether everything arrived, and whether the other side answered at all (if not, the user can try again). */
+class SendResult(val message: String, val ok: Boolean, val reached: Boolean)
+
 /**
  * File transfer between this phone and a computer's browser or another phone running this app. The phone side runs a small HTTP server
  * (a computer opens its address in a browser; another phone's app uploads to it); a phone sending to another phone is the client.
@@ -218,7 +221,7 @@ object TransferHub {
      * Sends [files] to another phone running this app, or to a LocalSend device: asks it first (the user there accepts or declines), then uploads.
      * [network] pins the connection to the direct link's network. Returns a message for the user.
      */
-    suspend fun sendLocalSend(peer: LocalSend.Peer, files: List<Pair<File, String>>, network: Network? = null): String = withContext(Dispatchers.IO) {
+    suspend fun sendLocalSend(peer: LocalSend.Peer, files: List<Pair<File, String>>, network: Network? = null): SendResult = withContext(Dispatchers.IO) {
         reset()
         val shown = files.map { (f, rel) -> f to Item(false, rel, f.length()).also { items.add(it) } }
         val offer = JSONObject()
@@ -232,16 +235,16 @@ object TransferHub {
         val reply = try {
             Http.post(peer.host, peer.port, peer.https, LocalSend.API + "prepare-upload", offer.toString().toByteArray(), timeoutMs = 180_000, network = network) // the other user has time to accept
         } catch (e: IOException) {
-            return@withContext Http.explain(e, peer.alias)
+            return@withContext SendResult(Http.explain(e, peer.alias), ok = false, reached = false)
         }
         when (reply.status) {
             200 -> Unit
-            204 -> return@withContext "${peer.alias} needs nothing from this"
-            401 -> return@withContext "${peer.alias} asks for a PIN, which this app does not support yet"
-            403 -> return@withContext "${peer.alias} declined"
-            408 -> return@withContext "No answer from ${peer.alias}"
-            409 -> return@withContext "${peer.alias} is busy with another transfer"
-            else -> return@withContext "${peer.alias} answered ${reply.status}"
+            204 -> return@withContext SendResult("${peer.alias} needs nothing from this.", ok = false, reached = false)
+            401 -> return@withContext SendResult("${peer.alias} asks for a PIN, which this app does not support yet.", ok = false, reached = false)
+            403 -> return@withContext SendResult("${peer.alias} declined.", ok = false, reached = true)
+            408 -> return@withContext SendResult("No answer from ${peer.alias}.", ok = false, reached = true)
+            409 -> return@withContext SendResult("${peer.alias} is busy with another transfer.", ok = false, reached = false)
+            else -> return@withContext SendResult("${peer.alias} answered ${reply.status}.", ok = false, reached = false)
         }
         val answer = JSONObject(String(reply.body))
         val session = answer.getString("sessionId")
@@ -252,8 +255,8 @@ object TransferHub {
         val ok = upload(jobs, peer.host, peer.port, peer.https, network)
         if (ok < files.size) { // tell the other side it is over, so it does not wait for the rest
             runCatching { Http.post(peer.host, peer.port, peer.https, LocalSend.API + "cancel", ByteArray(0), network = network) }
-            "Sent $ok of ${files.size} to ${peer.alias}. Some files failed."
-        } else "Sent $ok of ${files.size} to ${peer.alias}."
+            SendResult("Sent $ok of ${files.size} to ${peer.alias}. Some files failed.", ok = false, reached = true)
+        } else SendResult("Sent $ok of ${files.size} to ${peer.alias}.", ok = true, reached = true)
     }
 
     /** Runs [jobs] over a few connections at once, each reused for the next file. Returns how many were accepted. */

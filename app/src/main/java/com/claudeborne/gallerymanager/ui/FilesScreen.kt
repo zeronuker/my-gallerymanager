@@ -125,7 +125,7 @@ private sealed interface FileDialog {
 
 /** The Files tab: a home screen (categories, bin, storage), folder browsing, search, and the file actions. */
 @Composable
-fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: Boolean, onChanged: () -> Unit, onDeep: (Boolean) -> Unit, onOpenMedia: (MediaItem) -> Unit) {
+internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: Boolean, onChanged: () -> Unit, onDeep: (Boolean) -> Unit, onOpenMedia: (MediaItem) -> Unit, openPicker: (PickerRequest) -> Unit) {
     val cb = LocalCb.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -147,7 +147,6 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
     val dual = dualPath?.let(::File)
     var vault by remember { mutableStateOf<List<File>?>(null) } // the safe folder is open while this is set; the files in it are waiting to be moved in
     var transfer by remember { mutableStateOf<List<Pair<File, String>>?>(null) } // the files to send while the Transfer screen is open (empty: receive only)
-    var picking by rememberSaveable { mutableStateOf(false) } // SEND was tapped with nothing selected: browse, select, then tap SEND
     var sort by rememberSaveable { mutableStateOf(SortBy.NAME) }
     var ascending by rememberSaveable { mutableStateOf(true) }
     var hidden by rememberSaveable { mutableStateOf(false) }
@@ -156,8 +155,6 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
     var query by rememberSaveable { mutableStateOf("") }
     var allScope by rememberSaveable { mutableStateOf(false) } // search every storage volume instead of the open folder
     var selected by rememberSaveable { mutableStateOf(emptySet<String>()) }
-    var clipPaths by rememberSaveable { mutableStateOf(emptyList<String>()) } // COPY/MOVE remember what to paste; the user then browses to the target folder
-    var clipMove by rememberSaveable { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     var dialog by remember { mutableStateOf<FileDialog?>(null) }
     var entries by remember { mutableStateOf<List<Entry>>(emptyList()) }
@@ -219,14 +216,41 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
     }
     fun tap(e: Entry) {
         when {
-            picking && !e.isDir -> selected = toggle(selected, e.file.path) // choosing files to send: a tap selects, and a folder still opens
-            selected.isNotEmpty() && !picking -> selected = toggle(selected, e.file.path) // read at the moment of the tap: a stale copy of "selecting" would open the file instead
+            selected.isNotEmpty() -> selected = toggle(selected, e.file.path) // read at the moment of the tap: a stale copy of "selecting" would open the file instead
             e.isDir -> go(e.file)
             e.file.extension.lowercase() in ARCHIVE_EXTENSIONS -> dialog = FileDialog.Unzip(e.file) // a zip, rar or 7z offers to extract
             else -> open(e.file)
         }
     }
     fun longPress(e: Entry) { selected = toggle(selected, e.file.path) }
+
+    /** Copy or move [files]: the shared picker asks for the folder, then it runs (the bar sweeps meanwhile). */
+    fun pickTarget(move: Boolean, files: List<File>) {
+        openPicker(
+            PickerRequest(
+                title = "${if (move) "MOVE" else "COPY"} ${if (files.size > 1) "${files.size} " else ""}TO", pickFiles = false, confirmLabel = if (move) "MOVE HERE" else "COPY HERE",
+                roots = roots, shortcuts = photoFolders(library),
+                hint = { d -> if (move && files.all { it.parentFile == d }) "Already here" else null },
+                onFolder = { d ->
+                    selected = emptySet()
+                    scope.launch {
+                        busy = if (move) "MOVING…" else "COPYING…"
+                        toast("${if (move) "Moved" else "Copied"} ${transfer(context, files, d, move)} of ${files.size}")
+                        busy = null
+                        done()
+                    }
+                },
+            ),
+        )
+    }
+
+    /** Transfer's SEND with nothing selected: the shared picker chooses the files and folders, and the Transfer screen opens on them. */
+    fun pickToSend() = openPicker(
+        PickerRequest(
+            title = "CHOOSE FILES TO SEND", pickFiles = true, confirmLabel = "SEND", roots = roots,
+            onFiles = { files -> scope.launch { transfer = withContext(Dispatchers.IO) { expandForSend(files) } } },
+        ),
+    )
 
     // which screen is showing: the tools are screens of their own, the browser is 0. The last value of each tool is kept so it can animate out.
     val screen = when { inBin -> 1; mapRoot != null -> 2; transfer != null -> 3; dual != null -> 4; vault != null -> 5; inDupes -> 6; else -> 0 }
@@ -260,12 +284,6 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
     Column(Modifier.fillMaxSize()) {
         ScreenHeader(cat?.label ?: "FILES", count, onBack, backLabel.uppercase())
         AnimatedOverlay(busy, expandEnter, shrinkExit) { WorkingLine(it, null, cb.mint) } // copy, move, zip and extract report no percentage, so the bar sweeps
-        Visible(picking, enter = expandEnter, exit = shrinkExit) {
-            Row(Modifier.fillMaxWidth().background(cb.surface1), verticalAlignment = Alignment.CenterVertically) {
-                Text("TAP FILES TO SELECT, THEN SEND", Modifier.weight(1f).padding(start = 16.dp, top = 10.dp, bottom = 10.dp), style = monoStyle(cb.mint, 0.6.sp))
-                ActionText("CANCEL", cb.inkDim) { picking = false; selected = emptySet() }
-            }
-        }
 
         if (dir != null && root != null && !searching) Crumbs(root, rootLabel, dir) { go(it) }
         if (cat == null) {
@@ -299,48 +317,16 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
             }
         }
 
-        AnimatedVisibility(clipPaths.isNotEmpty(), enter = barEnter, exit = barExit) {
-            Row(Modifier.fillMaxWidth().background(cb.surface1).padding(vertical = 8.dp)) {
-                Text(
-                    "${if (clipMove) "MOVE" else "COPY"} ${clipPaths.size}", Modifier.weight(1f).padding(start = 16.dp).align(Alignment.CenterVertically),
-                    style = monoStyle(cb.inkDim, 1.2.sp),
-                )
-                ActionText("CANCEL", cb.inkDim) { clipPaths = emptyList() }
-                if (dir != null) ActionText("PASTE HERE", cb.mint) {
-                    val files = clipPaths.map(::File)
-                    val move = clipMove
-                    clipPaths = emptyList()
-                    scope.launch {
-                        busy = if (move) "MOVING…" else "COPYING…"
-                        toast("${if (move) "Moved" else "Copied"} ${transfer(context, files, dir, move)} of ${files.size}")
-                        busy = null
-                        done()
-                    }
-                }
-            }
-        }
-        AnimatedVisibility((selecting || (picking && dir != null)) && clipPaths.isEmpty(), enter = barEnter, exit = barExit) {
-            val toTransfer = { files: List<File> ->
-                scope.launch { transfer = withContext(Dispatchers.IO) { expandForSend(files) }; selected = emptySet(); picking = false }
-                Unit
-            }
+        AnimatedVisibility(selecting, enter = barEnter, exit = barExit) {
             ActionBar(
                 buildList {
-                    if (picking) { // choosing what to send: only the choices that lead to sending
-                        if (selecting) {
-                            add(BarItem("ALL", cb.inkDim) { selected = entries.filter { !it.isDir }.map { it.file.path }.toSet() })
-                            add(BarItem("SEND", cb.mint) { toTransfer(chosen.map { it.file }) })
-                        }
-                        if (dir != null) add(BarItem("SEND THIS FOLDER", cb.mint) { toTransfer(listOf(dir)) })
-                        return@buildList
-                    }
                     add(BarItem("ALL", cb.inkDim) { selected = entries.map { it.file.path }.toSet() })
                     add(BarItem("SHARE", cb.mint) {
                         val files = chosen.filter { !it.isDir }.map { it.file }
                         if (files.isEmpty()) toast("Folders can't be shared") else shareFiles(context, files)
                     })
-                    add(BarItem("COPY", cb.mint) { clipPaths = chosen.map { it.file.path }; clipMove = false; selected = emptySet() })
-                    add(BarItem("MOVE", cb.mint) { clipPaths = chosen.map { it.file.path }; clipMove = true; selected = emptySet() })
+                    add(BarItem("COPY", cb.mint) { pickTarget(false, chosen.map { it.file }) })
+                    add(BarItem("MOVE", cb.mint) { pickTarget(true, chosen.map { it.file }) })
                     add(BarItem("SAFE", cb.mint) { vault = chosen.map { it.file }; selected = emptySet() })
                     add(BarItem("ZIP", cb.mint) { dialog = FileDialog.Zip(chosen.map { it.file }) })
                     if (chosen.size == 1) {
@@ -365,7 +351,7 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
                 val label = roots.firstOrNull { it.second.path == start }?.first ?: File(start).name
                 StorageMapScreen(File(start), label, backEnabled, onClose = { mapRoot = null }, onBrowse = { go(it); mapRoot = null }, onOpen = ::open, onChanged = { refresh++; onChanged() })
             }
-            3 -> lastTransfer?.let { TransferScreen(it, backEnabled, onClose = { transfer = null }, onPick = { transfer = null; picking = true }) }
+            3 -> lastTransfer?.let { files -> androidx.compose.runtime.key(files) { TransferScreen(files, backEnabled, onClose = { transfer = null }, onPick = ::pickToSend) } } // a new list starts the screen afresh, on the send page
             4 -> lastDual?.let { DualPaneScreen(it, roots, backEnabled, onClose = { dualPath = null }, onChanged = { refresh++; onChanged() }, onOpen = ::open) }
             5 -> lastVault?.let { VaultScreen(it, backEnabled, onClose = { vault = null }, onChanged = { refresh++; onChanged() }) }
             6 -> DuplicatesScreen(roots.map { it.second }, backEnabled, onClose = { inDupes = false }, onOpen = ::open, onChanged = { refresh++; onChanged() })
@@ -478,7 +464,7 @@ private fun StorageCard(label: String, folder: File, onClick: () -> Unit) {
     val total = stat.totalBytes
     val used = total - stat.availableBytes
     Column(
-        Modifier.padding(horizontal = 16.dp).fillMaxWidth().clickable(onClick = onClick).doubleChamferFrame(cb.mint).padding(18.dp),
+        Modifier.padding(horizontal = 16.dp).fillMaxWidth().clickable(onClick = onClick).doubleChamferFrame(cb).padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(label, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = cb.ink))
@@ -634,7 +620,7 @@ private fun GridTile(e: Entry, selected: Boolean, onClick: () -> Unit, onLongCli
 
 /** A thumbnail for photos and videos; folders and other files show DIR or their extension. */
 @Composable
-private fun Thumb(e: Entry) {
+internal fun Thumb(e: Entry) {
     val cb = LocalCb.current
     if (!e.isDir && (e.file.isImage() || e.file.isVideo())) {
         AsyncImage(e.file, e.file.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)

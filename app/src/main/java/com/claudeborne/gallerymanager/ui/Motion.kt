@@ -56,8 +56,8 @@ import androidx.compose.ui.unit.sp
 
 // Every transition in the app comes from here, so timings stay the same everywhere (see CLAUDE.md, "Animation rule").
 
-const val MOTION_MS = 240
-const val MOTION_FAST_MS = 160
+const val MOTION_MS = 260 // the web apps' sheets
+const val MOTION_FAST_MS = 180 // and their pop-outs
 
 /** Full-screen overlays (viewer, editors, Settings, Files tools): rise a little while fading. */
 val overlayEnter: EnterTransition = fadeIn(tween(MOTION_MS)) + slideInVertically(tween(MOTION_MS)) { it / 14 }

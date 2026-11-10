@@ -80,6 +80,8 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     val imagesGrid = rememberLazyGridState()
     val videosGrid = rememberLazyGridState()
     val tools = rememberFileTools(items, onChanged)
+    var pickerRequest by remember { mutableStateOf<PickerRequest?>(null) } // the one file and folder picker, shown full-screen over everything
+    tools.openPicker = { pickerRequest = it }
     var editing by remember { mutableStateOf<MediaItem?>(null) }
     var collage by remember { mutableStateOf<List<MediaItem>?>(null) }
     var join by remember { mutableStateOf<List<MediaItem>?>(null) }
@@ -135,7 +137,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
                             }
                         }
                     } else {
-                        FilesScreen(items, trash, backEnabled = viewerId == null && editing == null && collage == null && join == null && !showSettings, onChanged, onDeep = { filesDeep = it }, onOpenMedia = openFrom(FROM_LIBRARY))
+                        FilesScreen(items, trash, backEnabled = viewerId == null && editing == null && collage == null && join == null && !showSettings, onChanged, onDeep = { filesDeep = it }, onOpenMedia = openFrom(FROM_LIBRARY), openPicker = { pickerRequest = it })
                     }
                 }
             }
@@ -164,8 +166,17 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         // a full screen over everything, the viewer included; the clickable swallows taps so nothing behind it reacts
         AnimatedVisibility(showSettings, Modifier.fillMaxSize(), enter = overlayEnter, exit = overlayExit) {
             Box(Modifier.fillMaxSize().cbGrid(cb).statusBarsPadding().navigationBarsPadding().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}) {
-                SettingsScreen(favorites, onBack = { showSettings = false })
+                SettingsScreen(favorites, onBack = { showSettings = false }, openPicker = { pickerRequest = it })
             }
+        }
+        // last, so it covers everything, Settings and the viewer included
+        AnimatedOverlay(pickerRequest) { r ->
+            Picker(
+                r.title, r.pickFiles, r.confirmLabel, r.roots, r.shortcuts, r.limit, r.hint,
+                onCancel = { pickerRequest = null },
+                onFolder = { pickerRequest = null; r.onFolder(it) },
+                onFiles = { pickerRequest = null; r.onFiles(it) },
+            )
         }
     }
 }

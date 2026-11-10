@@ -201,6 +201,11 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
 
 @Composable
 internal fun ActionText(label: String, color: Color, onClick: () -> Unit) {
+    if (LocalInDialog.current) { // in a dialog the same call is a brand button; its colour says which kind
+        val primary = color == DarkCb.mint || color == LocalCb.current.mint
+        BrandButton(label, DialogButtonGap, primary = primary, danger = color == RED, cb = DarkCb, onClick = onClick)
+        return
+    }
     Text(
         label,
         Modifier.clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
