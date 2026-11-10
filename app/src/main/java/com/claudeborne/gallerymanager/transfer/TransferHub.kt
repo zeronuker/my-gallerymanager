@@ -2,6 +2,7 @@ package com.claudeborne.gallerymanager.transfer
 
 import android.content.Context
 import android.media.MediaScannerConnection
+import android.net.Network
 import android.os.Build
 import android.os.Environment
 import com.claudeborne.gallerymanager.data.freeName
@@ -181,7 +182,7 @@ object TransferHub {
     // ---- client side: sending to another phone ----
 
     /** Uploads [files] (file, path to show) to the phone at [host]:[port] over [parallel] connections. Returns how many arrived. */
-    suspend fun send(files: List<Pair<File, String>>, host: String, port: Int, token: String, parallel: Int = 4): Int = withContext(Dispatchers.IO) {
+    suspend fun send(files: List<Pair<File, String>>, host: String, port: Int, token: String, network: Network? = null, parallel: Int = 4): Int = withContext(Dispatchers.IO) {
         reset()
         val queue = ConcurrentLinkedQueue(files.map { (f, rel) -> Item(false, rel, f.length()).also { items.add(it) } to f })
         val ok = AtomicInteger()
@@ -193,7 +194,7 @@ object TransferHub {
                         while (true) {
                             val (item, file) = queue.poll() ?: break
                             try {
-                                val s = socket ?: connect(host, port).also { socket = it }
+                                val s = socket ?: connect(host, port, network).also { socket = it }
                                 put(s, host, token, file, item)
                                 ok.incrementAndGet()
                             } catch (e: IOException) {
@@ -211,7 +212,9 @@ object TransferHub {
         ok.get()
     }
 
-    private fun connect(host: String, port: Int) = Socket().apply {
+    /** [network] pins the connection to one Wi-Fi network (the direct link) even when the phone's default network is another. */
+    private fun connect(host: String, port: Int, network: Network?) = Socket().apply {
+        network?.bindSocket(this)
         tcpNoDelay = true
         sendBufferSize = 1 shl 20
         soTimeout = 30_000
