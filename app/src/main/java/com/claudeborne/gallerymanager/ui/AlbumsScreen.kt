@@ -1,7 +1,19 @@
 package com.claudeborne.gallerymanager.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import android.app.Activity
+import android.provider.MediaStore
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,8 +49,12 @@ import com.claudeborne.gallerymanager.data.MediaItem
 
 private class Album(val id: Long, val name: String, val cover: MediaItem?, val count: Int)
 
+/** The albums grid. A long press selects albums, then the bar acts on every photo and video in them, as it does for files in the Files tab. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, belowHeader: @Composable () -> Unit = {}, onOpen: (Long) -> Unit) {
+fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools, onChanged: () -> Unit, belowHeader: @Composable () -> Unit = {}, onOpen: (Long) -> Unit) {
+    val cb = LocalCb.current
+    val context = LocalContext.current
     // items arrive newest first, so the first of each bucket is its cover and albums sort by recent activity;
     // Favorites is a virtual album that always comes first
     val albums = remember(items, favorites) {
@@ -47,18 +63,42 @@ fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, belowHeader: @Com
             items.groupBy { it.bucketId }.map { (id, list) -> Album(id, list.first().bucketName.ifEmpty { "Unknown" }, list.first(), list.size) }
     }
 
+    var selected by rememberSaveable { mutableStateOf(emptySet<Long>()) }
+    val selecting = selected.isNotEmpty()
+    BackHandler(enabled = selecting) { selected = emptySet() }
+    // everything in the selected albums; Favorites is a view over photos that live in other albums
+    val chosen = remember(selected, items, favorites) { items.filter { it.bucketId in selected || (FAVORITES_ID in selected && it.id in favorites) }.distinctBy { it.id } }
+    val editable = FAVORITES_ID !in selected // renaming or trashing "Favorites" would act on photos that belong elsewhere
+    fun toggle(id: Long) { selected = if (id in selected) selected - id else selected + id }
+    val trashLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+        if (it.resultCode == Activity.RESULT_OK) { selected = emptySet(); onChanged() }
+    }
+
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("ALBUMS", "${albums.size - 1} ALBUMS", shortcuts = true) // Favorites is not counted
+        ScreenHeader("ALBUMS", if (selecting) "${selected.size} SELECTED" else "${albums.size - 1} ALBUMS", shortcuts = true) // Favorites is not counted
         belowHeader()
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.weight(1f),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            items(albums, key = { it.id }) { AlbumCard(it) { onOpen(it.id) } }
+            items(albums, key = { it.id }) { a -> AlbumCard(a, a.id in selected, onClick = { if (selecting) toggle(a.id) else onOpen(a.id) }, onLongClick = { toggle(a.id) }) }
         }
+        if (selecting) ActionBar(
+            buildList {
+                add(BarItem("ALL", cb.inkDim) { selected = albums.drop(1).map { it.id }.toSet() })
+                add(BarItem("SHARE", cb.mint) { shareMedia(context, chosen) })
+                add(BarItem("COPY", cb.mint) { tools.copy(chosen) { selected = emptySet() } })
+                add(BarItem("MOVE", cb.mint) { tools.move(chosen) { selected = emptySet() } })
+                if (editable && selected.size == 1) add(BarItem("RENAME", cb.mint) { tools.renameAlbum(chosen) })
+                if (editable) add(BarItem("TRASH", RED) {
+                    val request = MediaStore.createTrashRequest(context.contentResolver, chosen.map { it.uri }, true)
+                    trashLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+                })
+            },
+        )
     }
 }
 
@@ -85,17 +125,19 @@ internal fun Modifier.doubleChamferFrame(color: Color, fill: Color? = null) = dr
     drawPath(chamfered(size.width, size.height, INNER_AT * density, chamferLeg(INNER_AT) * density), color, style = Stroke(1f * density, join = StrokeJoin.Miter))
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun AlbumCard(album: Album, onClick: () -> Unit) {
+private fun AlbumCard(album: Album, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val cb = LocalCb.current
     val dp = LocalDensity.current.density
     val pictureShape = remember(dp) { GenericShape { size, _ -> addPath(chamfered(size.width, size.height, 0f, chamferLeg(PICTURE_AT) * dp)) } }
     Column(
-        Modifier.clickable(onClick = onClick).doubleChamferFrame(cb.mint).padding(PICTURE_AT.dp),
+        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick).doubleChamferFrame(cb.mint, if (selected) cb.surface2 else null).padding(PICTURE_AT.dp),
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(pictureShape).background(cb.surface2), Alignment.Center) {
             if (album.cover != null) AsyncImage(album.cover.uri, album.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             else CbIcon(Icon.HEART, cb.inkDim, size = 40.dp)
+            if (selected) SelectedMark()
         }
         Row(Modifier.padding(start = 8.dp, top = 6.dp, end = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
             Text(

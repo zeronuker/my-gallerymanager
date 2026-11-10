@@ -124,7 +124,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
                                         val title = if (album == FAVORITES_ID) "FAVORITES" else inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM"
                                         PhotosScreen(inAlbum, title, tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, onBack = { openAlbum = null }, onOpen = openFrom(FROM_ALBUM))
                                     }
-                                    else -> AlbumsScreen(items, favorites.ids, subTabs) { openAlbum = it }
+                                    else -> AlbumsScreen(items, favorites.ids, tools, onChanged, subTabs) { openAlbum = it }
                                 }
                             }
                         } else {

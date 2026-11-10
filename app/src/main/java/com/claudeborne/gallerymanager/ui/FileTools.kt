@@ -53,6 +53,7 @@ import kotlinx.coroutines.launch
 internal sealed interface ToolDialog {
     class Rename(val item: MediaItem) : ToolDialog
     class Folder(val items: List<MediaItem>, val move: Boolean, val skipped: Int, val onDone: () -> Unit) : ToolDialog
+    class AlbumName(val items: List<MediaItem>) : ToolDialog // the items of one album, which is renamed by moving them to a sibling folder
 }
 
 /** Rename, move and copy flows shared by the viewer and the grid. Render [FileToolDialogs] once near the root. */
@@ -68,6 +69,7 @@ class FileTools internal constructor(
     internal var requestWrite: (List<Uri>) -> Unit = {}
 
     fun rename(item: MediaItem) { dialog = ToolDialog.Rename(item) }
+    fun renameAlbum(items: List<MediaItem>) { if (items.isNotEmpty()) dialog = ToolDialog.AlbumName(items) }
     /** [onDone] runs once the files were actually moved or copied (not when the user backs out). */
     fun move(selection: List<MediaItem>, onDone: () -> Unit = {}) = pickFolder(selection, move = true, onDone)
     fun copy(selection: List<MediaItem>, onDone: () -> Unit = {}) = pickFolder(selection, move = false, onDone)
@@ -83,6 +85,13 @@ class FileTools internal constructor(
     internal fun doRename(item: MediaItem, baseName: String) {
         dialog = null
         write(listOf(item.uri)) { renameItem(context, item, baseName); toast("Renamed") }
+    }
+
+    internal fun doRenameAlbum(items: List<MediaItem>, name: String) {
+        dialog = null
+        val parent = items.first().path.trimEnd('/').substringBeforeLast('/', "")
+        val target = if (parent.isEmpty()) "$name/" else "$parent/$name/"
+        write(items.map { it.uri }) { moveItems(context, items, target); toast("Renamed") }
     }
 
     internal fun doFolder(d: ToolDialog.Folder, folder: String) {
@@ -120,7 +129,8 @@ fun rememberFileTools(library: List<MediaItem>, onChanged: () -> Unit): FileTool
 @Composable
 fun FileToolDialogs(tools: FileTools) {
     when (val d = tools.dialog) {
-        is ToolDialog.Rename -> RenameDialog(d.item, { tools.doRename(d.item, it) }) { tools.dialog = null }
+        is ToolDialog.Rename -> RenameDialog(d.item.name.substringBeforeLast('.'), d.item.name.substringAfterLast('.', ""), { tools.doRename(d.item, it) }) { tools.dialog = null }
+        is ToolDialog.AlbumName -> RenameDialog(d.items.first().bucketName, "", { tools.doRenameAlbum(d.items, it) }) { tools.dialog = null }
         is ToolDialog.Folder -> FolderDialog(d, tools.folders(), { tools.doFolder(d, it) }) { tools.dialog = null }
         null -> Unit
     }
@@ -154,9 +164,7 @@ internal fun CbTextField(value: String, onChange: (String) -> Unit, suffix: Stri
 }
 
 @Composable
-private fun RenameDialog(item: MediaItem, onRename: (String) -> Unit, onCancel: () -> Unit) {
-    val base = item.name.substringBeforeLast('.')
-    val ext = item.name.substringAfterLast('.', "")
+private fun RenameDialog(base: String, ext: String, onRename: (String) -> Unit, onCancel: () -> Unit) {
     var text by remember { mutableStateOf(base) }
     val name = text.trim()
     val valid = name.isNotEmpty() && '/' !in name && name != base
