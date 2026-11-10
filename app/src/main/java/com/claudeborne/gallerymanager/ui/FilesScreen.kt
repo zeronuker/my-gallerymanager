@@ -19,6 +19,10 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.aspectRatio
@@ -254,7 +258,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
     }
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("FILES", count, onBack, backLabel.uppercase(), shortcuts = true)
+        ScreenHeader(cat?.label ?: "FILES", count, onBack, backLabel.uppercase(), shortcuts = true)
 
         if (dir != null && root != null && !searching) Crumbs(root, rootLabel, dir) { go(it) }
         if (cat == null) {
@@ -405,30 +409,70 @@ private fun PermissionGate(context: Context) {
     }
 }
 
-/** The home screen: shortcut categories, the bin, then the storage volumes. */
+/** The home screen: a card for each storage volume, the file categories as small cards, then the tools in two columns. */
 @Composable
 private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (File) -> Unit, onCategory: (Category) -> Unit, onBin: () -> Unit, onMap: () -> Unit, onDupes: () -> Unit, onTransfer: () -> Unit, onVault: () -> Unit, onDual: () -> Unit) {
-    val context = LocalContext.current
-    LazyColumn(Modifier.fillMaxSize()) {
-        item { SectionLabel("SHORTCUTS") }
-        item { HomeRow("DOWNLOADS", "THE DOWNLOAD FOLDER") { onFolder(File(roots.first().second, Environment.DIRECTORY_DOWNLOADS)) } }
-        item { HomeRow("AUDIO", "SONGS AND RECORDINGS") { onCategory(Category.AUDIO) } }
-        item { HomeRow("DOCUMENTS", "PDF, OFFICE AND TEXT FILES") { onCategory(Category.DOCUMENTS) } }
-        item { HomeRow("APKS", "APP INSTALLERS") { onCategory(Category.APKS) } }
-        item { HomeRow("LARGE FILES", "${Formatter.formatShortFileSize(context, LARGE_FILE_BYTES).uppercase()} AND ABOVE") { onCategory(Category.LARGE) } }
-        item { HomeRow("STORAGE MAP", "SEE WHAT USES THE SPACE", onClick = onMap) }
-        item { HomeRow("DUPLICATES", "THE SAME FILE IN SEVERAL PLACES", onClick = onDupes) }
-        item { HomeRow("DUAL PANE", "TWO FOLDERS AT ONCE, COPY AND MOVE BETWEEN THEM", onClick = onDual) }
-        item { HomeRow("SAFE FOLDER", "ENCRYPTED, OPENS WITH YOUR FINGERPRINT OR PIN", onClick = onVault) }
-        item { HomeRow("TRANSFER", "SEND OR RECEIVE FILES OVER WI-FI", onClick = onTransfer) }
-        item { HomeRow("BIN", "$binCount ITEMS · KEPT $BIN_DAYS DAYS", onClick = onBin) }
-        item { SectionLabel("STORAGE") }
-        items(roots, key = { it.second.path }) { (label, folder) ->
-            val stat = remember(folder) { StatFs(folder.path) }
-            HomeRow(label, "${Formatter.formatShortFileSize(context, stat.availableBytes).uppercase()} FREE OF ${Formatter.formatShortFileSize(context, stat.totalBytes).uppercase()}") { onFolder(folder) }
+    val tools = listOf("STORAGE MAP" to onMap, "DUPLICATES" to onDupes, "DUAL PANE" to onDual, "SAFE FOLDER" to onVault, "TRANSFER" to onTransfer, "BIN · $binCount" to onBin)
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(roots, key = { it.second.path }) { (label, folder) -> StorageCard(label, folder) { onFolder(folder) } }
+        item { SectionLabel("CATEGORIES") }
+        items(Category.entries.chunked(2)) { pair ->
+            Row(Modifier.padding(horizontal = 16.dp), Arrangement.spacedBy(8.dp)) {
+                pair.forEach { MiniCard(it.label, Modifier.weight(1f)) { onCategory(it) } }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+        item { SectionLabel("TOOLS") }
+        items(tools.chunked(2)) { pair ->
+            Row(Modifier.padding(horizontal = 16.dp), Arrangement.spacedBy(16.dp)) {
+                pair.forEach { (name, open) -> ToolRow(name, Modifier.weight(1f), open) }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
         }
     }
 }
+
+/** A storage volume with how full it is. */
+@Composable
+private fun StorageCard(label: String, folder: File, onClick: () -> Unit) {
+    val cb = LocalCb.current
+    val context = LocalContext.current
+    val stat = remember(folder) { StatFs(folder.path) }
+    val total = stat.totalBytes
+    val used = total - stat.availableBytes
+    Column(
+        Modifier.padding(horizontal = 16.dp).fillMaxWidth().clickable(onClick = onClick).doubleChamferFrame(cb.mint).padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(label, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = cb.ink))
+        Text(
+            "${Formatter.formatShortFileSize(context, used).uppercase()} USED OF ${Formatter.formatShortFileSize(context, total).uppercase()}",
+            style = monoStyle(cb.inkDim, 1.sp),
+        )
+        Box(Modifier.fillMaxWidth().height(6.dp).background(cb.surface2)) {
+            Box(Modifier.fillMaxWidth(if (total > 0) (used.toFloat() / total).coerceIn(0f, 1f) else 0f).fillMaxHeight().background(cb.grad))
+        }
+    }
+}
+
+@Composable
+private fun MiniCard(title: String, modifier: Modifier, onClick: () -> Unit) {
+    val cb = LocalCb.current
+    Box(modifier.background(cb.surface1).border(1.dp, cb.line).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 16.dp)) {
+        Text(title, maxLines = 1, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = cb.ink))
+    }
+}
+
+@Composable
+private fun ToolRow(title: String, modifier: Modifier, onClick: () -> Unit) {
+    val cb = LocalCb.current
+    Box(modifier.clickable(onClick = onClick).padding(vertical = 12.dp)) {
+        Text(title, maxLines = 1, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = cb.ink))
+    }
+}
+
+/** The category's name as the screen title. */
+private val Category.label get() = if (this == Category.LARGE) "LARGE FILES" else name
 
 @Composable
 private fun SectionLabel(text: String) {

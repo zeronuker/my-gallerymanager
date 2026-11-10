@@ -123,6 +123,8 @@ suspend fun categoryFiles(context: Context, category: Category): List<Entry> = w
     context.contentResolver.query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), columns, args, null)?.use { c ->
         while (c.moveToNext()) {
             val path = c.getString(0) ?: continue
+            // the media library also keeps a row for every folder; only Others can match one, and a folder is not a file
+            if (category == Category.OTHERS && File(path).isDirectory) continue
             if (c.getLong(1) > 0 || category != Category.LARGE) entries += Entry(File(path), false, c.getLong(1), c.getLong(2) * 1000)
         }
     }
