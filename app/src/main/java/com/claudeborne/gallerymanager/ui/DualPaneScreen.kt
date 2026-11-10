@@ -148,17 +148,17 @@ internal fun DualPaneScreen(start: File, roots: List<Pair<String, File>>, backEn
     }
 
     erase?.let { files ->
-        CbDialog("MOVE TO BIN", { erase = null }) {
+        CbDialog("MOVE TO TRASH", { erase = null }) {
             Text(
-                "Move ${if (files.size == 1) files[0].name else "${files.size} items"} to the bin? You can restore ${if (files.size == 1) "it" else "them"} for $BIN_DAYS days.",
+                "Move ${if (files.size == 1) files[0].name else "${files.size} items"} to the trash? You can restore ${if (files.size == 1) "it" else "them"} for $BIN_DAYS days.",
                 style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2),
             )
             Row(Modifier.fillMaxWidth(), Arrangement.End) {
                 ActionText("CANCEL", cb.inkDim) { erase = null }
-                ActionText("MOVE TO BIN", RED) {
+                ActionText("MOVE TO TRASH", RED) {
                     erase = null
                     scope.launch {
-                        toast("Moved ${moveToBin(context, files)} to the bin")
+                        toast("Moved ${moveToBin(context, files)} to the trash")
                         here.selected = emptySet(); refresh++; onChanged()
                     }
                 }

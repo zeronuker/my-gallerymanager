@@ -202,15 +202,15 @@ internal fun StorageMapScreen(
     }
 
     erase?.let { n ->
-        CbDialog("MOVE TO BIN", { erase = null }) {
-            Text("Move ${n.file.name} to the bin? You can restore it for $BIN_DAYS days.", style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2))
+        CbDialog("MOVE TO TRASH", { erase = null }) {
+            Text("Move ${n.file.name} to the trash? You can restore it for $BIN_DAYS days.", style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2))
             Row(Modifier.fillMaxWidth(), Arrangement.End) {
                 ActionText("CANCEL", cb.inkDim) { erase = null }
-                ActionText("MOVE TO BIN", RED) {
+                ActionText("MOVE TO TRASH", RED) {
                     erase = null
                     picked = null
                     scope.launch {
-                        Toast.makeText(context, "Moved ${moveToBin(context, listOf(n.file))} to the bin", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Moved ${moveToBin(context, listOf(n.file))} to the trash", Toast.LENGTH_SHORT).show()
                         reload++ // the tree is stale now, so scan again (the zoom is kept)
                         onChanged()
                     }

@@ -114,7 +114,7 @@ private sealed interface FileDialog {
 
 /** The Files tab: a home screen (categories, bin, storage), folder browsing, search, and the file actions. */
 @Composable
-fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () -> Unit, onDeep: (Boolean) -> Unit, onOpenMedia: (MediaItem) -> Unit) {
+fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: Boolean, onChanged: () -> Unit, onDeep: (Boolean) -> Unit, onOpenMedia: (MediaItem) -> Unit) {
     val cb = LocalCb.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -199,7 +199,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
     }
 
     if (inBin) {
-        BinView(backEnabled, onBack = { inBin = false }, onChanged = { refresh++; onChanged() })
+        TrashView(trash, backEnabled, onBack = { inBin = false }, onChanged = { refresh++; onChanged() })
         return
     }
 
@@ -285,7 +285,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (onHome && !showResults) {
-                HomeList(roots, binCount, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true }, onMap = { mapRoot = roots.first().second.path }, onDupes = { inDupes = true }, onTransfer = { transfer = emptyList() }, onVault = { vault = emptyList() }, onDual = { dualPath = roots.first().second.path })
+                HomeList(roots, binCount + trash.size, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true }, onMap = { mapRoot = roots.first().second.path }, onDupes = { inDupes = true }, onTransfer = { transfer = emptyList() }, onVault = { vault = emptyList() }, onDual = { dualPath = roots.first().second.path })
             } else {
                 FileList(
                     entries, grid && cat == null && !showResults, selected, showPath = showResults || cat != null,
@@ -348,16 +348,16 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
             dialog = null
             scope.launch { if (renameFile(context, d.file, name)) done() else toast("That name is taken") }
         }
-        is FileDialog.Delete -> CbDialog("MOVE TO BIN", { dialog = null }) {
+        is FileDialog.Delete -> CbDialog("MOVE TO TRASH", { dialog = null }) {
             Text(
-                "Move ${if (d.files.size == 1) d.files[0].name else "${d.files.size} items"} to the bin? You can restore ${if (d.files.size == 1) "it" else "them"} for $BIN_DAYS days.",
+                "Move ${if (d.files.size == 1) d.files[0].name else "${d.files.size} items"} to the trash? You can restore ${if (d.files.size == 1) "it" else "them"} for $BIN_DAYS days.",
                 style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2),
             )
             Row(Modifier.fillMaxWidth(), Arrangement.End) {
                 ActionText("CANCEL", cb.inkDim) { dialog = null }
-                ActionText("MOVE TO BIN", RED) {
+                ActionText("MOVE TO TRASH", RED) {
                     dialog = null
-                    scope.launch { toast("Moved ${moveToBin(context, d.files)} to the bin"); done() }
+                    scope.launch { toast("Moved ${moveToBin(context, d.files)} to the trash"); done() }
                 }
             }
         }
@@ -415,7 +415,7 @@ private fun PermissionGate(context: Context) {
 /** The home screen: a card for each storage volume, the file categories as small cards, then the tools in two columns. */
 @Composable
 private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (File) -> Unit, onCategory: (Category) -> Unit, onBin: () -> Unit, onMap: () -> Unit, onDupes: () -> Unit, onTransfer: () -> Unit, onVault: () -> Unit, onDual: () -> Unit) {
-    val tools = listOf("STORAGE MAP" to onMap, "DUPLICATES" to onDupes, "DUAL PANE" to onDual, "SAFE FOLDER" to onVault, "TRANSFER" to onTransfer, "BIN · $binCount" to onBin)
+    val tools = listOf("STORAGE MAP" to onMap, "DUPLICATES" to onDupes, "DUAL PANE" to onDual, "SAFE FOLDER" to onVault, "TRANSFER" to onTransfer, "TRASH · $binCount" to onBin)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(roots, key = { it.second.path }) { (label, folder) -> StorageCard(label, folder) { onFolder(folder) } }
         item { SectionLabel("CATEGORIES") }

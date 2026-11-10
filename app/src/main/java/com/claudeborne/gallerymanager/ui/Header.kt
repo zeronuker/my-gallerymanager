@@ -63,14 +63,14 @@ private fun BrandBanner() {
     }
 }
 
-/** What the trash and settings icons in a main screen's header open; provided by the main shell. */
-class Shortcuts(val onTrash: () -> Unit, val onSettings: () -> Unit)
+/** What the settings icon in a main screen's header opens; provided by the main shell. */
+class Shortcuts(val onSettings: () -> Unit)
 
 val LocalShortcuts = compositionLocalOf<Shortcuts?> { null }
 
 /**
  * Brand banner on the left; screen title with its count underneath on the right. An [onBack] adds a back link on the left, under the banner.
- * With [shortcuts], the trash and settings icons sit above the title.
+ * With [shortcuts], the settings icon sits at the far right, level with the title.
  */
 @Composable
 fun ScreenHeader(title: String, count: String, onBack: (() -> Unit)? = null, backLabel: String = "", shortcuts: Boolean = false) {
@@ -79,17 +79,14 @@ fun ScreenHeader(title: String, count: String, onBack: (() -> Unit)? = null, bac
     Column {
         Row(Modifier.fillMaxWidth().padding(end = 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             BrandBanner()
-            Column(Modifier.weight(1f).padding(end = 8.dp), horizontalAlignment = Alignment.End) {
-                if (icons != null) Row {
-                    HeaderIcon(Icon.TRASH, "Trash", icons.onTrash)
-                    HeaderIcon(Icon.SETTINGS, "Settings", icons.onSettings)
-                }
+            Column(Modifier.weight(1f).padding(end = 4.dp), horizontalAlignment = Alignment.End) {
                 Text(
                     title, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    style = TextStyle(fontFamily = Tourney, fontWeight = FontWeight.Bold, fontSize = if (icons != null) 22.sp else 28.sp, brush = cb.grad),
+                    style = TextStyle(fontFamily = Tourney, fontWeight = FontWeight.Bold, fontSize = 28.sp, brush = cb.grad),
                 )
                 Text(count, style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 1.sp, color = cb.inkDim))
             }
+            if (icons != null) HeaderIcon(Icon.SETTINGS, "Settings", icons.onSettings)
         }
         if (onBack != null) {
             Text(

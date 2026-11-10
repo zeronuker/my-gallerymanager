@@ -54,10 +54,6 @@ private const val FROM_VIDEOS = 1
 private const val FROM_ALBUM = 2
 private const val FROM_LIBRARY = 3 // Files, or another app opening one file
 
-private const val NO_OVERLAY = 0
-private const val TRASH = 1
-private const val SETTINGS = 2
-
 /** [openUri] is set when another app opened a photo/video with us ("Open with"); closing the viewer then returns to that app. */
 @Composable
 fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, onChanged: () -> Unit) {
@@ -66,7 +62,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     val scope = rememberCoroutineScope()
     val mainPager = rememberPagerState { mainTabs.size } // Gallery <-> Files
     val galleryPager = rememberPagerState { galleryTabs.size } // Images <-> Videos <-> Albums
-    var overlay by rememberSaveable { mutableIntStateOf(NO_OVERLAY) } // trash or settings, shown over the tabs
+    var showSettings by rememberSaveable { mutableStateOf(false) } // settings, shown over the tabs
     var openAlbum by rememberSaveable { mutableStateOf<Long?>(null) }
     var viewerFrom by rememberSaveable { mutableIntStateOf(FROM_LIBRARY) }
     var viewerId by rememberSaveable {
@@ -103,10 +99,10 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     }
     fun openFrom(from: Int) = { m: MediaItem -> viewerFrom = from; viewerId = m.id }
     val closeViewer = { viewerId = null; if (openUri != null) (context as? Activity)?.finish() }
-    val shortcuts = remember { Shortcuts(onTrash = { overlay = TRASH }, onSettings = { overlay = SETTINGS }) }
+    val shortcuts = remember { Shortcuts(onSettings = { showSettings = true }) }
 
-    BackHandler(enabled = overlay != NO_OVERLAY) { overlay = NO_OVERLAY }
-    BackHandler(enabled = album != null && overlay == NO_OVERLAY) { openAlbum = null }
+    BackHandler(enabled = showSettings) { showSettings = false }
+    BackHandler(enabled = album != null && !showSettings) { openAlbum = null }
     BackHandler(enabled = viewerId != null) { closeViewer() }
 
     Box(Modifier.fillMaxSize()) {
@@ -128,22 +124,21 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
                                 }
                             }
                         } else {
-                            FilesScreen(items, backEnabled = viewerId == null && editing == null && collage == null && join == null && overlay == NO_OVERLAY, onChanged, onDeep = { filesDeep = it }, onOpenMedia = openFrom(FROM_LIBRARY))
+                            FilesScreen(items, trash, backEnabled = viewerId == null && editing == null && collage == null && join == null && !showSettings, onChanged, onDeep = { filesDeep = it }, onOpenMedia = openFrom(FROM_LIBRARY))
                         }
                     }
                 }
-                if (overlay != NO_OVERLAY) {
+                if (showSettings) {
                     // an opaque layer over the tabs; the clickable swallows taps so nothing behind it reacts
                     Box(Modifier.fillMaxSize().cbGrid(cb).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}) {
-                        if (overlay == TRASH) TrashScreen(trash, onChanged, onBack = { overlay = NO_OVERLAY })
-                        else SettingsScreen(favorites, onBack = { overlay = NO_OVERLAY })
+                        SettingsScreen(favorites, onBack = { showSettings = false })
                     }
                 }
             }
             Row(Modifier.fillMaxWidth().background(cb.surface1).navigationBarsPadding()) {
                 mainTabs.forEachIndexed { i, label ->
                     TabButton(label, selected = mainPager.currentPage == i) {
-                        overlay = NO_OVERLAY
+                        showSettings = false
                         if (i == 0) openAlbum = null
                         scope.launch { mainPager.animateScrollToPage(i) }
                     }

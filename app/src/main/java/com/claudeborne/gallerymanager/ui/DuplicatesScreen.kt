@@ -37,7 +37,7 @@ import java.io.File
 
 /**
  * Files with identical content. Tap a copy to select it (at least one copy of each file always stays), long-press to open it,
- * or use SELECT EXTRAS to keep only the oldest copy of everything. Deleting moves the copies to the bin.
+ * or use SELECT EXTRAS to keep only the oldest copy of everything. Deleting moves the copies to the trash.
  */
 @Composable
 internal fun DuplicatesScreen(roots: List<File>, backEnabled: Boolean, onClose: () -> Unit, onOpen: (File) -> Unit, onChanged: () -> Unit) {
@@ -118,17 +118,17 @@ internal fun DuplicatesScreen(roots: List<File>, backEnabled: Boolean, onClose: 
     }
 
     erase?.let { files ->
-        CbDialog("MOVE TO BIN", { erase = null }) {
+        CbDialog("MOVE TO TRASH", { erase = null }) {
             Text(
-                "Move ${files.size} ${if (files.size == 1) "copy" else "copies"} (${size(files.sumOf { sizeOf[it.path] ?: 0 })}) to the bin? You can restore ${if (files.size == 1) "it" else "them"} for $BIN_DAYS days.",
+                "Move ${files.size} ${if (files.size == 1) "copy" else "copies"} (${size(files.sumOf { sizeOf[it.path] ?: 0 })}) to the trash? You can restore ${if (files.size == 1) "it" else "them"} for $BIN_DAYS days.",
                 style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2),
             )
             Row(Modifier.fillMaxWidth(), Arrangement.End) {
                 ActionText("CANCEL", cb.inkDim) { erase = null }
-                ActionText("MOVE TO BIN", RED) {
+                ActionText("MOVE TO TRASH", RED) {
                     erase = null
                     scope.launch {
-                        Toast.makeText(context, "Moved ${moveToBin(context, files)} to the bin", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Moved ${moveToBin(context, files)} to the trash", Toast.LENGTH_SHORT).show()
                         // what is gone leaves its group; a group left with one file is no longer a duplicate
                         groups = list.orEmpty().map { g -> DupGroup(g.size, g.files.filter { it.exists() }) }.filter { it.files.size > 1 }
                         selected = emptySet()

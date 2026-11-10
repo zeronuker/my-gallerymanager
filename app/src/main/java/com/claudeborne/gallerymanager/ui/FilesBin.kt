@@ -52,92 +52,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** What was deleted in the Files tab: restore it, or erase it for good. [onChanged] fires after a restore so the library follows. */
-@Composable
-internal fun BinView(backEnabled: Boolean, onBack: () -> Unit, onChanged: () -> Unit) {
-    val cb = LocalCb.current
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var rows by remember { mutableStateOf<List<Pair<BinItem, Entry>>>(emptyList()) }
-    var selected by rememberSaveable { mutableStateOf(emptySet<String>()) }
-    var refresh by remember { mutableIntStateOf(0) }
-    var erase by remember { mutableStateOf<List<BinItem>?>(null) } // what a confirm dialog is about to erase
-    var detail by remember { mutableStateOf<String?>(null) } // id of the item open full-screen
-
-    LaunchedEffect(refresh) { rows = withContext(Dispatchers.IO) { listBin(context).map { it to entryOf(it.file) } } }
-    val chosen = rows.map { it.first }.filter { it.id in selected }
-    BackHandler(enabled = backEnabled) { if (detail != null) detail = null else if (chosen.isNotEmpty()) selected = emptySet() else onBack() }
-
-    Box(Modifier.fillMaxSize()) { // the detail page draws over the list
-    Column(Modifier.fillMaxSize()) {
-        ScreenHeader("BIN", if (chosen.isEmpty()) "${rows.size} ITEMS" else "${chosen.size} SELECTED", onBack, "FILES")
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Items are removed for good after $BIN_DAYS days.", Modifier.weight(1f).padding(horizontal = 16.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim))
-            if (rows.isNotEmpty()) ActionText("EMPTY BIN", RED) { erase = rows.map { it.first } }
-        }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (rows.isEmpty()) {
-                Text("THE BIN IS EMPTY", Modifier.align(Alignment.Center), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
-            } else {
-                LazyColumn(Modifier.fillMaxSize()) {
-                    items(rows, key = { it.first.id }) { (item, entry) ->
-                        val size = if (entry.isDir) "FOLDER" else Formatter.formatShortFileSize(context, entry.size).uppercase()
-                        ListRow(
-                            // a tap looks at the item before deciding; a long press, or a tap once something is selected, selects it
-                            entry, item.id in selected, onClick = { if (selected.isEmpty()) detail = item.id else selected = toggle(selected, item.id) }, onLongClick = { selected = toggle(selected, item.id) },
-                            note = "$size · DELETED ${dateText(item.deletedMs)}", path = "FROM ${item.origin.parent.orEmpty()}",
-                        )
-                    }
-                }
-            }
-        }
-        if (chosen.isNotEmpty()) {
-            ActionBar(
-                listOf(
-                    BarItem("ALL", cb.inkDim) { selected = rows.map { it.first.id }.toSet() },
-                    BarItem("RESTORE", cb.mint) {
-                        scope.launch {
-                            Toast.makeText(context, "Restored ${restoreFromBin(context, chosen)}", Toast.LENGTH_SHORT).show()
-                            selected = emptySet(); refresh++; onChanged()
-                        }
-                    },
-                    BarItem("DELETE", RED) { erase = chosen },
-                ),
-            )
-        }
-    }
-
-    rows.firstOrNull { it.first.id == detail }?.let { (item, entry) ->
-        BinDetail(
-            item, entry, onClose = { detail = null },
-            onRestore = { scope.launch { Toast.makeText(context, "Restored ${restoreFromBin(context, listOf(item))}", Toast.LENGTH_SHORT).show(); detail = null; refresh++; onChanged() } },
-            onDelete = { erase = listOf(item) },
-        )
-    }
-    }
-
-    erase?.let { items ->
-        CbDialog("DELETE FOR GOOD", { erase = null }) {
-            Text(
-                "Erase ${if (items.size == 1) items[0].file.name else "${items.size} items"} for good? This cannot be undone.",
-                style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2),
-            )
-            Row(Modifier.fillMaxWidth(), Arrangement.End) {
-                ActionText("CANCEL", cb.inkDim) { erase = null }
-                ActionText("DELETE", RED) {
-                    erase = null
-                    scope.launch { deleteFromBin(context, items); selected = emptySet(); detail = null; refresh++ }
-                }
-            }
-        }
-    }
-}
-
 private const val DAY_MS = 86_400_000L
 
 /** One deleted file, big: a preview where there is one (picture, video frame, PDF first page, start of a text file) and its details, with restore and delete forever. */
 @Composable
-private fun BinDetail(item: BinItem, entry: Entry, onClose: () -> Unit, onRestore: () -> Unit, onDelete: () -> Unit) {
+internal fun BinDetail(item: BinItem, entry: Entry, onClose: () -> Unit, onRestore: () -> Unit, onDelete: () -> Unit) {
     val cb = LocalCb.current
     val context = LocalContext.current
     val file = item.file
