@@ -5,6 +5,12 @@ import android.provider.MediaStore
 import android.text.format.Formatter
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -92,7 +98,8 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
     var binDetail by remember { mutableStateOf<String?>(null) } // key of the bin file open full-screen
     var mediaView by remember { mutableStateOf<Long?>(null) } // id of the photo or video open full-screen
 
-    LaunchedEffect(refresh) { bin = withContext(Dispatchers.IO) { listBin(context).map { BinRow(it, entryOf(it.file)) } } }
+    var loaded by remember { mutableStateOf(false) }
+    LaunchedEffect(refresh) { bin = withContext(Dispatchers.IO) { listBin(context).map { BinRow(it, entryOf(it.file)) } }; loaded = true }
     val rows = remember(bin, media) { (bin + media.map(::MediaRow)).sortedByDescending { it.deletedMs } }
     val chosen = rows.filter { it.key in selected }
     fun toggle(key: String) { selected = if (key in selected) selected - key else selected + key }
@@ -122,11 +129,13 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
             ScreenHeader("TRASH", if (chosen.isEmpty()) "${rows.size} ITEMS" else "${chosen.size} SELECTED", onBack, "FILES")
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Items are removed for good after about 30 days.", Modifier.weight(1f).padding(horizontal = 16.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim))
-                if (rows.isNotEmpty()) ActionText("EMPTY TRASH", RED) { erase = rows }
+                AnimatedVisibility(rows.isNotEmpty(), enter = fadeIn(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_FAST_MS))) { ActionText("EMPTY TRASH", RED) { erase = rows } }
             }
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                if (rows.isEmpty()) {
-                    Text("THE TRASH IS EMPTY", Modifier.align(Alignment.Center), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
+            Crossfade(if (!loaded && rows.isEmpty()) 0 else if (rows.isEmpty()) 1 else 2, Modifier.weight(1f).fillMaxWidth(), animationSpec = tween(MOTION_MS), label = "trash") { state ->
+                if (state == 0) {
+                    LoadingPane("LOADING THE TRASH")
+                } else if (state == 1) {
+                    Box(Modifier.fillMaxSize(), Alignment.Center) { Text("THE TRASH IS EMPTY", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim)) }
                 } else {
                     LazyColumn(Modifier.fillMaxSize()) {
                         items(rows, key = { it.key }) { row ->
@@ -135,6 +144,7 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
                                 if (selected.isNotEmpty()) toggle(row.key)
                                 else if (row is BinRow) binDetail = row.key else if (row is MediaRow) mediaView = row.item.id
                             }
+                            Box(Modifier.animateItem()) {
                             when (row) {
                                 is BinRow -> {
                                     val size = if (row.entry.isDir) "FOLDER" else Formatter.formatShortFileSize(context, row.entry.size).uppercase()
@@ -145,11 +155,12 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
                                 }
                                 is MediaRow -> MediaTrashRow(row.item, row.key in selected, onClick) { toggle(row.key) }
                             }
+                            }
                         }
                     }
                 }
             }
-            if (chosen.isNotEmpty()) {
+            AnimatedVisibility(chosen.isNotEmpty(), enter = barEnter, exit = barExit) {
                 ActionBar(
                     listOf(
                         BarItem("ALL", cb.inkDim) { selected = rows.map { it.key }.toSet() },
@@ -159,10 +170,10 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
                 )
             }
         }
-        (rows.firstOrNull { it.key == binDetail } as? BinRow)?.let { row ->
+        AnimatedOverlay(rows.firstOrNull { it.key == binDetail } as? BinRow) { row ->
             BinDetail(row.item, row.entry, onClose = { binDetail = null }, onRestore = { restore(listOf(row)) }, onDelete = { erase = listOf(row) })
         }
-        mediaView?.let { id ->
+        AnimatedOverlay(mediaView) { id ->
             TrashViewer(media, id, onRestore = { askAndroid(listOf(it), restore = true) }, onDelete = { askAndroid(listOf(it), restore = false) }, onClose = { mediaView = null })
         }
     }
@@ -193,7 +204,7 @@ internal fun ActionText(label: String, color: Color, onClick: () -> Unit) {
     Text(
         label,
         Modifier.clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
-        style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.2.sp, color = color),
+        style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.2.sp, color = animateColorAsState(color, tween(MOTION_FAST_MS), label = "action").value),
     )
 }
 
@@ -212,10 +223,10 @@ private fun MediaTrashRow(item: MediaItem, selected: Boolean, onClick: () -> Uni
     val context = LocalContext.current
     val left = daysLeft(item)
     Row(
-        Modifier.fillMaxWidth().background(if (selected) cb.surface2 else Color.Transparent).combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 16.dp, vertical = 6.dp),
+        Modifier.fillMaxWidth().background(glide(selected, cb.surface2, Color.Transparent)).combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(Modifier.size(48.dp).background(cb.surface2).then(if (selected) Modifier.border(2.dp, cb.mint) else Modifier)) {
+        Box(Modifier.size(48.dp).background(cb.surface2).border(2.dp, glide(selected, cb.mint, Color.Transparent))) {
             AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
         Column(Modifier.weight(1f)) {

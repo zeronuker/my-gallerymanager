@@ -17,5 +17,6 @@ class GalleryApp : Application(), ImageLoaderFactory {
     // video decoder lets Coil render video thumbnails like photos
     override fun newImageLoader() = ImageLoader.Builder(this)
         .components { add(VideoFrameDecoder.Factory()) }
+        .crossfade(true) // thumbnails and pictures fade in instead of popping
         .build()
 }

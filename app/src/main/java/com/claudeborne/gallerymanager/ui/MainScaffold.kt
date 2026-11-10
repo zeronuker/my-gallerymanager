@@ -4,6 +4,13 @@ import android.app.Activity
 import android.content.ContentUris
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -114,11 +121,17 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
                             when {
                                 sub == 0 -> PhotosScreen(images, "IMAGES", tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, gridState = imagesGrid, empty = "NO IMAGES", belowHeader = subTabs, onOpen = openFrom(FROM_IMAGES))
                                 sub == 1 -> PhotosScreen(videos, "VIDEOS", tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, gridState = videosGrid, empty = "NO VIDEOS", belowHeader = subTabs, onOpen = openFrom(FROM_VIDEOS))
-                                album != null -> key(album) {
-                                    val title = if (album == FAVORITES_ID) "FAVORITES" else inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM"
-                                    PhotosScreen(inAlbum, title, tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, onBack = { openAlbum = null }, onOpen = openFrom(FROM_ALBUM))
+                                // opening an album slides it in over the albums list; closing slides it back out
+                                else -> AnimatedContent(
+                                    album,
+                                    transitionSpec = { if (targetState != null) pushEnter togetherWith fadeOut(tween(MOTION_FAST_MS)) else fadeIn(tween(MOTION_MS)) togetherWith pushExit },
+                                    label = "album",
+                                ) { a ->
+                                    if (a != null) key(a) {
+                                        val title = if (a == FAVORITES_ID) "FAVORITES" else inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM"
+                                        PhotosScreen(inAlbum, title, tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, onBack = { openAlbum = null }, onOpen = openFrom(FROM_ALBUM))
+                                    } else AlbumsScreen(items, favorites.ids, tools, onChanged, subTabs) { openAlbum = it }
                                 }
-                                else -> AlbumsScreen(items, favorites.ids, tools, onChanged, subTabs) { openAlbum = it }
                             }
                         }
                     } else {
@@ -137,17 +150,19 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
             }
         }
 
-        viewerId?.let { id ->
+        AnimatedOverlay(viewerId) { id ->
             Viewer(viewerItems, id, tools, favorites, onPageChange = { viewerId = it }, onChanged = onChanged, onEdit = { editing = it }, onClose = closeViewer)
         }
         // the shelf is over the tabs, the viewer and the Files tools; the editors below cover it, since opening Settings mid-edit could lose work
-        if (!showSettings) Shelf { showSettings = true }
-        join?.let { JoinScreen(it, onClose = { join = null }, onSaved = { join = null; onChanged() }) }
-        collage?.let { CollageScreen(it, onClose = { collage = null }, onSaved = { collage = null; onChanged() }) }
-        editing?.let { if (it.isVideo) VideoEditor(it, onClose = { editing = null }, onSaved = { editing = null; onChanged() }, onLibraryChanged = onChanged) else Editor(it, tools, onClose = { editing = null }, onSaved = { editing = null; onChanged() }) }
+        AnimatedVisibility(!showSettings, Modifier.fillMaxSize(), enter = fadeIn(tween(MOTION_MS)), exit = fadeOut(tween(MOTION_FAST_MS))) {
+            Box(Modifier.fillMaxSize()) { Shelf { showSettings = true } }
+        }
+        AnimatedOverlay(join) { JoinScreen(it, onClose = { join = null }, onSaved = { join = null; onChanged() }) }
+        AnimatedOverlay(collage) { CollageScreen(it, onClose = { collage = null }, onSaved = { collage = null; onChanged() }) }
+        AnimatedOverlay(editing) { if (it.isVideo) VideoEditor(it, onClose = { editing = null }, onSaved = { editing = null; onChanged() }, onLibraryChanged = onChanged) else Editor(it, tools, onClose = { editing = null }, onSaved = { editing = null; onChanged() }) }
         FileToolDialogs(tools)
-        if (showSettings) {
-            // a full screen over everything, the viewer included; the clickable swallows taps so nothing behind it reacts
+        // a full screen over everything, the viewer included; the clickable swallows taps so nothing behind it reacts
+        AnimatedVisibility(showSettings, Modifier.fillMaxSize(), enter = overlayEnter, exit = overlayExit) {
             Box(Modifier.fillMaxSize().cbGrid(cb).statusBarsPadding().navigationBarsPadding().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}) {
                 SettingsScreen(favorites, onBack = { showSettings = false })
             }
@@ -169,10 +184,10 @@ private fun SubTabs(pager: PagerState) {
                     style = TextStyle(
                         fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.2.sp,
                         fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                        color = if (selected) cb.mint else cb.inkDim,
+                        color = glide(selected, cb.mint, cb.inkDim),
                     ),
                 )
-                Box(Modifier.fillMaxWidth().height(2.dp).background(if (selected) cb.grad else SolidColor(cb.line)))
+                TabUnderline(selected)
             }
         }
     }
@@ -182,14 +197,14 @@ private fun SubTabs(pager: PagerState) {
 private fun RowScope.TabButton(label: String, selected: Boolean, onClick: () -> Unit) {
     val cb = LocalCb.current
     Column(Modifier.weight(1f).height(52.dp).clickable(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.fillMaxWidth().height(2.dp).background(if (selected) cb.grad else SolidColor(cb.line)))
+        TabUnderline(selected)
         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
             Text(
                 label,
                 style = TextStyle(
                     fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.2.sp,
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                    color = if (selected) cb.mint else cb.inkDim,
+                    color = glide(selected, cb.mint, cb.inkDim),
                 ),
             )
         }

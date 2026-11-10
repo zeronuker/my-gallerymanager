@@ -8,7 +8,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.wifi.WifiManager
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
 
@@ -19,16 +21,35 @@ class TransferService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private val handler = Handler(Looper.getMainLooper())
+    private val ticker = object : Runnable {
+        override fun run() {
+            getSystemService(NotificationManager::class.java).notify(1, build())
+            handler.postDelayed(this, 700)
+        }
+    }
+
+    /** The notification shows a progress bar over the files moving right now, so a transfer can be followed with the app in the background. */
+    private fun build(): Notification {
+        val active = TransferHub.items.filter { !it.finished && it.error == null }
+        val builder = Notification.Builder(this, CHANNEL)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle("Altus Cirrus transfer")
+            .setOngoing(true)
+        if (active.isEmpty()) return builder.setContentText("Waiting for files").build()
+        val size = active.sumOf { it.size }
+        val done = active.sumOf { it.done }
+        val text = "${active.size} ${if (active.size == 1) "file" else "files"} moving"
+        return if (size > 0) builder.setContentText("$text · ${(done * 100 / size).toInt()}%").setProgress(100, (done * 100 / size).toInt(), false).build()
+        else builder.setContentText(text).setProgress(0, 0, true).build() // size not known, so the bar sweeps
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "File transfer", NotificationManager.IMPORTANCE_LOW))
-        val notification = Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("Altus Cirrus transfer")
-            .setContentText("Transferring files")
-            .setOngoing(true)
-            .build()
-        startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        startForeground(1, build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        handler.removeCallbacks(ticker)
+        handler.postDelayed(ticker, 700)
         if (wifiLock == null) {
             wifiLock = getSystemService(WifiManager::class.java).createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "gm:transfer").apply { setReferenceCounted(false); acquire() }
             wakeLock = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "gm:transfer").apply { setReferenceCounted(false); acquire(2 * 60 * 60 * 1000L) }
@@ -37,6 +58,7 @@ class TransferService : Service() {
     }
 
     override fun onDestroy() {
+        handler.removeCallbacks(ticker)
         wifiLock?.release()
         wakeLock?.release()
     }

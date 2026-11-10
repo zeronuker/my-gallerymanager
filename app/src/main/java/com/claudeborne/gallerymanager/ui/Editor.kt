@@ -29,6 +29,9 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -161,6 +164,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
 
     var showOriginal by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
+    var enhancing by remember { mutableStateOf(false) } // AUTO is working out the adjustments
     var dialog by remember { mutableIntStateOf(0) } // 1 save options, 2 discard
 
     fun close() { if (at > 0) dialog = 2 else onClose() }
@@ -219,7 +223,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 val bmp = bitmap
                 if (bmp == null) {
-                    Text("LOADING", Modifier.align(Alignment.Center), style = monoStyle(DarkCb.inkDim, 2.6.sp))
+                    LoadingPane("LOADING PHOTO", null, Modifier.align(Alignment.Center))
                 } else {
                     EditCanvas(
                         bmp, if (showOriginal) EditState() else state, cropMode = tool == 0 && !showOriginal, aspect,
@@ -268,15 +272,16 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                 Row(Modifier.fillMaxWidth()) {
                     listOf("CROP", "ADJUST", "FILTERS", "MARKUP", "RETOUCH", "CUTOUT").forEachIndexed { i, label ->
                         Column(Modifier.weight(1f).clickable { tool = i; selected = -1 }, horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box(Modifier.fillMaxWidth().height(2.dp).background(if (tool == i) DarkCb.mint else Color.Transparent))
-                            Text(label, Modifier.padding(vertical = 12.dp), style = monoStyle(if (tool == i) DarkCb.mint else DarkCb.inkDim, 2.2.sp))
+                            Box(Modifier.fillMaxWidth().height(2.dp).background(glide(tool == i, DarkCb.mint, Color.Transparent)))
+                            Text(label, Modifier.padding(vertical = 12.dp), style = monoStyle(glide(tool == i, DarkCb.mint, DarkCb.inkDim), 2.2.sp))
                         }
                     }
                 }
-                // a selected text or sticker has one more slider, so the panel is taller then
-                Box(Modifier.fillMaxWidth().height(if (tool == 3 && selMark != null) 200.dp else if (tool == 1) when (adv) { ADV_LEVELS -> 250.dp; ADV_CURVES -> 330.dp; ADV_COLOUR -> 270.dp; else -> 190.dp } else 150.dp)) {
+                // a selected text or sticker has one more slider, so the panel is taller then; the height glides between tools
+                val panelHeight by animateDpAsState(if (tool == 3 && selMark != null) 200.dp else if (tool == 1) when (adv) { ADV_LEVELS -> 250.dp; ADV_CURVES -> 330.dp; ADV_COLOUR -> 270.dp; else -> 190.dp } else 150.dp, tween(MOTION_MS), label = "panel")
+                Box(Modifier.fillMaxWidth().height(panelHeight)) {
                     val bmp = bitmap
-                    if (bmp != null) when (tool) {
+                    if (bmp != null) Crossfade(tool, animationSpec = tween(MOTION_FAST_MS), label = "tool") { shownTool -> when (shownTool) {
                         0 -> CropPanel(
                             state, aspect,
                             onAspect = { a ->
@@ -306,7 +311,10 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                             onChange = { live = state.with(which, it, adjScope) }, onDone = { live?.let(::commit) },
                             onAuto = {
                                 val base = state
-                                scope.launch { commit(base.copy(adjust = base.adjust + withContext(Dispatchers.Default) { autoEnhance(bmp) })) }
+                                scope.launch {
+                                    enhancing = true
+                                    try { commit(base.copy(adjust = base.adjust + withContext(Dispatchers.Default) { autoEnhance(bmp) })) } finally { enhancing = false }
+                                }
                             },
                             onReset = {
                                 commit(
@@ -361,7 +369,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                             onBlur = { live = state.copy(backdrop = Backdrop.BLUR, backdropBlur = it) }, onBlurDone = { live?.let(::commit) },
                             onColor = { commit(state.copy(backdrop = Backdrop.COLOR, backdropColor = it)) },
                         )
-                    }
+                    } }
                 }
             }
         }
@@ -403,11 +411,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                 onCancel = { editText = false },
             )
         }
-        if (saving) {
-            Box(Modifier.fillMaxSize().background(Color(0xCC000000)).pointerInput(Unit) { detectTapGestures { } }, Alignment.Center) {
-                Text("SAVING…", style = monoStyle(DarkCb.mint, 2.6.sp))
-            }
-        }
+        BusyOverlay(saving || enhancing, if (saving) "SAVING…" else "ENHANCING…", null)
     }
 }
 
@@ -548,8 +552,8 @@ private fun CropOverlay(crop: Crop, lock: Float?, frameAspect: Float, onChange: 
 internal fun Chip(label: String, selected: Boolean = false, color: Color = DarkCb.inkDim, onClick: () -> Unit) {
     Text(
         label,
-        Modifier.clickable(onClick = onClick).background(if (selected) DarkCb.surface3 else Color.Transparent).padding(horizontal = 10.dp, vertical = 8.dp),
-        style = monoStyle(if (selected) DarkCb.mint else color, 1.6.sp),
+        Modifier.clickable(onClick = onClick).background(glide(selected, DarkCb.surface3, Color.Transparent)).padding(horizontal = 10.dp, vertical = 8.dp),
+        style = monoStyle(glide(selected, DarkCb.mint, color), 1.6.sp),
     )
 }
 
@@ -609,10 +613,8 @@ private fun AdjustPanel(
             }
         }
         if (scope != Scope.ALL && !found) {
-            Text(
-                if (tried) "NO SUBJECT FOUND IN THIS PICTURE." else "FINDING THE SUBJECT...",
-                Modifier.padding(horizontal = 16.dp), style = monoStyle(DarkCb.inkDim, 0.6.sp),
-            )
+            if (tried) Text("NO SUBJECT FOUND IN THIS PICTURE.", Modifier.padding(horizontal = 16.dp), style = monoStyle(DarkCb.inkDim, 0.6.sp))
+            else WorkingLine("FINDING THE SUBJECT...", null, DarkCb.inkDim)
         } else {
             val v = st.value(which, scope)
             EditSlider(which.label, v, which.min..1f, "%+d".format((v * 100).roundToInt()), onChange, onDone) { onChange(0f); onDone() }

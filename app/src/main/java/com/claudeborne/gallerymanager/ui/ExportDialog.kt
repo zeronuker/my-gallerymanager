@@ -1,6 +1,7 @@
 package com.claudeborne.gallerymanager.ui
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -69,6 +70,8 @@ fun ExportDialog(item: MediaItem, stripLocation: Boolean, onClose: () -> Unit, o
         if (hasGps) Chip(if (strip) "✓ LOCATION WILL BE REMOVED" else "REMOVE LOCATION", strip, color = DarkCb.ink) { strip = !strip }
         else Text("NO LOCATION IN THIS PHOTO", style = monoStyle(DarkCb.inkDim, 1.2.sp))
 
+        // the AI upscale reports how far it is; the plain resize does not, so its bar sweeps
+        AnimatedVisibility(saving, enter = expandEnter, exit = shrinkExit) { ProgressBar(if (ai) progress else null) }
         Row(Modifier.fillMaxWidth(), Arrangement.End) {
             ActionText("CANCEL", DarkCb.inkDim) { if (saving) job?.cancel() else onClose() }
             ActionText(if (saving) (if (ai) "${(progress * 100).roundToInt()}%" else "SAVING…") else "SAVE COPY", DarkCb.mint) {

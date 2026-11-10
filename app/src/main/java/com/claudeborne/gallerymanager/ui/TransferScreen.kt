@@ -8,6 +8,12 @@ import android.os.SystemClock
 import android.text.format.Formatter
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -186,7 +192,7 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
             "TRANSFER", if (speed > 0) "${Formatter.formatShortFileSize(context, speed).uppercase()}/S" else when (mode) { Mode.HOME -> "WI-FI"; Mode.RECEIVE -> "RECEIVING"; Mode.COMPUTER -> "TO A COMPUTER"; Mode.PHONE -> "TO A PHONE" },
             { if (mode != Mode.HOME) mode = Mode.HOME else onClose() }, if (mode != Mode.HOME) "TRANSFER" else "FILES",
         )
-        when (mode) {
+        AnimatedContent(mode, Modifier.weight(1f), transitionSpec = { fadeIn(tween(MOTION_MS)) togetherWith fadeOut(tween(MOTION_FAST_MS)) }, label = "transferMode") { shown -> when (shown) {
             Mode.HOME -> Column {
                 if (files.isNotEmpty()) {
                     Text("${files.size} FILES · ${Formatter.formatShortFileSize(context, total).uppercase()} READY TO SEND", Modifier.padding(16.dp), style = monoStyle(cb.mint, 1.sp))
@@ -209,20 +215,24 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
                     Modifier.padding(16.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim),
                 )
             }
-            Mode.RECEIVE, Mode.COMPUTER -> Box(Modifier.weight(1f)) {
+            Mode.RECEIVE, Mode.COMPUTER -> Box(Modifier.fillMaxSize()) {
                 Progress(rows) {
-                    Connection(tick, group, if (mode == Mode.COMPUTER) "On the computer, open this address in a browser. Or scan the code with this app on another phone." else "On the computer, open this address in a browser to send files here. Or scan the code with this app on another phone.")
-                    when {
-                        group != null -> ActionText("STOP DIRECT LINK", cb.inkDim) { link.stop(); group = null }
-                        linkBusy -> Text("STARTING THE DIRECT LINK…", Modifier.padding(horizontal = 16.dp, vertical = 10.dp), style = monoStyle(cb.inkDim, 1.sp))
-                        else -> ActionText("USE A DIRECT LINK (NO ROUTER, FASTER)", cb.mint) { requestDirect() }
+                    Connection(tick, group, if (shown == Mode.COMPUTER) "On the computer, open this address in a browser. Or scan the code with this app on another phone." else "On the computer, open this address in a browser to send files here. Or scan the code with this app on another phone.")
+                    Crossfade(if (group != null) 0 else if (linkBusy) 1 else 2, animationSpec = tween(MOTION_FAST_MS), label = "direct") { s ->
+                        when (s) {
+                            0 -> ActionText("STOP DIRECT LINK", cb.inkDim) { link.stop(); group = null }
+                            1 -> WorkingLine("STARTING THE DIRECT LINK…", null, cb.inkDim) // no percentage: Android gives none, so the bar sweeps
+                            else -> ActionText("USE A DIRECT LINK (NO ROUTER, FASTER)", cb.mint) { requestDirect() }
+                        }
                     }
-                    linkError?.let { Text(it, Modifier.padding(horizontal = 16.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = RED)) }
+                    AnimatedOverlay(linkError, expandEnter, shrinkExit) { Text(it, Modifier.padding(horizontal = 16.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = RED)) }
                 }
             }
-            Mode.PHONE -> Box(Modifier.weight(1f)) {
+            Mode.PHONE -> Box(Modifier.fillMaxSize()) {
                 Progress(rows) {
-                    joinHelp?.let { Text(it, Modifier.padding(16.dp), style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = if (sending) cb.mint else RED)) }
+                    AnimatedOverlay(joinHelp, expandEnter, shrinkExit) { Text(it, Modifier.padding(16.dp), style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = if (sending) cb.mint else RED)) }
+                    // sending, joining the other phone's network or waiting for it to accept: none of these has a percentage, so the bar sweeps
+                    Visible(sending, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), expandEnter, shrinkExit) { ProgressBar(null) }
                     val now = System.currentTimeMillis()
                     val peers = remember(tick) { LocalSend.peers.values.filter { now - it.seen < 120_000 }.sortedBy { it.alias } }
                     Text("NEARBY DEVICES", Modifier.padding(start = 16.dp, top = 8.dp), style = monoStyle(cb.mint, 2.4.sp))
@@ -247,7 +257,7 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
                     }
                 }
             }
-        }
+        } }
     }
 
     // another device (the LocalSend app, or one like it) wants to send files: nothing is saved until the user says yes
@@ -284,6 +294,8 @@ private fun parseAddress(text: String): Target? {
 private fun Connection(tick: Int, group: DirectGroup?, help: String) {
     val cb = LocalCb.current
     val urls = remember(tick, group) { if (TransferHub.running) TransferHub.addresses() else emptyList() }
+    val state = if (group != null && TransferHub.running) 0 else if (urls.isEmpty()) 1 else 2
+    Crossfade(state, animationSpec = tween(MOTION_MS), label = "connection") { _ ->
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         if (group != null && TransferHub.running) {
             val plain = "http://${group.host}:${TransferHub.port}/?t=${TransferHub.token}"
@@ -296,7 +308,8 @@ private fun Connection(tick: Int, group: DirectGroup?, help: String) {
             return@Column
         }
         if (urls.isEmpty()) {
-            Text(if (TransferHub.running) "NO WI-FI CONNECTION" else "STARTING…", style = monoStyle(cb.inkDim, 2.sp))
+            if (TransferHub.running) Text("NO WI-FI CONNECTION", style = monoStyle(cb.inkDim, 2.sp))
+            else WorkingLine("STARTING…", null, cb.inkDim)
             return@Column
         }
         Text(help, style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
@@ -307,6 +320,7 @@ private fun Connection(tick: Int, group: DirectGroup?, help: String) {
         Image(qr, "QR code", Modifier.size(200.dp).background(androidx.compose.ui.graphics.Color.White), filterQuality = FilterQuality.None)
         // other networks this phone is on: a USB cable (tethering) or a hotspot give a faster way in than the router
         urls.drop(1).forEach { (label, url) -> Text("$label  $url", style = monoStyle(cb.inkDim, 0.6.sp), textAlign = TextAlign.Center) }
+    }
     }
 }
 
@@ -325,11 +339,10 @@ private fun Progress(rows: List<TransferHub.Item>, header: @Composable () -> Uni
         item { header() }
         items(rows.size) { i ->
             val it = rows[i]
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+            Column(Modifier.appear().fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
                 Text("${if (it.incoming) "↓" else "↑"} ${it.name}", maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = cb.ink))
-                Box(Modifier.fillMaxWidth().height(4.dp).background(cb.line)) {
-                    Box(Modifier.fillMaxWidth(if (it.size > 0) (it.done.toFloat() / it.size).coerceIn(0f, 1f) else 1f).fillMaxHeight().background(if (it.error != null) RED else cb.mint))
-                }
+                // the bar is redrawn twice a second; it glides between updates
+                ProgressBar(if (it.size > 0) (it.done.toFloat() / it.size).coerceIn(0f, 1f) else 1f, color = if (it.error != null) RED else cb.mint, track = cb.line)
                 Text(
                     it.error?.let { e -> "FAILED · $e" } ?: "${Formatter.formatShortFileSize(context, it.done).uppercase()} OF ${Formatter.formatShortFileSize(context, it.size).uppercase()}${if (it.finished) " · DONE" else ""}",
                     style = monoStyle(if (it.error != null) RED else cb.inkDim, 0.6.sp),

@@ -7,6 +7,11 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.biometric.BiometricPrompt
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.runtime.remember
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -83,26 +88,30 @@ fun LockOverlay() {
     val context = LocalContext.current
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { AppLockState.onLeft() }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { AppLockState.onReturned() }
-    if (!AppLockState.locked) return
+    val locked = AppLockState.locked
 
-    var asking by mutableStateOf(false)
+    var asking by remember { mutableStateOf(false) }
     fun ask() {
         if (asking) return
         asking = true
         authenticate(context, "Unlock Altus Cirrus") { ok -> asking = false; if (ok) AppLockState.locked = false }
     }
-    LaunchedEffect(Unit) { ask() } // the prompt opens by itself; the button is for trying again after cancelling
+    LaunchedEffect(locked) { if (locked) ask() } // the prompt opens by itself; the button is for trying again after cancelling
 
     val cb = LocalCb.current
-    Box(Modifier.fillMaxSize().cbGrid(cb).pointerInput(Unit) { detectTapGestures { } }.systemBarsPadding(), Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(32.dp)) {
-            Text("CLAUDEBORNE", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.6.sp, color = cb.mint))
-            Text("LOCKED", style = TextStyle(fontFamily = Tourney, fontWeight = FontWeight.Bold, fontSize = 30.sp, brush = cb.grad))
-            Text(
-                "UNLOCK",
-                Modifier.background(cb.grad).clickable { ask() }.padding(horizontal = 24.dp, vertical = 12.dp),
-                style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 2.2.sp, color = DarkCb.surface0),
-            )
+    // fades in when the app locks and out when it unlocks
+    AnimatedVisibility(locked, enter = fadeIn(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_MS))) {
+        Box(Modifier.fillMaxSize().cbGrid(cb).pointerInput(Unit) { detectTapGestures { } }.systemBarsPadding(), Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(32.dp)) {
+                Text("CLAUDEBORNE", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.6.sp, color = cb.mint))
+                Text("LOCKED", style = TextStyle(fontFamily = Tourney, fontWeight = FontWeight.Bold, fontSize = 30.sp, brush = cb.grad))
+                Text(
+                    "UNLOCK",
+                    Modifier.background(cb.grad).clickable { ask() }.padding(horizontal = 24.dp, vertical = 12.dp),
+                    style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 2.2.sp, color = DarkCb.surface0),
+                )
+                if (asking) ProgressBar(null, Modifier.padding(horizontal = 24.dp)) // the system prompt is up: show that the app is waiting for it
+            }
         }
     }
 }

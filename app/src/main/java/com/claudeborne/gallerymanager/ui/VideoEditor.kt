@@ -303,7 +303,7 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
 
             val i = info
             if (i == null) {
-                Box(Modifier.fillMaxWidth().height(260.dp).background(Panel), Alignment.Center) { Text("LOADING", style = monoStyle(DarkCb.inkDim, 2.6.sp)) }
+                Box(Modifier.fillMaxWidth().height(260.dp).background(Panel), Alignment.Center) { LoadingPane("LOADING VIDEO") }
             } else {
                 Column(Modifier.fillMaxWidth().background(Panel).navigationBarsPadding()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -320,8 +320,8 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                     Row(Modifier.fillMaxWidth().padding(top = 4.dp).horizontalScroll(rememberScrollState())) {
                         listOf("TRIM", "SPEED", "AUDIO", "ROTATE", "CROP", "LOOK", "MARKUP", "FADE", "FREEZE", "COMPRESS").forEachIndexed { n, label ->
                             Column(Modifier.clickable { tool = n; selected = -1 }.padding(horizontal = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Box(Modifier.width(48.dp).height(2.dp).background(if (tool == n) DarkCb.mint else Color.Transparent))
-                                Text(label, Modifier.padding(vertical = 10.dp), style = monoStyle(if (tool == n) DarkCb.mint else DarkCb.inkDim, 0.8.sp).copy(fontSize = 10.sp))
+                                Box(Modifier.width(48.dp).height(2.dp).background(glide(tool == n, DarkCb.mint, Color.Transparent)))
+                                Text(label, Modifier.padding(vertical = 10.dp), style = monoStyle(glide(tool == n, DarkCb.mint, DarkCb.inkDim), 0.8.sp).copy(fontSize = 10.sp))
                             }
                         }
                     }
@@ -486,14 +486,9 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                 }
             }
         }
-        if (saving) {
-            Box(Modifier.fillMaxSize().background(Color(0xCC000000)).pointerInput(Unit) { detectTapGestures { } }, Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text("SAVING… ${(progress * 100).roundToInt()}%", style = monoStyle(DarkCb.mint, 2.6.sp))
-                    Text("KEEP THE APP OPEN. LONG VIDEOS TAKE A WHILE.", style = monoStyle(DarkCb.inkDim, 0.6.sp))
-                    ActionText("CANCEL", Danger) { job?.cancel() }
-                }
-            }
+        BusyOverlay(saving, "SAVING… ${(progress * 100).roundToInt()}%", progress) {
+            Text("KEEP THE APP OPEN. LONG VIDEOS TAKE A WHILE.", style = monoStyle(DarkCb.inkDim, 0.6.sp))
+            ActionText("CANCEL", Danger) { job?.cancel() }
         }
     }
 }
@@ -520,7 +515,7 @@ private fun TrimStrip(
         Row(Modifier.fillMaxSize()) {
             thumbs.forEach { b ->
                 Box(Modifier.weight(1f).fillMaxSize()) {
-                    if (b != null) Image(b.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    if (b != null) Image(b.asImageBitmap(), null, Modifier.appear().fillMaxSize(), contentScale = ContentScale.Crop) // each frame fades in as it is read
                 }
             }
         }

@@ -30,6 +30,8 @@ import kotlinx.coroutines.withContext
 import kotlin.math.ln
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -143,9 +145,7 @@ internal fun StorageMapScreen(
             ::back, when { chain.size <= 1 -> "FILES"; chain.size == 2 -> rootLabel; else -> chain[chain.size - 2].file.name }.uppercase(),
         )
         if (result == null || current == null) {
-            Box(Modifier.weight(1f).fillMaxWidth(), Alignment.Center) {
-                Text("SCANNING… $progress FILES", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
-            }
+            Box(Modifier.weight(1f).fillMaxWidth(), Alignment.Center) { LoadingPane("SCANNING… $progress FILES") } // the total is not known until the scan ends, so the bar sweeps
             return@Column
         }
 
@@ -167,24 +167,27 @@ internal fun StorageMapScreen(
         if (!largest) Legend(result)
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (largest) {
-                val top = remember(result) { largestFiles(result.root) }
-                LazyColumn(Modifier.fillMaxSize()) {
-                    items(top, key = { it.file.path }) { n ->
-                        ListRow(Entry(n.file, false, n.size, n.modified, 0), picked === n, onClick = { picked = if (picked === n) null else n }, onLongClick = {}, path = n.file.parent)
+            // the map, its zoomed folders and the LARGEST list fade into one another
+            Crossfade(if (largest) null else current, Modifier.fillMaxSize(), animationSpec = tween(MOTION_MS), label = "map") { node ->
+                if (node == null) {
+                    val top = remember(result) { largestFiles(result.root) }
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        items(top, key = { it.file.path }) { n ->
+                            ListRow(Entry(n.file, false, n.size, n.modified, 0), picked === n, onClick = { picked = if (picked === n) null else n }, onLongClick = {}, path = n.file.parent)
+                        }
                     }
-                }
-            } else {
-                Treemap(current, picked) { n, inside ->
-                    // a folder zooms in (through the folder tiles it sat in, if any); a file is picked
-                    if (n.isDir) { zoom = zoom + inside.map { it.file.path } + n.file.path; picked = null } else picked = if (picked === n) null else n
+                } else {
+                    Treemap(node, picked) { n, inside ->
+                        // a folder zooms in (through the folder tiles it sat in, if any); a file is picked
+                        if (n.isDir) { zoom = zoom + inside.map { it.file.path } + n.file.path; picked = null } else picked = if (picked === n) null else n
+                    }
                 }
             }
 
             // the card floats over the bottom of the map, so picking a tile does not make the map reflow
-            picked?.let { n ->
+            AnimatedOverlay(picked, barEnter, barExit, Modifier.align(Alignment.BottomCenter)) { n ->
             val base = if (largest) result.root.size else current.size
-            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(cb.surface1).padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Column(Modifier.fillMaxWidth().background(cb.surface1).padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(n.file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = cb.ink))
                 Text(
                     "${Formatter.formatShortFileSize(context, n.size).uppercase()} · ${if (base > 0) n.size * 100 / base else 0}% OF ${if (largest) "ALL" else "THIS FOLDER"} · ${dateText(n.modified)}",
@@ -362,7 +365,7 @@ internal fun PdfFirstPage(file: File, width: Int = 320, contentScale: ContentSca
             }.getOrNull()
         }
     }
-    page?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = contentScale, alignment = Alignment.TopCenter) }
+    page?.let { Image(it, null, Modifier.appear().fillMaxSize(), contentScale = contentScale, alignment = Alignment.TopCenter) }
 }
 
 /** The top-level tiles of [node] and, inside each folder tile that is big enough, its own biggest items, down to three levels. [dp] is pixels per dp. */

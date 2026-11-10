@@ -2,6 +2,8 @@ package com.claudeborne.gallerymanager.ui
 
 import androidx.compose.foundation.background
 import android.app.Activity
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
@@ -103,9 +105,18 @@ fun Modifier.cbGrid(cb: CbColors): Modifier = background(cb.surface0).drawBehind
 }
 
 @Composable
+private fun animatedCb(t: CbColors): CbColors {
+    @Composable fun c(v: Color) = animateColorAsState(v, tween(MOTION_MS), label = "theme").value
+    return CbColors(
+        c(t.surface0), c(t.surface1), c(t.surface2), c(t.surface3), c(t.mint), c(t.blue), c(t.violet),
+        c(t.ink), c(t.ink2), c(t.inkDim), c(t.line), c(t.lineStrong), c(t.gridLine), t.isDark,
+    )
+}
+
+@Composable
 fun ClaudeBorneTheme(content: @Composable () -> Unit) {
     val dark = when (Settings.theme) { 1 -> true; 2 -> false; else -> isSystemInDarkTheme() }
-    val cb = if (dark) DarkCb else LightCb
+    val cb = animatedCb(if (dark) DarkCb else LightCb) // colours glide when the theme changes
     val view = LocalView.current
     SideEffect { // icons in the bars must contrast with the chosen theme, not the phone's
         val window = (view.context as? Activity)?.window ?: return@SideEffect

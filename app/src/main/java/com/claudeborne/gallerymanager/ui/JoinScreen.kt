@@ -109,7 +109,7 @@ fun JoinScreen(items: List<MediaItem>, onClose: () -> Unit, onSaved: () -> Unit)
 
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 itemsIndexed(clips, key = { _, c -> c.id }) { n, clip ->
-                    Row(Modifier.fillMaxWidth().background(DarkCb.surface1), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.animateItem().fillMaxWidth().background(DarkCb.surface1), verticalAlignment = Alignment.CenterVertically) {
                         AsyncImage(clip.uri, clip.name, Modifier.size(72.dp).background(DarkCb.surface2), contentScale = ContentScale.Crop)
                         Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
                             Text("${n + 1}", style = monoStyle(DarkCb.mint, 1.sp))
@@ -136,14 +136,9 @@ fun JoinScreen(items: List<MediaItem>, onClose: () -> Unit, onSaved: () -> Unit)
                 )
             }
         }
-        if (saving) {
-            Box(Modifier.fillMaxSize().background(Color(0xCC000000)).pointerInput(Unit) { detectTapGestures { } }, Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text("JOINING… ${(progress * 100).roundToInt()}%", style = monoStyle(DarkCb.mint, 2.6.sp))
-                    Text("KEEP THE APP OPEN. LONG VIDEOS TAKE A WHILE.", style = monoStyle(DarkCb.inkDim, 0.6.sp))
-                    ActionText("CANCEL", Danger) { job?.cancel() }
-                }
-            }
+        BusyOverlay(saving, "JOINING… ${(progress * 100).roundToInt()}%", progress) {
+            Text("KEEP THE APP OPEN. LONG VIDEOS TAKE A WHILE.", style = monoStyle(DarkCb.inkDim, 0.6.sp))
+            ActionText("CANCEL", Danger) { job?.cancel() }
         }
     }
 }

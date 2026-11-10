@@ -27,6 +27,8 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -140,12 +142,16 @@ fun FileToolDialogs(tools: FileTools) {
 @Composable
 internal fun CbDialog(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(
-            Modifier.padding(horizontal = 24.dp).fillMaxWidth().doubleChamferFrame(DarkCb.mint, DarkCb.surface1).padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Text(title, style = monoStyle(DarkCb.mint, 2.6.sp))
-            content()
+        // the card fades and grows in; the window itself fades out when it closes
+        val shown = remember { MutableTransitionState(false).apply { targetState = true } }
+        AnimatedVisibility(shown, enter = popEnter) {
+            Column(
+                Modifier.padding(horizontal = 24.dp).fillMaxWidth().doubleChamferFrame(DarkCb.mint, DarkCb.surface1).padding(22.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text(title, style = monoStyle(DarkCb.mint, 2.6.sp))
+                content()
+            }
         }
     }
 }

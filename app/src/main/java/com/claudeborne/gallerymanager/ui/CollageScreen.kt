@@ -29,6 +29,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -124,7 +126,7 @@ fun CollageScreen(items: List<MediaItem>, onClose: () -> Unit, onSaved: () -> Un
 
             val p = photos
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                if (p == null) Text("LOADING", Modifier.align(Alignment.Center), style = monoStyle(DarkCb.inkDim, 2.6.sp))
+                if (p == null) LoadingPane("LOADING PHOTOS", null, Modifier.align(Alignment.Center))
                 else CollagePreview(
                     spec, p, order, views, selected,
                     onSelect = { i ->
@@ -146,13 +148,13 @@ fun CollageScreen(items: List<MediaItem>, onClose: () -> Unit, onSaved: () -> Un
                 Row(Modifier.fillMaxWidth()) {
                     listOf("LAYOUT", "RATIO", "STYLE").forEachIndexed { i, label ->
                         Column(Modifier.weight(1f).clickable { tab = i }, horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box(Modifier.fillMaxWidth().height(2.dp).background(if (tab == i) DarkCb.mint else Color.Transparent))
-                            Text(label, Modifier.padding(vertical = 12.dp), style = monoStyle(if (tab == i) DarkCb.mint else DarkCb.inkDim, 2.2.sp))
+                            Box(Modifier.fillMaxWidth().height(2.dp).background(glide(tab == i, DarkCb.mint, Color.Transparent)))
+                            Text(label, Modifier.padding(vertical = 12.dp), style = monoStyle(glide(tab == i, DarkCb.mint, DarkCb.inkDim), 2.2.sp))
                         }
                     }
                 }
                 Box(Modifier.fillMaxWidth().height(150.dp)) {
-                    when (tab) {
+                    Crossfade(tab, animationSpec = tween(MOTION_FAST_MS), label = "collageTab") { tab -> when (tab) {
                         0 -> LazyRow(
                             Modifier.align(Alignment.Center), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -177,7 +179,7 @@ fun CollageScreen(items: List<MediaItem>, onClose: () -> Unit, onSaved: () -> Un
                                     items(CollageBackgrounds) { c ->
                                         Box(
                                             Modifier.size(32.dp).clip(CircleShape).background(Color(c))
-                                                .border(if (c == background) 2.dp else 1.dp, if (c == background) DarkCb.mint else Color(0x66FFFFFF), CircleShape)
+                                                .border(if (c == background) 2.dp else 1.dp, glide(c == background, DarkCb.mint, Color(0x66FFFFFF)), CircleShape)
                                                 .clickable { background = c },
                                         )
                                     }
@@ -185,15 +187,11 @@ fun CollageScreen(items: List<MediaItem>, onClose: () -> Unit, onSaved: () -> Un
                             }
                             Box(Modifier.height(4.dp))
                         }
-                    }
+                    } }
                 }
             }
         }
-        if (saving) {
-            Box(Modifier.fillMaxSize().background(Color(0xCC000000)).pointerInput(Unit) { detectTapGestures { } }, Alignment.Center) {
-                Text("SAVING…", style = monoStyle(DarkCb.mint, 2.6.sp))
-            }
-        }
+        BusyOverlay(saving, "SAVING…", null)
     }
 }
 

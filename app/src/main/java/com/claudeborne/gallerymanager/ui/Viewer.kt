@@ -25,6 +25,12 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.width
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
@@ -131,10 +137,10 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
                 if (item.isVideo) VideoPage(item, active = pager.settledPage == page, chrome, toggleChrome) else ZoomableImage(item, toggleChrome)
             }
 
-            if (chrome && pager.currentPage > 0) NavArrow("‹", Alignment.CenterStart) { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } }
-            if (chrome && pager.currentPage < items.size - 1) NavArrow("›", Alignment.CenterEnd) { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } }
+            NavArrow("‹", Alignment.CenterStart, chrome && pager.currentPage > 0) { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } }
+            NavArrow("›", Alignment.CenterEnd, chrome && pager.currentPage < items.size - 1) { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } }
 
-            if (chrome) Row(
+            Visible(chrome, enter = topBarEnter, exit = topBarExit) { Row(
                 Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xB3000000), Color.Transparent)))
                     .statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -144,14 +150,14 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
                 Text("${pager.currentPage + 1} / ${items.size}", style = monoStyle(Color.White, 1.sp))
                 // file tools: rename, move and copy for everything; resize, set as and print for photos
                 if (current != null) IconAction(Icon.MORE, Color.White, "More") { showMore = !showMore; showInfo = false }
+            } }
+
+            Visible(chrome && showInfo && current != null, Modifier.align(Alignment.BottomCenter), enter = popEnter, exit = popExit) {
+                current?.let { InfoPanel(it, Modifier) }
             }
 
-            if (chrome && showInfo && current != null) {
-                InfoPanel(current, Modifier.align(Alignment.BottomCenter))
-            }
-
-            if (chrome && showMore && current != null) {
-                MorePanel(
+            Visible(chrome && showMore && current != null, Modifier.align(Alignment.BottomCenter), enter = popEnter, exit = popExit) {
+              if (current != null) MorePanel(
                     actions = buildList {
                         if (current.id != EXTERNAL_ID) {
                             add("RENAME" to { tools.rename(current) })
@@ -168,12 +174,12 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
                             add("PRINT" to { print(context, current) })
                         }
                     },
-                    modifier = Modifier.align(Alignment.BottomCenter),
+                    modifier = Modifier,
                 ) { showMore = false }
             }
         }
 
-        if (chrome) Row(
+        AnimatedVisibility(chrome, enter = barEnter, exit = barExit) { Row(
             Modifier.fillMaxWidth().background(Color(0xFF0A1020)).navigationBarsPadding().padding(vertical = 14.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
@@ -195,7 +201,7 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
                 }
             }
             IconAction(Icon.INFO, DarkCb.mint, "Info", enabled = current != null) { showInfo = !showInfo; showMore = false }
-        }
+        } }
     }
 }
 
@@ -206,12 +212,14 @@ private fun clock(ms: Long) = "%d:%02d".format(ms / 60000, ms / 1000 % 60)
 
 /** Round previous/next button floating over the side of the media. */
 @Composable
-private fun BoxScope.NavArrow(glyph: String, at: Alignment, onClick: () -> Unit) {
-    Box(
-        Modifier.align(at).padding(8.dp).size(44.dp).clip(CircleShape).background(Color(0x80000000)).clickable(onClick = onClick),
-        Alignment.Center,
-    ) {
-        Text(glyph, style = TextStyle(fontFamily = JetBrainsMono, fontSize = 28.sp, color = DarkCb.mint))
+private fun BoxScope.NavArrow(glyph: String, at: Alignment, visible: Boolean, onClick: () -> Unit) {
+    AnimatedVisibility(visible, Modifier.align(at), enter = fadeIn(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_FAST_MS))) {
+        Box(
+            Modifier.padding(8.dp).size(44.dp).clip(CircleShape).background(Color(0x80000000)).clickable(onClick = onClick),
+            Alignment.Center,
+        ) {
+            Text(glyph, style = TextStyle(fontFamily = JetBrainsMono, fontSize = 28.sp, color = DarkCb.mint))
+        }
     }
 }
 
@@ -341,6 +349,7 @@ internal fun ZoomableImage(item: MediaItem, onTap: () -> Unit) {
 private fun ZoomBox(onTap: () -> Unit, content: @Composable () -> Unit) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
+    val scope = rememberCoroutineScope()
 
     Box(Modifier.fillMaxSize().clipToBounds()) {
         Box(Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y }) { content() }
@@ -349,7 +358,13 @@ private fun ZoomBox(onTap: () -> Unit, content: @Composable () -> Unit) {
             Modifier.fillMaxSize()
             .pointerInput(Unit) {
                 detectTapGestures(onTap = { onTap() }, onDoubleTap = {
-                    if (scale > 1f) { scale = 1f; offset = Offset.Zero } else scale = 2.5f
+                    // glides to 2.5x, or back to 1x with the picture drifting back to the middle
+                    scope.launch {
+                        val s0 = scale
+                        val o0 = offset
+                        if (s0 > 1f) animate(s0, 1f, animationSpec = tween(MOTION_MS)) { v, _ -> scale = v; offset = o0 * ((v - 1f) / (s0 - 1f)) }
+                        else animate(s0, 2.5f, animationSpec = tween(MOTION_MS)) { v, _ -> scale = v }
+                    }
                 })
             }
             .pointerInput(Unit) {
@@ -392,14 +407,25 @@ internal fun VideoPage(item: MediaItem, active: Boolean, chrome: Boolean, onTap:
     }
     DisposableEffect(player) { onDispose { player.release() } }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { player.pause() }
+    var loading by remember(player) { mutableStateOf(true) } // until the first frames are ready
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) { loading = state == Player.STATE_BUFFERING || state == Player.STATE_IDLE }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             ZoomBox(onTap) {
                 // texture_view (set in the layout) so the video follows the zoom transform; a SurfaceView would not
                 AndroidView({ (LayoutInflater.from(it).inflate(R.layout.player_texture, null) as PlayerView).also { v -> v.player = player } }, Modifier.fillMaxSize())
             }
+            Visible(loading, Modifier.align(Alignment.Center), enter = fadeIn(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_FAST_MS))) {
+                ProgressBar(null, Modifier.width(160.dp))
+            }
         }
-        if (chrome) VideoControls(player)
+        AnimatedVisibility(chrome, enter = barEnter, exit = barExit) { VideoControls(player) }
     }
 }
 

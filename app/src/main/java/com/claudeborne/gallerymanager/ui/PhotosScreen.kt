@@ -9,6 +9,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -134,12 +135,12 @@ fun PhotosScreen(
                     )
                 }
                 items(day, key = { it.id }) { item ->
-                    Tile(item, item.id in selected, onClick = { if (selecting) toggle(item.id) else onOpen(item) }, onLongClick = { toggle(item.id) })
+                    Box(Modifier.animateItem()) { Tile(item, item.id in selected, onClick = { if (selecting) toggle(item.id) else onOpen(item) }, onLongClick = { toggle(item.id) }) }
                 }
             }
         }
 
-        if (selecting) {
+        AnimatedVisibility(selecting, enter = barEnter, exit = barExit) {
             Row(Modifier.fillMaxWidth().background(cb.surface1).padding(vertical = 8.dp)) {
                 BarAction("ALL", cb.inkDim) { selected = items.map { it.id }.toSet() }
                 BarAction("SHARE", cb.mint) { share(context, chosen) }
@@ -182,12 +183,14 @@ private fun share(context: Context, items: List<MediaItem>) = shareMedia(context
 
 /** Mint check in the corner of a selected tile. */
 @Composable
-internal fun BoxScope.SelectedMark() {
-    Text(
-        "✓",
-        Modifier.align(Alignment.TopEnd).padding(4.dp).background(LocalCb.current.mint).padding(horizontal = 5.dp),
-        style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, color = DarkCb.surface0),
-    )
+internal fun BoxScope.SelectedMark(selected: Boolean) {
+    AnimatedVisibility(selected, Modifier.align(Alignment.TopEnd), enter = popEnter, exit = popExit) {
+        Text(
+            "✓",
+            Modifier.padding(4.dp).background(LocalCb.current.mint).padding(horizontal = 5.dp),
+            style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, color = DarkCb.surface0),
+        )
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -196,10 +199,10 @@ private fun Tile(item: MediaItem, selected: Boolean, onClick: () -> Unit, onLong
     val cb = LocalCb.current
     Box(
         Modifier.aspectRatio(1f).background(cb.surface2).combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .then(if (selected) Modifier.border(3.dp, cb.mint) else Modifier),
+            .border(3.dp, glide(selected, cb.mint, Color.Transparent)),
     ) {
         AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        if (selected) SelectedMark()
+        SelectedMark(selected)
         if (item.isVideo) {
             Text(
                 "▶ ${duration(item.durationMs)}",

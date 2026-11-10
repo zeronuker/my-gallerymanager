@@ -7,6 +7,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.produceState
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -78,8 +80,11 @@ internal fun BinDetail(item: BinItem, entry: Entry, onClose: () -> Unit, onResto
                 file.isImage() || file.isVideo() -> AsyncImage(file, file.name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                 file.extension.equals("pdf", true) -> PdfFirstPage(file, 1080, ContentScale.Fit)
                 file.mime().startsWith("text/") -> {
-                    val text by produceState("", file) { value = withContext(Dispatchers.IO) { runCatching { file.bufferedReader().use { r -> CharArray(3000).let { b -> String(b, 0, r.read(b).coerceAtLeast(0)) } } }.getOrDefault("") } }
-                    Text(text, Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, color = Color.White))
+                    val text by produceState<String?>(null, file) { value = withContext(Dispatchers.IO) { runCatching { file.bufferedReader().use { r -> CharArray(3000).let { b -> String(b, 0, r.read(b).coerceAtLeast(0)) } } }.getOrDefault("") } }
+                    Crossfade(text, animationSpec = tween(MOTION_MS), label = "preview") { t ->
+                        if (t == null) LoadingPane("LOADING")
+                        else Text(t, Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, color = Color.White))
+                    }
                 }
                 else -> BigLabel(file.extension.take(5).uppercase().ifEmpty { "FILE" })
             }

@@ -1,6 +1,7 @@
 package com.claudeborne.gallerymanager.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
 import android.app.Activity
 import android.provider.MediaStore
 import androidx.activity.compose.BackHandler
@@ -84,9 +85,9 @@ fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            items(albums, key = { it.id }) { a -> AlbumCard(a, a.id in selected, onClick = { if (selecting) toggle(a.id) else onOpen(a.id) }, onLongClick = { toggle(a.id) }) }
+            items(albums, key = { it.id }) { a -> Box(Modifier.animateItem()) { AlbumCard(a, a.id in selected, onClick = { if (selecting) toggle(a.id) else onOpen(a.id) }, onLongClick = { toggle(a.id) }) } }
         }
-        if (selecting) ActionBar(
+        AnimatedVisibility(selecting, enter = barEnter, exit = barExit) { ActionBar(
             buildList {
                 add(BarItem("ALL", cb.inkDim) { selected = albums.drop(1).map { it.id }.toSet() })
                 add(BarItem("SHARE", cb.mint) { shareMedia(context, chosen) })
@@ -98,7 +99,7 @@ fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools,
                     trashLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
                 })
             },
-        )
+        ) }
     }
 }
 
@@ -132,12 +133,12 @@ private fun AlbumCard(album: Album, selected: Boolean, onClick: () -> Unit, onLo
     val dp = LocalDensity.current.density
     val pictureShape = remember(dp) { GenericShape { size, _ -> addPath(chamfered(size.width, size.height, 0f, chamferLeg(PICTURE_AT) * dp)) } }
     Column(
-        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick).doubleChamferFrame(cb.mint, if (selected) cb.surface2 else null).padding(PICTURE_AT.dp),
+        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick).doubleChamferFrame(cb.mint, glide(selected, cb.surface2, Color.Transparent)).padding(PICTURE_AT.dp),
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(pictureShape).background(cb.surface2), Alignment.Center) {
             if (album.cover != null) AsyncImage(album.cover.uri, album.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             else CbIcon(Icon.HEART, cb.inkDim, size = 40.dp)
-            if (selected) SelectedMark()
+            SelectedMark(selected)
         }
         Row(Modifier.padding(start = 8.dp, top = 6.dp, end = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
             Text(

@@ -72,9 +72,7 @@ internal fun DuplicatesScreen(roots: List<File>, backEnabled: Boolean, onClose: 
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("DUPES", count, onClose, "FILES")
         if (list == null) {
-            Box(Modifier.weight(1f).fillMaxWidth(), Alignment.Center) {
-                Text(status, style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
-            }
+            Box(Modifier.weight(1f).fillMaxWidth(), Alignment.Center) { LoadingPane(status) } // the scan reports a message, not a percentage, so the bar sweeps
             return@Column
         }
         Text(

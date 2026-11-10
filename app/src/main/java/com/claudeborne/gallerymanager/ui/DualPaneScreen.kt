@@ -109,6 +109,7 @@ internal fun DualPaneScreen(start: File, roots: List<Pair<String, File>>, backEn
 
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("DUAL", busy ?: if (here.selected.isNotEmpty()) "${here.selected.size} SELECTED" else "2 PANES", onClose, "FILES")
+        AnimatedOverlay(busy, expandEnter, shrinkExit) { WorkingLine(it, null, cb.mint) } // copy and move report no percentage, so the bar sweeps
         val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
         val pane: @Composable (Int, Modifier) -> Unit = { i, modifier ->
             Pane(
@@ -172,14 +173,14 @@ private fun Pane(p: PaneState, isActive: Boolean, roots: List<Pair<String, File>
     val cb = LocalCb.current
     val dir = File(p.path)
     val root = roots.map { it.second }.filter { p.path.startsWith(it.path) }.maxByOrNull { it.path.length }
-    Column(modifier.border(if (isActive) 2.dp else 1.dp, if (isActive) cb.mint else cb.line)) {
+    Column(modifier.border(if (isActive) 2.dp else 1.dp, glide(isActive, cb.mint, cb.line))) {
         if (root != null) Crumbs(root, roots.first { it.second.path == root.path }.first, dir, onGo)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (p.entries.isEmpty()) {
                 Text("EMPTY FOLDER", Modifier.align(Alignment.Center), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.sp, color = cb.inkDim))
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
-                    items(p.entries, key = { it.file.path }) { e -> ListRow(e, e.file.path in p.selected, { onTap(e) }, { onLong(e) }) }
+                    items(p.entries, key = { it.file.path }) { e -> Box(Modifier.animateItem()) { ListRow(e, e.file.path in p.selected, { onTap(e) }, { onLong(e) }) } }
                 }
             }
         }

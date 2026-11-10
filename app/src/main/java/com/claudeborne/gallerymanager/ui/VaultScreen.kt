@@ -3,6 +3,9 @@ package com.claudeborne.gallerymanager.ui
 import android.text.format.Formatter
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -130,8 +133,9 @@ internal fun VaultScreen(pendingAdd: List<File>, backEnabled: Boolean, onClose: 
             { if (stage == Stage.OPEN && folder.isNotEmpty()) folder = folder.dropLast(1).substringBeforeLast('/', "").let { if (it.isEmpty()) "" else "$it/" } else onClose() },
             if (stage == Stage.OPEN && folder.isNotEmpty()) "UP" else "FILES",
         )
+        AnimatedOverlay(busy, expandEnter, shrinkExit) { WorkingLine(it, null, cb.mint) } // encrypting and decrypting report no percentage, so the bar sweeps
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            when (stage) {
+            Crossfade(stage, Modifier.fillMaxSize(), animationSpec = tween(MOTION_MS), label = "vault") { shown -> when (shown) {
                 Stage.NEW -> Column(Modifier.fillMaxSize().padding(24.dp), Arrangement.spacedBy(14.dp, Alignment.CenterVertically), Alignment.CenterHorizontally) {
                     Text(
                         "Files you move here are encrypted and hidden, and need your fingerprint or phone PIN to open. You also get a recovery key to write down once: it is the only way back in if you reinstall the app or change phone.",
@@ -181,9 +185,9 @@ internal fun VaultScreen(pendingAdd: List<File>, backEnabled: Boolean, onClose: 
                         }
                     }
                 }
-            }
+            } }
         }
-        if (stage == Stage.OPEN && selected.isNotEmpty()) {
+        AnimatedVisibility(stage == Stage.OPEN && selected.isNotEmpty(), enter = barEnter, exit = barExit) {
             ActionBar(
                 listOf(
                     BarItem("ALL", cb.inkDim) { selected = rows.map { it.name }.toSet() },
@@ -237,10 +241,10 @@ private fun VaultRowView(r: VaultRow, selected: Boolean, onClick: () -> Unit, on
     val cb = LocalCb.current
     val context = LocalContext.current
     Row(
-        Modifier.fillMaxWidth().background(if (selected) cb.surface2 else Color.Transparent).combinedClickable(onClick = onClick, onLongClick = onLong).padding(horizontal = 16.dp, vertical = 6.dp),
+        Modifier.fillMaxWidth().background(glide(selected, cb.surface2, Color.Transparent)).combinedClickable(onClick = onClick, onLongClick = onLong).padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(Modifier.size(48.dp).background(cb.surface2).then(if (selected) Modifier.border(2.dp, cb.mint) else Modifier), Alignment.Center) {
+        Box(Modifier.size(48.dp).background(cb.surface2).border(2.dp, glide(selected, cb.mint, Color.Transparent)), Alignment.Center) {
             Text(
                 if (r.item == null) "DIR" else r.name.substringAfterLast('.', "").take(4).uppercase().ifEmpty { "FILE" }, maxLines = 1,
                 style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 1.sp, color = if (r.item == null) cb.mint else cb.inkDim),

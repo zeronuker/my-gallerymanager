@@ -12,9 +12,15 @@ object WebPage {
 body{font-family:system-ui,sans-serif;background:#0b1020;color:#e8ecf5;max-width:720px;margin:0 auto;padding:24px}
 h1{font-size:18px;letter-spacing:.25em;color:#3ddc97}h2{font-size:13px;letter-spacing:.2em;color:#4c8dff;margin-top:32px}
 .box{display:block;border:2px dashed #3a4a7a;border-radius:8px;padding:32px;text-align:center;cursor:pointer}
-.box.over{border-color:#3ddc97}button{background:#1c2542;color:#e8ecf5;border:1px solid #3a4a7a;border-radius:6px;padding:8px 14px;margin:8px 8px 0 0;cursor:pointer}
-.row{margin:10px 0;font-size:14px;word-break:break-all}.bar{height:5px;background:#1c2542;margin-top:4px}.bar i{display:block;height:100%;width:0;background:#3ddc97}
-a{color:#4c8dff}.dim{color:#8a94a8}
+.box{transition:border-color .2s,background-color .2s}.box.over{border-color:#3ddc97;background:#101a33}
+button{background:#1c2542;color:#e8ecf5;border:1px solid #3a4a7a;border-radius:6px;padding:8px 14px;margin:8px 8px 0 0;cursor:pointer;transition:background-color .15s,border-color .15s}
+button:hover{background:#26335c;border-color:#4c8dff}
+.row{margin:10px 0;font-size:14px;word-break:break-all;animation:rowin .25s ease-out}
+@keyframes rowin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.bar{height:5px;background:#1c2542;margin-top:4px;overflow:hidden;position:relative}.bar i{display:block;height:100%;width:0;background:#3ddc97;transition:width .25s linear}
+.bar.sweep i{width:35%;position:absolute;animation:sweep 1.1s linear infinite}
+@keyframes sweep{from{left:-35%}to{left:100%}}
+a{color:#4c8dff}.dim{color:#8a94a8}#offers{transition:opacity .2s}[hidden]{display:none}
 </style></head><body>
 <h1>ALTUS CIRRUS · TRANSFER</h1>
 <div class="dim">Connected to <b>__NAME__</b></div>
@@ -27,7 +33,7 @@ a{color:#4c8dff}.dim{color:#8a94a8}
 <button id="refresh">Refresh</button>
 <h2>SPEED TEST</h2>
 <div class="dim">Moves 64 MB each way between this computer and the phone, to compare Wi-Fi, a direct link and a USB cable.</div>
-<button id="speed">Test speed</button><div id="speedout" class="row"></div>
+<button id="speed">Test speed</button><div id="speedout" class="row"></div><div id="speedbar" class="bar sweep" hidden><i></i></div>
 <script>
 const T="__TOKEN__";
 const fmt=n=>n>1e9?(n/1e9).toFixed(1)+' GB':n>1e6?(n/1e6).toFixed(1)+' MB':Math.ceil(n/1e3)+' KB';
@@ -58,7 +64,8 @@ document.getElementById('folder').onclick=()=>pickdir.click();
 drop.ondragover=e=>{e.preventDefault();drop.classList.add('over')};drop.ondragleave=()=>drop.classList.remove('over');
 drop.ondrop=e=>{e.preventDefault();drop.classList.remove('over');run(e.dataTransfer.files)};
 async function offers(){
-  const list=await (await fetch('/api/offers?t='+T)).json(),box=document.getElementById('offers');
+  const box=document.getElementById('offers');box.style.opacity=.4; // dims while the list is fetched
+  const list=await (await fetch('/api/offers?t='+T)).json();box.style.opacity=1;
   box.innerHTML=list.length?'':'Nothing offered';
   for(const o of list){const d=document.createElement('div');d.className='row';
     d.innerHTML='<a download href="/api/file/'+o.id+'?t='+T+'"></a> <span class="dim">'+fmt(o.size)+'</span>';
@@ -67,7 +74,7 @@ async function offers(){
 document.getElementById('refresh').onclick=offers;offers();
 const fmtSpeed=mbs=>mbs.toFixed(1)+' MB/s ('+(mbs*8).toFixed(0)+' Mbps)';
 document.getElementById('speed').onclick=async()=>{
-  const out=document.getElementById('speedout');out.textContent='Testing download…';
+  const out=document.getElementById('speedout'),sb=document.getElementById('speedbar');out.textContent='Testing download…';sb.hidden=false;
   let t=performance.now(),n=0;
   const reader=(await fetch('/api/speed/down?mb=64&t='+T)).body.getReader();
   for(;;){const r=await reader.read();if(r.done)break;n+=r.value.length}
@@ -76,6 +83,7 @@ document.getElementById('speed').onclick=async()=>{
   const blob=new Blob([new Uint8Array(64*1048576)]);t=performance.now();
   await fetch('/api/speed/up?t='+T,{method:'PUT',body:blob});
   out.textContent='Download '+fmtSpeed(down)+' · Upload '+fmtSpeed(64/((performance.now()-t)/1000));
+  sb.hidden=true;
 };
 </script></body></html>"""
 }

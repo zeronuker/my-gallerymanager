@@ -33,7 +33,7 @@ internal fun FacePanel(
             if (found) FaceFix.entries.forEach { f -> item { Chip(f.label, which == f) { onWhich(f) } } }
         }
         when {
-            !found && !tried -> Text("LOOKING FOR FACES…", Modifier.padding(horizontal = 16.dp), style = monoStyle(DarkCb.mint, 2.sp))
+            !found && !tried -> WorkingLine("LOOKING FOR FACES…", null)
             !found -> {
                 Text("NO FACE FOUND. TRY A PHOTO WHERE THE FACE IS LARGE AND FACING THE CAMERA.", Modifier.padding(horizontal = 16.dp), style = monoStyle(DarkCb.inkDim, 0.6.sp))
                 LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) { item { Chip("TRY AGAIN", color = DarkCb.mint, onClick = onFind) } }

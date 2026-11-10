@@ -11,6 +11,12 @@ import android.provider.MediaStore
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -84,17 +90,22 @@ fun GalleryRoot(openUri: Uri? = null) {
         }
     }
 
-    when {
-        !hasAccess -> PermissionScreen(
-            denied = askedAndDenied,
-            onGrant = { launcher.launch(requestedPermissions) },
-            onSettings = {
-                context.startActivity(
-                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
-                )
-            },
-        )
-        items != null -> MainScaffold(items!!, trash, openUri) { reload++ }
+    // permission screen, loading, and the app fade into one another
+    val stage = when { !hasAccess -> 0; items == null -> 1; else -> 2 }
+    AnimatedContent(stage, transitionSpec = { fadeIn(tween(MOTION_MS)) togetherWith fadeOut(tween(MOTION_FAST_MS)) }, label = "root") { s ->
+        when (s) {
+            0 -> PermissionScreen(
+                denied = askedAndDenied,
+                onGrant = { launcher.launch(requestedPermissions) },
+                onSettings = {
+                    context.startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
+                    )
+                },
+            )
+            1 -> Box(Modifier.fillMaxSize().cbGrid(LocalCb.current), Alignment.Center) { LoadingPane("LOADING YOUR LIBRARY") }
+            else -> items?.let { MainScaffold(it, trash, openUri) { reload++ } }
+        }
     }
 }
 

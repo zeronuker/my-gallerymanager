@@ -16,8 +16,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.systemGestureExclusion
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,6 +49,12 @@ fun BoxScope.Shelf(onOpen: () -> Unit) {
     val tap = Settings.shelfTap
     val threshold = with(LocalDensity.current) { 40.dp.toPx() }
     val moved = remember { floatArrayOf(0f) }
+    // while a finger is on the bar it follows the swipe, grows and brightens; it springs back when let go
+    var dragging by remember { mutableStateOf(false) }
+    var pull by remember { mutableFloatStateOf(0f) }
+    val shownPull by animateFloatAsState(if (dragging) pull else 0f, if (dragging) snap() else tween(MOTION_FAST_MS), label = "pull")
+    val barWidth by animateDpAsState(if (dragging) 8.dp else 4.dp, tween(MOTION_FAST_MS), label = "barWidth")
+    val barColor by animateColorAsState(if (dragging) Color(0xFF3FE0C5) else Color(0x803FE0C5), tween(MOTION_FAST_MS), label = "barColor")
     Column(Modifier.align(if (right) Alignment.CenterEnd else Alignment.CenterStart).fillMaxHeight()) {
         Spacer(Modifier.weight(0.35f)) // the bar is centered 35% down; the touch area below is 100dp tall
         Box(
@@ -46,14 +62,14 @@ fun BoxScope.Shelf(onOpen: () -> Unit) {
                 .systemGestureExclusion()
                 .semantics { contentDescription = "Settings shelf" }
                 .draggable(
-                    rememberDraggableState { moved[0] += it }, Orientation.Horizontal,
-                    onDragStarted = { moved[0] = 0f },
-                    onDragStopped = { if (if (right) moved[0] < -threshold else moved[0] > threshold) onOpen() },
+                    rememberDraggableState { moved[0] += it; pull = if (right) moved[0].coerceIn(-threshold, 0f) else moved[0].coerceIn(0f, threshold) }, Orientation.Horizontal,
+                    onDragStarted = { moved[0] = 0f; pull = 0f; dragging = true },
+                    onDragStopped = { dragging = false; if (if (right) moved[0] < -threshold else moved[0] > threshold) onOpen() },
                 )
                 .then(if (tap) Modifier.clickable(remember { MutableInteractionSource() }, null) { onOpen() } else Modifier),
             if (right) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
-            Box(Modifier.size(4.dp, 72.dp).clip(RoundedCornerShape(2.dp)).background(Color(0x803FE0C5)))
+            Box(Modifier.graphicsLayer { translationX = shownPull }.size(barWidth, 72.dp).clip(RoundedCornerShape(2.dp)).background(barColor))
         }
         Spacer(Modifier.weight(0.65f))
     }

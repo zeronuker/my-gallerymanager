@@ -32,7 +32,7 @@ internal fun CutoutPanel(
 ) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
         when {
-            !found && !tried -> Text("FINDING THE SUBJECT… THE FIRST TIME DOWNLOADS A MODEL.", Modifier.padding(horizontal = 16.dp), style = monoStyle(DarkCb.mint, 2.sp))
+            !found && !tried -> WorkingLine("FINDING THE SUBJECT… THE FIRST TIME DOWNLOADS A MODEL.", null) // the download reports no size, so the bar sweeps
             !found -> {
                 Text(
                     "COULDN'T FIND A SUBJECT. THE FIRST USE NEEDS INTERNET TO DOWNLOAD GOOGLE'S MODEL. SOME PHOTOS HAVE NO CLEAR SUBJECT.",
@@ -53,7 +53,7 @@ internal fun CutoutPanel(
                         items(MarkPalette + 0xFF0A1020.toInt()) { c ->
                             Column(
                                 Modifier.size(32.dp).clip(CircleShape).background(Color(c))
-                                    .border(if (c == st.backdropColor) 2.dp else 1.dp, if (c == st.backdropColor) DarkCb.mint else Color(0x66FFFFFF), CircleShape)
+                                    .border(if (c == st.backdropColor) 2.dp else 1.dp, glide(c == st.backdropColor, DarkCb.mint, Color(0x66FFFFFF)), CircleShape)
                                     .clickable { onColor(c) },
                             ) {}
                         }

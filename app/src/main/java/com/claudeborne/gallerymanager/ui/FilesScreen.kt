@@ -10,6 +10,16 @@ import android.provider.Settings
 import android.text.format.Formatter
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -199,11 +209,6 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
         }
     }
 
-    if (inBin) {
-        TrashView(trash, backEnabled, onBack = { inBin = false }, onChanged = { refresh++; onChanged() })
-        return
-    }
-
     // a media file opens in our viewer when the library knows it, anything else goes to another app
     val byPath = remember(library) { library.associateBy { it.path + it.name } }
     fun open(file: File) {
@@ -221,28 +226,18 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
     }
     fun longPress(e: Entry) { selected = toggle(selected, e.file.path) }
 
-    mapRoot?.let { start ->
-        val label = roots.firstOrNull { it.second.path == start }?.first ?: File(start).name
-        StorageMapScreen(File(start), label, backEnabled, onClose = { mapRoot = null }, onBrowse = { go(it); mapRoot = null }, onOpen = ::open, onChanged = { refresh++; onChanged() })
-        return
-    }
-    transfer?.let { files ->
-        TransferScreen(files, backEnabled, onClose = { transfer = null })
-        return
-    }
-    dual?.let { start ->
-        DualPaneScreen(start, roots, backEnabled, onClose = { dualPath = null }, onChanged = { refresh++; onChanged() }, onOpen = ::open)
-        return
-    }
-    vault?.let { files ->
-        VaultScreen(files, backEnabled, onClose = { vault = null }, onChanged = { refresh++; onChanged() })
-        return
-    }
-    if (inDupes) {
-        DuplicatesScreen(roots.map { it.second }, backEnabled, onClose = { inDupes = false }, onOpen = ::open, onChanged = { refresh++; onChanged() })
-        return
-    }
+    // which screen is showing: the tools are screens of their own, the browser is 0. The last value of each tool is kept so it can animate out.
+    val screen = when { inBin -> 1; mapRoot != null -> 2; transfer != null -> 3; dual != null -> 4; vault != null -> 5; inDupes -> 6; else -> 0 }
+    var lastMap by remember { mutableStateOf(mapRoot) }
+    var lastTransfer by remember { mutableStateOf(transfer) }
+    var lastDual by remember { mutableStateOf(dual) }
+    var lastVault by remember { mutableStateOf(vault) }
+    if (mapRoot != null) lastMap = mapRoot
+    if (transfer != null) lastTransfer = transfer
+    if (dual != null) lastDual = dual
+    if (vault != null) lastVault = vault
 
+    val browse: @Composable () -> Unit = {
     val onHome = dir == null && cat == null
     val rootLabel = roots.firstOrNull { it.second.path == root?.path }?.first.orEmpty()
     // back goes up one folder; from a storage root or a category it goes to the home screen
@@ -262,6 +257,7 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
 
     Column(Modifier.fillMaxSize()) {
         ScreenHeader(cat?.label ?: "FILES", count, onBack, backLabel.uppercase())
+        AnimatedOverlay(busy, expandEnter, shrinkExit) { WorkingLine(it, null, cb.mint) } // copy, move, zip and extract report no percentage, so the bar sweeps
 
         if (dir != null && root != null && !searching) Crumbs(root, rootLabel, dir) { go(it) }
         if (cat == null) {
@@ -284,8 +280,8 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
         }
         if (searching && dir != null) ScopeRow(allScope) { allScope = it }
 
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (onHome && !showResults) {
+        Crossfade(onHome && !showResults, Modifier.weight(1f).fillMaxWidth(), tween(MOTION_MS), label = "home") { home ->
+            if (home) {
                 HomeList(roots, binCount + trash.size, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true }, onMap = { mapRoot = roots.first().second.path }, onDupes = { inDupes = true }, onTransfer = { transfer = emptyList() }, onVault = { vault = emptyList() }, onDual = { dualPath = roots.first().second.path })
             } else {
                 FileList(
@@ -295,7 +291,7 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
             }
         }
 
-        if (clipPaths.isNotEmpty()) {
+        AnimatedVisibility(clipPaths.isNotEmpty(), enter = barEnter, exit = barExit) {
             Row(Modifier.fillMaxWidth().background(cb.surface1).padding(vertical = 8.dp)) {
                 Text(
                     "${if (clipMove) "MOVE" else "COPY"} ${clipPaths.size}", Modifier.weight(1f).padding(start = 16.dp).align(Alignment.CenterVertically),
@@ -314,7 +310,8 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
                     }
                 }
             }
-        } else if (selecting) {
+        }
+        AnimatedVisibility(selecting && clipPaths.isEmpty(), enter = barEnter, exit = barExit) {
             ActionBar(
                 buildList {
                     add(BarItem("ALL", cb.inkDim) { selected = entries.map { it.file.path }.toSet() })
@@ -337,6 +334,26 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
                     add(BarItem("DELETE", RED) { dialog = FileDialog.Delete(chosen.map { it.file }) })
                 },
             )
+        }
+    }
+    }
+
+    AnimatedContent(
+        screen,
+        transitionSpec = { if (targetState != 0) pushEnter togetherWith fadeOut(tween(MOTION_FAST_MS)) else fadeIn(tween(MOTION_MS)) togetherWith pushExit },
+        label = "files",
+    ) { s ->
+        when (s) {
+            1 -> TrashView(trash, backEnabled, onBack = { inBin = false }, onChanged = { refresh++; onChanged() })
+            2 -> lastMap?.let { start ->
+                val label = roots.firstOrNull { it.second.path == start }?.first ?: File(start).name
+                StorageMapScreen(File(start), label, backEnabled, onClose = { mapRoot = null }, onBrowse = { go(it); mapRoot = null }, onOpen = ::open, onChanged = { refresh++; onChanged() })
+            }
+            3 -> lastTransfer?.let { TransferScreen(it, backEnabled, onClose = { transfer = null }) }
+            4 -> lastDual?.let { DualPaneScreen(it, roots, backEnabled, onClose = { dualPath = null }, onChanged = { refresh++; onChanged() }, onOpen = ::open) }
+            5 -> lastVault?.let { VaultScreen(it, backEnabled, onClose = { vault = null }, onChanged = { refresh++; onChanged() }) }
+            6 -> DuplicatesScreen(roots.map { it.second }, backEnabled, onClose = { inDupes = false }, onOpen = ::open, onChanged = { refresh++; onChanged() })
+            else -> browse()
         }
     }
 
@@ -453,8 +470,12 @@ private fun StorageCard(label: String, folder: File, onClick: () -> Unit) {
             "${Formatter.formatShortFileSize(context, used).uppercase()} USED OF ${Formatter.formatShortFileSize(context, total).uppercase()}",
             style = monoStyle(cb.inkDim, 1.sp),
         )
+        // the usage bar fills up when the card appears
+        var shown by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { shown = true }
+        val fill by animateFloatAsState(if (shown && total > 0) (used.toFloat() / total).coerceIn(0f, 1f) else 0f, tween(700), label = "usage")
         Box(Modifier.fillMaxWidth().height(6.dp).background(cb.surface2)) {
-            Box(Modifier.fillMaxWidth(if (total > 0) (used.toFloat() / total).coerceIn(0f, 1f) else 0f).fillMaxHeight().background(cb.grad))
+            Box(Modifier.fillMaxWidth(fill).fillMaxHeight().background(cb.grad))
         }
     }
 }
@@ -502,9 +523,11 @@ private fun SearchAction(searching: Boolean, query: String, onQuery: (String) ->
     Row(Modifier.padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.clickable(onClick = onToggle).padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             CbIcon(Icon.SEARCH, if (searching) cb.mint else cb.inkDim, size = 20.dp)
-            if (!searching) Text("SEARCH", Modifier.padding(start = 6.dp), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.2.sp, color = cb.inkDim))
+            AnimatedVisibility(!searching, enter = fadeIn(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_FAST_MS))) { Text("SEARCH", Modifier.padding(start = 6.dp), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.2.sp, color = cb.inkDim)) }
         }
-        if (searching) Box(Modifier.width(220.dp).padding(end = 8.dp)) { CbTextField(query, onQuery) }
+        AnimatedVisibility(searching, enter = fadeIn(tween(MOTION_FAST_MS)) + expandHorizontally(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_FAST_MS)) + shrinkHorizontally(tween(MOTION_FAST_MS))) {
+            Box(Modifier.width(220.dp).padding(end = 8.dp)) { CbTextField(query, onQuery) }
+        }
     }
 }
 
@@ -545,11 +568,11 @@ private fun FileList(entries: List<Entry>, grid: Boolean, selected: Set<String>,
         }
     } else if (grid) {
         LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            items(entries, key = { it.file.path }) { e -> GridTile(e, e.file.path in selected, { onTap(e) }, { onLong(e) }) }
+            items(entries, key = { it.file.path }) { e -> Box(Modifier.animateItem()) { GridTile(e, e.file.path in selected, { onTap(e) }, { onLong(e) }) } }
         }
     } else {
         LazyColumn(Modifier.fillMaxSize()) {
-            items(entries, key = { it.file.path }) { e -> ListRow(e, e.file.path in selected, { onTap(e) }, { onLong(e) }, path = if (showPath) e.file.parent else null) }
+            items(entries, key = { it.file.path }) { e -> Box(Modifier.animateItem()) { ListRow(e, e.file.path in selected, { onTap(e) }, { onLong(e) }, path = if (showPath) e.file.parent else null) } }
         }
     }
 }
@@ -564,10 +587,10 @@ internal fun ListRow(e: Entry, selected: Boolean, onClick: () -> Unit, onLongCli
     val cb = LocalCb.current
     val context = LocalContext.current
     Row(
-        Modifier.fillMaxWidth().background(if (selected) cb.surface2 else Color.Transparent).combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 16.dp, vertical = 6.dp),
+        Modifier.fillMaxWidth().background(glide(selected, cb.surface2, Color.Transparent)).combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(Modifier.size(48.dp).background(cb.surface2).then(if (selected) Modifier.border(2.dp, cb.mint) else Modifier)) { Thumb(e) }
+        Box(Modifier.size(48.dp).background(cb.surface2).border(2.dp, glide(selected, cb.mint, Color.Transparent))) { Thumb(e) }
         Column(Modifier.weight(1f)) {
             Text(e.file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = cb.ink))
             Text(note ?: subtitle(context, e), maxLines = 1, style = monoStyle(cb.inkDim, 0.6.sp))
@@ -582,14 +605,14 @@ private fun GridTile(e: Entry, selected: Boolean, onClick: () -> Unit, onLongCli
     val cb = LocalCb.current
     Box(
         Modifier.aspectRatio(1f).background(cb.surface2).combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .then(if (selected) Modifier.border(3.dp, cb.mint) else Modifier),
+            .border(3.dp, glide(selected, cb.mint, Color.Transparent)),
     ) {
         Thumb(e)
         Text(
             e.file.name, Modifier.align(Alignment.BottomStart).fillMaxWidth().background(Color(0x99000000)).padding(horizontal = 4.dp, vertical = 2.dp),
             maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontSize = 11.sp, color = Color.White),
         )
-        if (selected) SelectedMark()
+        SelectedMark(selected)
     }
 }
 
@@ -658,7 +681,7 @@ private fun PropsDialog(file: File, onClose: () -> Unit) {
         rows.forEach { (k, v) ->
             Column {
                 Text(k, style = monoStyle(DarkCb.inkDim, 1.6.sp))
-                Text(v, style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = DarkCb.ink))
+                Crossfade(v, animationSpec = tween(MOTION_MS), label = "prop") { Text(it, style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = DarkCb.ink)) }
             }
         }
         Row(Modifier.fillMaxWidth(), Arrangement.End) { ActionText("CLOSE", DarkCb.mint, onClose) }

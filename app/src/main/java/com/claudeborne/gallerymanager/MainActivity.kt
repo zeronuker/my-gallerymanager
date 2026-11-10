@@ -6,6 +6,11 @@ import android.view.WindowManager
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
+import com.claudeborne.gallerymanager.ui.MOTION_MS
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
@@ -37,7 +42,7 @@ class MainActivity : FragmentActivity() {
                 Box(Modifier.fillMaxSize()) {
                     // while locked the content stays (so nothing is lost) but is hidden from screen readers too
                     Box(if (AppLockState.locked) Modifier.fillMaxSize().clearAndSetSemantics { } else Modifier.fillMaxSize()) { GalleryRoot(viewUri) }
-                    if (splash) SplashScreen { splash = false }
+                    AnimatedVisibility(splash, enter = EnterTransition.None, exit = fadeOut(tween(MOTION_MS))) { SplashScreen { splash = false } }
                     LockOverlay()
                 }
             }

@@ -2,6 +2,10 @@ package com.claudeborne.gallerymanager.ui
 
 import android.text.format.Formatter
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -99,7 +103,9 @@ fun SettingsScreen(favorites: Favorites, onBack: () -> Unit) {
                         else -> authenticate(context, "Turn on app lock") { ok -> if (ok) Settings.update { lock = true } } // prove it works before relying on it
                     }
                 }
-                if (Settings.lock) Choice("LOCK AFTER", listOf("AT ONCE", "1 MIN", "5 MIN"), Settings.lockAfter) { Settings.update { lockAfter = it } }
+                AnimatedVisibility(Settings.lock, enter = expandEnter, exit = shrinkExit) {
+                    Choice("LOCK AFTER", listOf("AT ONCE", "1 MIN", "5 MIN"), Settings.lockAfter) { Settings.update { lockAfter = it } }
+                }
             }
             Section("DATA") {
                 Row(Modifier.fillMaxWidth().clickable { dialog = 2 }.padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -115,7 +121,7 @@ fun SettingsScreen(favorites: Favorites, onBack: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text("CLEAR TEMPORARY FILES", style = monoStyle(cb.mint, 1.5.sp))
-                    Text(Formatter.formatShortFileSize(context, cacheBytes), style = monoStyle(cb.inkDim, 1.sp))
+                    Crossfade(Formatter.formatShortFileSize(context, cacheBytes), animationSpec = tween(MOTION_MS), label = "cache") { Text(it, style = monoStyle(cb.inkDim, 1.sp)) }
                 }
                 Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("AI UPSCALE MODEL", style = monoStyle(cb.inkDim, 1.5.sp))
@@ -129,7 +135,9 @@ fun SettingsScreen(favorites: Favorites, onBack: () -> Unit) {
                 }
                 Text("Everything stays on your phone. Nothing is uploaded.", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim))
                 Text(if (showLicences) "HIDE LICENCES" else "LICENCES", Modifier.clickable { showLicences = !showLicences }.padding(vertical = 6.dp), style = monoStyle(cb.mint, 1.5.sp))
-                if (showLicences) Licences.forEach { Text(it, style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.ink2)) }
+                AnimatedVisibility(showLicences, enter = expandEnter, exit = shrinkExit) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { Licences.forEach { Text(it, style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.ink2)) } }
+                }
             }
         }
     }
@@ -179,8 +187,9 @@ private fun Toggle(label: String, note: String, on: Boolean, onChange: (Boolean)
             Text(note, style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim))
         }
         // the switch: a track with a round knob that slides to the right when on
-        Box(Modifier.width(44.dp).height(24.dp).clip(CircleShape).background(if (on) cb.mint else cb.surface3)) {
-            Box(Modifier.offset(x = if (on) 22.dp else 2.dp, y = 2.dp).size(20.dp).clip(CircleShape).background(if (on) DarkCb.surface0 else cb.inkDim))
+        val knob by animateDpAsState(if (on) 22.dp else 2.dp, tween(MOTION_FAST_MS), label = "knob")
+        Box(Modifier.width(44.dp).height(24.dp).clip(CircleShape).background(glide(on, cb.mint, cb.surface3))) {
+            Box(Modifier.offset(x = knob, y = 2.dp).size(20.dp).clip(CircleShape).background(glide(on, DarkCb.surface0, cb.inkDim)))
         }
     }
 }
