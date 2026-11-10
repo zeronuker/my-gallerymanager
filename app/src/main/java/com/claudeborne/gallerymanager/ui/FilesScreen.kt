@@ -121,6 +121,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
     var category by rememberSaveable { mutableStateOf<Category?>(null) }
     var inBin by rememberSaveable { mutableStateOf(false) }
     var mapRoot by rememberSaveable { mutableStateOf<String?>(null) } // set while the storage map of that folder is open
+    var inDupes by rememberSaveable { mutableStateOf(false) }
     var sort by rememberSaveable { mutableStateOf(SortBy.NAME) }
     var ascending by rememberSaveable { mutableStateOf(true) }
     var hidden by rememberSaveable { mutableStateOf(false) }
@@ -166,7 +167,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
 
     val chosen = entries.filter { it.file.path in selected }
     val selecting = chosen.isNotEmpty()
-    BackHandler(enabled = backEnabled && !inBin && mapRoot == null && (selecting || searching || cat != null || dir != null)) {
+    BackHandler(enabled = backEnabled && !inBin && mapRoot == null && !inDupes && (selecting || searching || cat != null || dir != null)) {
         when {
             selecting -> selected = emptySet()
             searching -> { searching = false; query = "" }
@@ -200,6 +201,10 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
     mapRoot?.let { start ->
         val label = roots.firstOrNull { it.second.path == start }?.first ?: File(start).name
         StorageMapScreen(File(start), label, backEnabled, onClose = { mapRoot = null }, onBrowse = { go(it); mapRoot = null }, onOpen = ::open, onChanged = { refresh++; onChanged() })
+        return
+    }
+    if (inDupes) {
+        DuplicatesScreen(roots.map { it.second }, backEnabled, onClose = { inDupes = false }, onOpen = ::open, onChanged = { refresh++; onChanged() })
         return
     }
 
@@ -245,7 +250,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (onHome && !showResults) {
-                HomeList(roots, binCount, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true }, onMap = { mapRoot = roots.first().second.path })
+                HomeList(roots, binCount, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true }, onMap = { mapRoot = roots.first().second.path }, onDupes = { inDupes = true })
             } else {
                 FileList(
                     entries, grid && cat == null && !showResults, selected, showPath = showResults || cat != null,
@@ -368,7 +373,7 @@ private fun PermissionGate(context: Context) {
 
 /** The home screen: shortcut categories, the bin, then the storage volumes. */
 @Composable
-private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (File) -> Unit, onCategory: (Category) -> Unit, onBin: () -> Unit, onMap: () -> Unit) {
+private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (File) -> Unit, onCategory: (Category) -> Unit, onBin: () -> Unit, onMap: () -> Unit, onDupes: () -> Unit) {
     val context = LocalContext.current
     LazyColumn(Modifier.fillMaxSize()) {
         item { SectionLabel("SHORTCUTS") }
@@ -378,6 +383,7 @@ private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (
         item { HomeRow("APKS", "APP INSTALLERS") { onCategory(Category.APKS) } }
         item { HomeRow("LARGE FILES", "${Formatter.formatShortFileSize(context, LARGE_FILE_BYTES).uppercase()} AND ABOVE") { onCategory(Category.LARGE) } }
         item { HomeRow("STORAGE MAP", "SEE WHAT USES THE SPACE", onClick = onMap) }
+        item { HomeRow("DUPLICATES", "THE SAME FILE IN SEVERAL PLACES", onClick = onDupes) }
         item { HomeRow("BIN", "$binCount ITEMS · KEPT $BIN_DAYS DAYS", onClick = onBin) }
         item { SectionLabel("STORAGE") }
         items(roots, key = { it.second.path }) { (label, folder) ->
