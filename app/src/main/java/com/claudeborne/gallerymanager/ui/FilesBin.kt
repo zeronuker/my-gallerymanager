@@ -1,6 +1,19 @@
 package com.claudeborne.gallerymanager.ui
 
 import android.text.format.Formatter
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import coil.compose.AsyncImage
+import com.claudeborne.gallerymanager.data.isImage
+import com.claudeborne.gallerymanager.data.isVideo
+import com.claudeborne.gallerymanager.data.mime
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
@@ -49,11 +62,13 @@ internal fun BinView(backEnabled: Boolean, onBack: () -> Unit, onChanged: () -> 
     var selected by rememberSaveable { mutableStateOf(emptySet<String>()) }
     var refresh by remember { mutableIntStateOf(0) }
     var erase by remember { mutableStateOf<List<BinItem>?>(null) } // what a confirm dialog is about to erase
+    var detail by remember { mutableStateOf<String?>(null) } // id of the item open full-screen
 
     LaunchedEffect(refresh) { rows = withContext(Dispatchers.IO) { listBin(context).map { it to entryOf(it.file) } } }
     val chosen = rows.map { it.first }.filter { it.id in selected }
-    BackHandler(enabled = backEnabled) { if (chosen.isNotEmpty()) selected = emptySet() else onBack() }
+    BackHandler(enabled = backEnabled) { if (detail != null) detail = null else if (chosen.isNotEmpty()) selected = emptySet() else onBack() }
 
+    Box(Modifier.fillMaxSize()) { // the detail page draws over the list
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("BIN", if (chosen.isEmpty()) "${rows.size} ITEMS" else "${chosen.size} SELECTED", onBack, "FILES")
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -68,7 +83,8 @@ internal fun BinView(backEnabled: Boolean, onBack: () -> Unit, onChanged: () -> 
                     items(rows, key = { it.first.id }) { (item, entry) ->
                         val size = if (entry.isDir) "FOLDER" else Formatter.formatShortFileSize(context, entry.size).uppercase()
                         ListRow(
-                            entry, item.id in selected, onClick = { selected = toggle(selected, item.id) }, onLongClick = { selected = toggle(selected, item.id) },
+                            // a tap looks at the item before deciding; a long press, or a tap once something is selected, selects it
+                            entry, item.id in selected, onClick = { if (selected.isEmpty()) detail = item.id else selected = toggle(selected, item.id) }, onLongClick = { selected = toggle(selected, item.id) },
                             note = "$size · DELETED ${dateText(item.deletedMs)}", path = "FROM ${item.origin.parent.orEmpty()}",
                         )
                     }
@@ -91,6 +107,15 @@ internal fun BinView(backEnabled: Boolean, onBack: () -> Unit, onChanged: () -> 
         }
     }
 
+    rows.firstOrNull { it.first.id == detail }?.let { (item, entry) ->
+        BinDetail(
+            item, entry, onClose = { detail = null },
+            onRestore = { scope.launch { Toast.makeText(context, "Restored ${restoreFromBin(context, listOf(item))}", Toast.LENGTH_SHORT).show(); detail = null; refresh++; onChanged() } },
+            onDelete = { erase = listOf(item) },
+        )
+    }
+    }
+
     erase?.let { items ->
         CbDialog("DELETE FOR GOOD", { erase = null }) {
             Text(
@@ -101,9 +126,61 @@ internal fun BinView(backEnabled: Boolean, onBack: () -> Unit, onChanged: () -> 
                 ActionText("CANCEL", cb.inkDim) { erase = null }
                 ActionText("DELETE", RED) {
                     erase = null
-                    scope.launch { deleteFromBin(context, items); selected = emptySet(); refresh++ }
+                    scope.launch { deleteFromBin(context, items); selected = emptySet(); detail = null; refresh++ }
                 }
             }
         }
     }
+}
+
+private const val DAY_MS = 86_400_000L
+
+/** One deleted file, big: a preview where there is one (picture, video frame, PDF first page, start of a text file) and its details, with restore and delete forever. */
+@Composable
+private fun BinDetail(item: BinItem, entry: Entry, onClose: () -> Unit, onRestore: () -> Unit, onDelete: () -> Unit) {
+    val cb = LocalCb.current
+    val context = LocalContext.current
+    val file = item.file
+    val left = (((item.deletedMs + BIN_DAYS * DAY_MS) - System.currentTimeMillis()) / DAY_MS).coerceAtLeast(0)
+    val facts = listOf(
+        "SIZE" to if (entry.isDir) "Folder" else Formatter.formatShortFileSize(context, entry.size),
+        "FROM" to item.origin.parent.orEmpty(),
+        "DELETED" to dateText(item.deletedMs),
+        "REMOVED FOR GOOD IN" to if (left == 1L) "1 day" else "$left days",
+    )
+    Column(Modifier.fillMaxSize().background(cb.surface0).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("← BACK", Modifier.clickable(onClick = onClose), style = monoStyle(cb.mint, 2.6.sp))
+        }
+        Text(file.name, Modifier.padding(horizontal = 16.dp), maxLines = 2, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = cb.ink))
+        Box(Modifier.weight(1f).fillMaxWidth().padding(16.dp).background(Color.Black), Alignment.Center) {
+            when {
+                entry.isDir -> BigLabel("FOLDER")
+                file.isImage() || file.isVideo() -> AsyncImage(file, file.name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                file.extension.equals("pdf", true) -> PdfFirstPage(file, 1080, ContentScale.Fit)
+                file.mime().startsWith("text/") -> {
+                    val text by produceState("", file) { value = withContext(Dispatchers.IO) { runCatching { file.bufferedReader().use { r -> CharArray(3000).let { b -> String(b, 0, r.read(b).coerceAtLeast(0)) } } }.getOrDefault("") } }
+                    Text(text, Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, color = Color.White))
+                }
+                else -> BigLabel(file.extension.take(5).uppercase().ifEmpty { "FILE" })
+            }
+        }
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+            facts.forEach { (k, v) ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                    Text(k, Modifier.weight(1f), style = monoStyle(cb.inkDim, 1.2.sp))
+                    Text(v, Modifier.weight(1.4f), maxLines = 2, style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.ink))
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().background(cb.surface1).padding(vertical = 8.dp), Arrangement.SpaceEvenly) {
+            ActionText("RESTORE", cb.mint, onRestore)
+            ActionText("DELETE FOREVER", RED, onDelete)
+        }
+    }
+}
+
+@Composable
+private fun BigLabel(text: String) {
+    Text(text, style = TextStyle(fontFamily = Tourney, fontWeight = FontWeight.Bold, fontSize = 48.sp, brush = LocalCb.current.grad))
 }

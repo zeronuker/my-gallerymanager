@@ -345,15 +345,15 @@ private fun shadeFor(t: FileType, size: Long, lo: Double, hi: Double): Color {
 
 /** The first page of a PDF as a picture, drawn once in the background. Nothing shows if the file cannot be opened. */
 @Composable
-private fun PdfFirstPage(file: File) {
+internal fun PdfFirstPage(file: File, width: Int = 320, contentScale: ContentScale = ContentScale.Crop) {
     val page by produceState<ImageBitmap?>(null, file) {
         value = withContext(Dispatchers.IO) {
             runCatching {
                 ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
                     PdfRenderer(fd).use { renderer ->
                         renderer.openPage(0).use { p ->
-                            val scale = 320f / p.width
-                            val bmp = Bitmap.createBitmap(320, (p.height * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888).apply { eraseColor(android.graphics.Color.WHITE) }
+                            val scale = width.toFloat() / p.width
+                            val bmp = Bitmap.createBitmap(width, (p.height * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888).apply { eraseColor(android.graphics.Color.WHITE) }
                             p.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                             bmp.asImageBitmap()
                         }
@@ -362,7 +362,7 @@ private fun PdfFirstPage(file: File) {
             }.getOrNull()
         }
     }
-    page?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter) }
+    page?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = contentScale, alignment = Alignment.TopCenter) }
 }
 
 /** The top-level tiles of [node] and, inside each folder tile that is big enough, its own biggest items, down to three levels. [dp] is pixels per dp. */
