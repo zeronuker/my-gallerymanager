@@ -31,8 +31,22 @@ import kotlin.coroutines.resume
 
 enum class SortBy { NAME, DATE, SIZE, TYPE }
 
-/** Shortcut lists on the Files home screen, built from MediaStore so they appear without scanning the whole storage. */
-enum class Category { AUDIO, DOCUMENTS, APKS, LARGE }
+/**
+ * Category lists on the Files home screen, built from MediaStore so they appear without scanning the whole storage. A file can be in
+ * more than one (a big video is in VIDEOS and LARGE); OTHERS holds every file the type categories above it do not match, large or not.
+ */
+enum class Category { IMAGES, VIDEOS, AUDIO, DOCUMENTS, APKS, ARCHIVES, LARGE, OTHERS }
+
+/** The SQL that picks each type category (not LARGE and OTHERS); OTHERS is built from these so the two can never disagree. */
+private val TYPE_CLAUSES: Map<Category, String> = mapOf(
+    Category.IMAGES to "${F.MEDIA_TYPE} = ${F.MEDIA_TYPE_IMAGE}",
+    Category.VIDEOS to "${F.MEDIA_TYPE} = ${F.MEDIA_TYPE_VIDEO}",
+    Category.AUDIO to "${F.MEDIA_TYPE} = ${F.MEDIA_TYPE_AUDIO}",
+    Category.DOCUMENTS to "${F.MIME_TYPE} LIKE 'text/%' OR ${F.MIME_TYPE} = 'application/pdf' OR ${F.MIME_TYPE} = 'application/msword' OR " +
+        "${F.MIME_TYPE} LIKE 'application/vnd.ms-%' OR ${F.MIME_TYPE} LIKE 'application/vnd.openxmlformats%' OR ${F.MIME_TYPE} LIKE 'application/vnd.oasis%'",
+    Category.APKS to "${F.MIME_TYPE} = 'application/vnd.android.package-archive' OR ${F.DISPLAY_NAME} LIKE '%.apk'",
+    Category.ARCHIVES to listOf("zip", "rar", "7z", "tar", "gz", "tgz").joinToString(" OR ") { "${F.DISPLAY_NAME} LIKE '%.$it'" },
+)
 
 /** Files at or above this size count as "large" (the same 1000-based megabytes the app displays). */
 const val LARGE_FILE_BYTES = 50_000_000L
@@ -94,11 +108,10 @@ suspend fun searchFiles(roots: List<File>, query: String, showHidden: Boolean, l
 /** The files in [category], newest first (largest first for [Category.LARGE]). */
 suspend fun categoryFiles(context: Context, category: Category): List<Entry> = withContext(Dispatchers.IO) {
     val where = when (category) {
-        Category.AUDIO -> "${F.MEDIA_TYPE} = ${F.MEDIA_TYPE_AUDIO}"
-        Category.DOCUMENTS -> "${F.MIME_TYPE} LIKE 'text/%' OR ${F.MIME_TYPE} = 'application/pdf' OR ${F.MIME_TYPE} = 'application/msword' OR " +
-            "${F.MIME_TYPE} LIKE 'application/vnd.ms-%' OR ${F.MIME_TYPE} LIKE 'application/vnd.openxmlformats%' OR ${F.MIME_TYPE} LIKE 'application/vnd.oasis%'"
-        Category.APKS -> "${F.MIME_TYPE} = 'application/vnd.android.package-archive' OR ${F.DISPLAY_NAME} LIKE '%.apk'"
         Category.LARGE -> "${F.SIZE} >= $LARGE_FILE_BYTES"
+        // IFNULL: a file with no mime type must count as "not matched", not as unknown
+        Category.OTHERS -> "${F.SIZE} > 0 AND ${F.DISPLAY_NAME} NOT LIKE '.%' AND " + TYPE_CLAUSES.values.joinToString(" AND ") { "NOT IFNULL(($it), 0)" }
+        else -> TYPE_CLAUSES.getValue(category)
     }
     val args = Bundle().apply {
         putString(ContentResolver.QUERY_ARG_SQL_SELECTION, where)
