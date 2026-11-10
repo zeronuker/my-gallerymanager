@@ -86,14 +86,24 @@ object TransferHub {
         running = false
     }
 
-    /** Addresses another device can open, Wi-Fi first. */
-    fun addresses(): List<String> {
+    /** Addresses another device can open as (what the network is, address): Wi-Fi first, then the rest. The fast links show up here too. */
+    fun addresses(): List<Pair<String, String>> {
         val interfaces = NetworkInterface.getNetworkInterfaces() ?: return emptyList()
         return java.util.Collections.list(interfaces)
             .filter { it.isUp && !it.isLoopback }
             .flatMap { ni -> java.util.Collections.list(ni.inetAddresses).filterIsInstance<Inet4Address>().filter { it.isSiteLocalAddress }.map { ni.name to it.hostAddress } }
-            .sortedBy { if (it.first.startsWith("wlan")) 0 else 1 }
-            .map { "http://${it.second}:$port/?t=$token" }
+            .sortedBy { if (it.first.startsWith("wlan0")) 0 else 1 }
+            .map { (name, ip) -> networkLabel(name) to "http://$ip:$port/?t=$token" }
+    }
+
+    /** What kind of network an interface name stands for, from Android's usual naming. */
+    private fun networkLabel(name: String) = when {
+        name.startsWith("p2p") -> "DIRECT LINK"
+        name.startsWith("rndis") || name.startsWith("usb") || name.startsWith("ncm") -> "USB CABLE"
+        name.startsWith("ap") || name.startsWith("swlan") || name.startsWith("wlan1") -> "THIS PHONE'S HOTSPOT"
+        name.startsWith("eth") -> "ETHERNET"
+        name.startsWith("wlan") -> "WI-FI"
+        else -> name.uppercase()
     }
 
     // ---- server side ----
@@ -106,6 +116,16 @@ object TransferHub {
             req.method == "GET" && req.path == "/api/offers" -> res.send(200, "application/json", offersJson().toByteArray())
             req.method == "GET" && req.path.startsWith("/api/file/") -> download(req, res)
             req.method == "PUT" && req.path == "/api/upload" -> upload(req, res)
+            req.method == "GET" && req.path == "/api/speed/down" -> { // the web page's speed test: a stream of zeros
+                val size = (req.query["mb"]?.toLongOrNull() ?: 64).coerceIn(1, 1024) shl 20
+                res.sendStream(200, "application/octet-stream", size, emptyMap(), Zeros(size)) { n -> bytes.addAndGet(n.toLong()) }
+            }
+            req.method == "PUT" && req.path == "/api/speed/up" -> { // and the other direction: reads and drops what the page sends
+                val buf = ByteArray(BUFFER)
+                var total = 0L
+                while (true) { val n = req.body.read(buf); if (n < 0) break; total += n; bytes.addAndGet(n.toLong()) }
+                res.send(200, "application/json", JSONObject().put("bytes", total).toString().toByteArray())
+            }
             else -> res.send(404, "text/plain", "not found".toByteArray())
         }
     }
@@ -255,6 +275,19 @@ object TransferHub {
     private fun InputStream.skipFully(n: Long) {
         var left = n
         while (left > 0) { if (read() < 0) throw IOException("no reply"); left-- }
+    }
+}
+
+/** [size] zero bytes, for the speed test. */
+private class Zeros(private var left: Long) : InputStream() {
+    override fun read(): Int = if (left <= 0) -1 else { left--; 0 }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        if (left <= 0) return -1
+        val n = minOf(len.toLong(), left).toInt()
+        java.util.Arrays.fill(b, off, off + n, 0)
+        left -= n
+        return n
     }
 }
 

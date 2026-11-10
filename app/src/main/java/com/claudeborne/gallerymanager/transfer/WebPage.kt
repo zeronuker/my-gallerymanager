@@ -25,6 +25,9 @@ a{color:#4c8dff}.dim{color:#8a94a8}
 <h2>FROM PHONE</h2>
 <div id="offers" class="dim">Nothing offered</div>
 <button id="refresh">Refresh</button>
+<h2>SPEED TEST</h2>
+<div class="dim">Moves 64 MB each way between this computer and the phone, to compare Wi-Fi, a direct link and a USB cable.</div>
+<button id="speed">Test speed</button><div id="speedout" class="row"></div>
 <script>
 const T="__TOKEN__";
 const fmt=n=>n>1e9?(n/1e9).toFixed(1)+' GB':n>1e6?(n/1e6).toFixed(1)+' MB':Math.ceil(n/1e3)+' KB';
@@ -62,5 +65,17 @@ async function offers(){
     d.firstChild.textContent=o.name;box.append(d);}
 }
 document.getElementById('refresh').onclick=offers;offers();
+const fmtSpeed=mbs=>mbs.toFixed(1)+' MB/s ('+(mbs*8).toFixed(0)+' Mbps)';
+document.getElementById('speed').onclick=async()=>{
+  const out=document.getElementById('speedout');out.textContent='Testing download…';
+  let t=performance.now(),n=0;
+  const reader=(await fetch('/api/speed/down?mb=64&t='+T)).body.getReader();
+  for(;;){const r=await reader.read();if(r.done)break;n+=r.value.length}
+  const down=n/1048576/((performance.now()-t)/1000);
+  out.textContent='Download '+fmtSpeed(down)+' · testing upload…';
+  const blob=new Blob([new Uint8Array(64*1048576)]);t=performance.now();
+  await fetch('/api/speed/up?t='+T,{method:'PUT',body:blob});
+  out.textContent='Download '+fmtSpeed(down)+' · Upload '+fmtSpeed(64/((performance.now()-t)/1000));
+};
 </script></body></html>"""
 }

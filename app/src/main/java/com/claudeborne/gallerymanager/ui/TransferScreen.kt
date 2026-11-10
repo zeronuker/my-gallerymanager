@@ -171,7 +171,15 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
                 }
                 HomeRow("RECEIVE", "SHOW A CODE FOR OTHERS TO SEND TO THIS PHONE") { mode = Mode.RECEIVE }
                 Text(
-                    "Both devices need to be on the same Wi-Fi. Files you receive are saved in Download/Received.",
+                    "Both devices need to be on the same network. Files you receive are saved in Download/Received.",
+                    Modifier.padding(16.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim),
+                )
+                Text("THE FASTEST WAYS", Modifier.padding(start = 16.dp, top = 8.dp), style = monoStyle(cb.mint, 2.4.sp))
+                Text(
+                    "Phone to phone: RECEIVE, then \"Use a direct link\" for a router-free 5 GHz connection.\n\n" +
+                        "Phone to computer, by cable: plug the phone in, turn on USB tethering (Settings, Network, Hotspot and tethering), then RECEIVE; the cable's address appears under the code.\n\n" +
+                        "Phone to computer, by Wi-Fi: use the direct link, or turn on this phone's hotspot and join it from the computer.\n\n" +
+                        "On the computer's page, the speed test shows what each way really gives.",
                     Modifier.padding(16.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim),
                 )
             }
@@ -240,10 +248,12 @@ private fun Connection(tick: Int, group: DirectGroup?, help: String) {
             return@Column
         }
         Text(help, style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
-        Text(urls[0], style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = cb.mint, textAlign = TextAlign.Center))
-        val qr = remember(urls[0]) { qrBitmap(urls[0]) }
+        Text(urls[0].first, style = monoStyle(cb.inkDim, 1.sp))
+        Text(urls[0].second, style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = cb.mint, textAlign = TextAlign.Center))
+        val qr = remember(urls[0].second) { qrBitmap(urls[0].second) }
         Image(qr, "QR code", Modifier.size(200.dp).background(androidx.compose.ui.graphics.Color.White), filterQuality = FilterQuality.None)
-        urls.drop(1).forEach { Text(it, style = monoStyle(cb.inkDim, 0.6.sp)) }
+        // other networks this phone is on: a USB cable (tethering) or a hotspot give a faster way in than the router
+        urls.drop(1).forEach { (label, url) -> Text("$label  $url", style = monoStyle(cb.inkDim, 0.6.sp), textAlign = TextAlign.Center) }
     }
 }
 
