@@ -110,7 +110,7 @@ private fun PermissionScreen(denied: Boolean, onGrant: () -> Unit, onSettings: (
         Text("ALLOW ACCESS", style = TextStyle(fontFamily = Tourney, fontWeight = FontWeight.Bold, fontSize = 30.sp, brush = cb.grad))
         Text(
             if (denied) "Access was denied. Turn on Photos and videos for this app in Settings."
-            else "Gallery Manager needs access to your photos and videos to show them. Nothing leaves your phone.",
+            else "Altus Cirrus needs access to your photos and videos to show them. Nothing leaves your phone.",
             style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2, textAlign = TextAlign.Center),
         )
         CbButton(if (denied) "OPEN SETTINGS" else "GRANT ACCESS", onClick = if (denied) onSettings else onGrant)

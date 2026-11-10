@@ -89,7 +89,7 @@ fun LockOverlay() {
     fun ask() {
         if (asking) return
         asking = true
-        authenticate(context, "Unlock Gallery Manager") { ok -> asking = false; if (ok) AppLockState.locked = false }
+        authenticate(context, "Unlock Altus Cirrus") { ok -> asking = false; if (ok) AppLockState.locked = false }
     }
     LaunchedEffect(Unit) { ask() } // the prompt opens by itself; the button is for trying again after cancelling
 

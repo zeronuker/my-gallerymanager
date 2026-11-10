@@ -53,7 +53,7 @@ private fun BrandBanner() {
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(cb.lineStrong))
             Text(
-                "GALLERY MANAGER", Modifier.fillMaxWidth(), maxLines = 1,
+                "ALTUS CIRRUS", Modifier.fillMaxWidth(), maxLines = 1,
                 style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, letterSpacing = 4.sp, color = cb.blue, textAlign = TextAlign.Center),
             )
         }

@@ -116,7 +116,7 @@ fun SettingsScreen(favorites: Favorites) {
             }
             Section("ABOUT") {
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-                    Text("Gallery Manager", style = TextStyle(fontFamily = Inter, fontSize = 15.sp, color = cb.ink))
+                    Text("Altus Cirrus", style = TextStyle(fontFamily = Inter, fontSize = 15.sp, color = cb.ink))
                     Text("v$version", style = monoStyle(cb.inkDim, 1.sp))
                 }
                 Text("Everything stays on your phone. Nothing is uploaded.", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim))

@@ -24,7 +24,7 @@ class TransferService : Service() {
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "File transfer", NotificationManager.IMPORTANCE_LOW))
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("Gallery Manager transfer")
+            .setContentTitle("Altus Cirrus transfer")
             .setContentText("Transferring files")
             .setOngoing(true)
             .build()

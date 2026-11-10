@@ -7,7 +7,7 @@ object WebPage {
         .replace("__TOKEN__", token)
 
     private const val PAGE = """<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gallery Manager transfer</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Altus Cirrus transfer</title>
 <style>
 body{font-family:system-ui,sans-serif;background:#0b1020;color:#e8ecf5;max-width:720px;margin:0 auto;padding:24px}
 h1{font-size:18px;letter-spacing:.25em;color:#3ddc97}h2{font-size:13px;letter-spacing:.2em;color:#4c8dff;margin-top:32px}
@@ -16,7 +16,7 @@ h1{font-size:18px;letter-spacing:.25em;color:#3ddc97}h2{font-size:13px;letter-sp
 .row{margin:10px 0;font-size:14px;word-break:break-all}.bar{height:5px;background:#1c2542;margin-top:4px}.bar i{display:block;height:100%;width:0;background:#3ddc97}
 a{color:#4c8dff}.dim{color:#8a94a8}
 </style></head><body>
-<h1>GALLERY MANAGER · TRANSFER</h1>
+<h1>ALTUS CIRRUS · TRANSFER</h1>
 <div class="dim">Connected to <b>__NAME__</b></div>
 <h2>SEND TO PHONE</h2>
 <label class="box" id="drop">Drop files here or click to choose<input id="pick" type="file" multiple hidden></label>

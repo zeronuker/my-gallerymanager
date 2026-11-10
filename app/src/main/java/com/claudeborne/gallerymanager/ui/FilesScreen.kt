@@ -391,7 +391,7 @@ private fun PermissionGate(context: Context) {
         ScreenHeader("FILES", "NO ACCESS")
         Column(Modifier.weight(1f).padding(32.dp), Arrangement.spacedBy(16.dp, Alignment.CenterVertically), Alignment.CenterHorizontally) {
             Text(
-                "To browse all folders, Gallery Manager needs \"All files access\". Turn it on for this app, then come back. Nothing leaves your phone.",
+                "To browse all folders, Altus Cirrus needs \"All files access\". Turn it on for this app, then come back. Nothing leaves your phone.",
                 style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2, textAlign = TextAlign.Center),
             )
             ActionText("OPEN SETTINGS", cb.mint) {
