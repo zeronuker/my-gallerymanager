@@ -88,6 +88,7 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
     var linkBusy by remember { mutableStateOf(false) }
     var linkError by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf("") }
+    var joinHelp by remember { mutableStateOf<String?>(null) } // what to do while joining the other phone's network, or by hand if that failed
     var leave by remember { mutableStateOf<(() -> Unit)?>(null) } // leaves the other phone's network after sending
     fun startDirect() {
         linkBusy = true
@@ -143,15 +144,27 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
             target == null -> return toast("Enter the address shown on the other phone")
         }
         sending = true
+        joinHelp = null
         fun finish(message: String) { leave?.invoke(); leave = null; sending = false; status = ""; toast(message) }
         fun go(network: Network?) {
             status = "SENDING…"
+            joinHelp = null
             scope.launch { finish("Sent ${TransferHub.send(files, target!!.host, target.port, target.token, network)} of ${files.size}") }
         }
-        if (target!!.ssid != null && target.pass != null) {
-            status = "JOINING…"
-            leave = DirectJoin.join(context, target.ssid, target.pass, { go(it) }, { finish(it) })
-        } else go(null)
+        val ssid = target!!.ssid
+        val pass = target.pass
+        when {
+            ssid == null || pass == null -> go(null)
+            DirectJoin.onSameNetwork(target.host) -> go(null) // already on that network (joined by hand earlier, or still joined)
+            else -> {
+                status = "JOINING…"
+                joinHelp = "When Android asks, choose the network $ssid in the list and confirm. It can take a few seconds to appear."
+                leave = DirectJoin.join(context, ssid, pass, { go(it) }, {
+                    joinHelp = "Could not join automatically. Open the phone's Wi-Fi settings, join $ssid with the password $pass, then tap SEND again."
+                    finish("Could not join the other phone's direct link")
+                })
+            }
+        }
     }
     /** Sends to a LocalSend device found on the network; the user there has to accept first. */
     fun sendToPeer(peer: LocalSend.Peer) {
@@ -209,6 +222,7 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
             }
             Mode.PHONE -> Box(Modifier.weight(1f)) {
                 Progress(rows) {
+                    joinHelp?.let { Text(it, Modifier.padding(16.dp), style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = if (sending) cb.mint else RED)) }
                     val now = System.currentTimeMillis()
                     val peers = remember(tick) { LocalSend.peers.values.filter { now - it.seen < 120_000 }.sortedBy { it.alias } }
                     Text("NEARBY DEVICES", Modifier.padding(start = 16.dp, top = 8.dp), style = monoStyle(cb.mint, 2.4.sp))

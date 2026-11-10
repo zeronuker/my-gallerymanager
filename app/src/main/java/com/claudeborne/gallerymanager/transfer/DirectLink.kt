@@ -22,6 +22,7 @@ class DirectGroup(val ssid: String, val passphrase: String, val host: String)
 /** The receiving side: makes the group. The caller must hold the NEARBY_WIFI_DEVICES permission. */
 @SuppressLint("MissingPermission")
 class DirectLink(context: Context) {
+    private val appContext = context.applicationContext
     private val manager: WifiP2pManager? = context.getSystemService(WifiP2pManager::class.java)
     private val channel: WifiP2pManager.Channel? = manager?.initialize(context, Looper.getMainLooper(), null)
     private val handler = Handler(Looper.getMainLooper())
@@ -34,7 +35,10 @@ class DirectLink(context: Context) {
         val random = SecureRandom()
         val chars = "abcdefghjkmnpqrstuvwxyz23456789"
         fun word(n: Int) = (1..n).map { chars[random.nextInt(chars.length)] }.joinToString("")
-        val ssid = "DIRECT-gm-" + word(4) // Wi-Fi Direct names must begin with DIRECT-xx
+        // the network name is made once and kept, so the other phone sees the same name each time (the password is new every time);
+        // Wi-Fi Direct names must begin with DIRECT-xx
+        val prefs = appContext.getSharedPreferences("direct", Context.MODE_PRIVATE)
+        val ssid = prefs.getString("ssid", null) ?: ("DIRECT-gm-" + word(4)).also { prefs.edit().putString("ssid", it).apply() }
         val pass = word(10)
 
         fun create(band: Int) {
@@ -90,7 +94,23 @@ object DirectJoin {
             override fun onAvailable(network: Network) = onNetwork(network)
             override fun onUnavailable() = onFail("Could not join the other phone's direct link")
         }
-        cm.requestNetwork(request, callback, 30_000)
+        cm.requestNetwork(request, callback, 60_000) // Android asks the user to pick the network, so there is time for that
         return { runCatching { cm.unregisterNetworkCallback(callback) } }
+    }
+
+    /** True if this phone already has an address on the same local network as [host] (so no joining is needed). */
+    fun onSameNetwork(host: String): Boolean = runCatching {
+        val target = java.net.InetAddress.getByName(host).address
+        java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces()).any { ni ->
+            ni.isUp && !ni.isLoopback && ni.interfaceAddresses.any { a ->
+                val mine = a.address.address
+                mine.size == target.size && mine.size == 4 && prefixMatches(mine, target, a.networkPrefixLength.toInt())
+            }
+        }
+    }.getOrDefault(false)
+
+    private fun prefixMatches(a: ByteArray, b: ByteArray, bits: Int): Boolean {
+        for (i in 0 until bits) if (((a[i / 8].toInt() xor b[i / 8].toInt()) shr (7 - i % 8)) and 1 != 0) return false
+        return true
     }
 }
