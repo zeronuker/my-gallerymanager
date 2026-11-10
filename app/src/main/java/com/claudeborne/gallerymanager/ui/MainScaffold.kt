@@ -37,7 +37,7 @@ import com.claudeborne.gallerymanager.data.EXTERNAL_ID
 import com.claudeborne.gallerymanager.data.MediaItem
 import com.claudeborne.gallerymanager.data.externalItem
 
-private val tabs = listOf("PHOTOS", "ALBUMS", "TRASH", "SETTINGS")
+private val tabs = listOf("PHOTOS", "ALBUMS", "FILES", "TRASH", "SETTINGS")
 
 /** [openUri] is set when another app opened a photo/video with us ("Open with"); closing the viewer then returns to that app. */
 @Composable
@@ -69,7 +69,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     // the viewer swipes through whatever list the user opened it from
     val viewerItems = when {
         viewerId == EXTERNAL_ID -> listOfNotNull(external)
-        tab == 0 -> items
+        tab == 0 || tab == 2 -> items // Files opens media in the whole library
         else -> inAlbum
     }
     val closeViewer = { viewerId = null; if (openUri != null) (context as? Activity)?.finish() }
@@ -82,8 +82,9 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
             Box(Modifier.weight(1f)) {
                 when {
                     tab == 0 -> PhotosScreen(items, "PHOTOS", tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, gridState = photosGrid) { viewerId = it.id }
-                    tab == 2 -> TrashScreen(trash, onChanged)
-                    tab == 3 -> SettingsScreen(favorites)
+                    tab == 2 -> FilesScreen(items, backEnabled = viewerId == null && editing == null && collage == null && join == null, onChanged) { viewerId = it.id }
+                    tab == 3 -> TrashScreen(trash, onChanged)
+                    tab == 4 -> SettingsScreen(favorites)
                     album != null -> key(album) {
                         val title = if (album == FAVORITES_ID) "FAVORITES" else inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM"
                         PhotosScreen(inAlbum, title, tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, onBack = { openAlbum = null }) { viewerId = it.id }

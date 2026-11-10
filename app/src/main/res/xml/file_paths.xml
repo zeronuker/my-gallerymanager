@@ -2,4 +2,6 @@
 <paths>
     <!-- location-free copies made for sharing -->
     <cache-path name="share" path="share/" />
+    <!-- the Files tab opens and shares files from anywhere on storage -->
+    <root-path name="storage" path="" />
 </paths>
