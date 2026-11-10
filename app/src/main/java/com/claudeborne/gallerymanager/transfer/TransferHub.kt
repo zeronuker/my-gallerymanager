@@ -245,7 +245,7 @@ object TransferHub {
         val reply = try {
             Http.post(peer.host, peer.port, peer.https, LocalSend.API + "prepare-upload", offer.toString().toByteArray(), timeoutMs = 180_000) // the other user has time to accept
         } catch (e: IOException) {
-            return@withContext "Could not reach ${peer.alias}"
+            return@withContext Http.explain(e, peer.alias)
         }
         when (reply.status) {
             200 -> Unit

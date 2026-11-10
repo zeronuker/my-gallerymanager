@@ -20,7 +20,19 @@ import java.time.Instant
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.security.KeyPairGenerator
+import java.security.KeyStore
+import java.security.spec.ECGenParameterSpec
+import java.util.Date
+import javax.net.ssl.KeyManager
+import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLException
+import javax.security.auth.x500.X500Principal
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.X509TrustManager
 import kotlin.concurrent.thread
@@ -219,7 +231,41 @@ internal object Http {
             override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
             override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
         }
-        SSLContext.getInstance("TLS").apply { init(null, arrayOf(manager), null) }.socketFactory
+        SSLContext.getInstance("TLS").apply { init(clientKeys(), arrayOf(manager), null) }.socketFactory
+    }
+
+    private const val CLIENT_ALIAS = "gm_localsend_client"
+
+    /**
+     * LocalSend's server asks every client for a certificate (it knows devices by theirs) and turns away those that have none. This phone
+     * makes one self-signed certificate once, with its key kept in Android Keystore, and presents it on every secure connection.
+     * Null (no certificate) if the Keystore refuses, which only costs the ability to send to LocalSend over HTTPS.
+     */
+    private fun clientKeys(): Array<KeyManager>? = runCatching {
+        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        if (!store.containsAlias(CLIENT_ALIAS)) {
+            KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore").apply {
+                initialize(
+                    KeyGenParameterSpec.Builder(CLIENT_ALIAS, KeyProperties.PURPOSE_SIGN)
+                        .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
+                        // the TLS stack hashes the handshake itself and asks the Keystore to sign the digest as it is (NONE)
+                        .setDigests(KeyProperties.DIGEST_NONE, KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA384, KeyProperties.DIGEST_SHA512)
+                        .setCertificateSubject(X500Principal("CN=Gallery Manager"))
+                        .setCertificateNotBefore(Date(System.currentTimeMillis() - 86_400_000L))
+                        .setCertificateNotAfter(Date(System.currentTimeMillis() + 10 * 365 * 86_400_000L))
+                        .build(),
+                )
+            }.generateKeyPair()
+        }
+        KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply { init(store, null) }.keyManagers
+    }.onFailure { android.util.Log.w("LocalSend", "no client certificate: $it") }.getOrNull()
+
+    /** Says in plain words why talking to [name] failed, from the error [e] (timeout, refused, secure-connection problem). */
+    fun explain(e: IOException, name: String): String = when (e) {
+        is SocketTimeoutException -> "$name did not answer in time. Check it is on the same network and that its firewall allows LocalSend."
+        is ConnectException -> "$name refused the connection. Check LocalSend is open there and its firewall allows it."
+        is SSLException -> "The secure connection to $name failed (${e.message ?: "no details"})."
+        else -> "Could not reach $name (${e.message ?: "no details"})."
     }
 
     /** [network] pins the connection to one Wi-Fi network (the direct link) even when the phone's default network is another. */
