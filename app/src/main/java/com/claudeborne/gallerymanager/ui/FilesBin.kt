@@ -66,7 +66,7 @@ internal fun BinView(backEnabled: Boolean, onBack: () -> Unit, onChanged: () -> 
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
                     items(rows, key = { it.first.id }) { (item, entry) ->
-                        val size = if (entry.isDir) "${entry.children} ITEMS" else Formatter.formatShortFileSize(context, entry.size).uppercase()
+                        val size = if (entry.isDir) "FOLDER" else Formatter.formatShortFileSize(context, entry.size).uppercase()
                         ListRow(
                             entry, item.id in selected, onClick = { selected = toggle(selected, item.id) }, onLongClick = { selected = toggle(selected, item.id) },
                             note = "$size · DELETED ${dateText(item.deletedMs)}", path = "FROM ${item.origin.parent.orEmpty()}",

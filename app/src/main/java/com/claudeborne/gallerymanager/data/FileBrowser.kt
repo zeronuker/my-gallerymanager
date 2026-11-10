@@ -17,6 +17,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipEntry
 import me.zhanghai.android.libarchive.Archive
@@ -35,10 +37,20 @@ enum class Category { AUDIO, DOCUMENTS, APKS, LARGE }
 /** Files at or above this size count as "large" (the same 1000-based megabytes the app displays). */
 const val LARGE_FILE_BYTES = 50_000_000L
 
-/** One row of a folder listing; size, date and child count are read once so scrolling does no disk work. */
-data class Entry(val file: File, val isDir: Boolean, val size: Long, val modified: Long, val children: Int)
+/** One row of a folder listing; size and date are read once so scrolling does no disk work. [children] is -1 until [countChildren] fills it in. */
+data class Entry(val file: File, val isDir: Boolean, val size: Long, val modified: Long, val children: Int = -1) {
+    /** The lower-case name, made once because sorting a big folder compares names hundreds of thousands of times. */
+    val key: String = file.name.lowercase()
+}
 
-fun entryOf(f: File): Entry = f.isDirectory.let { d -> Entry(f, d, if (d) 0 else f.length(), f.lastModified(), if (d) f.list()?.size ?: 0 else 0) }
+/** One disk read for the type, size and date together (the File methods read the disk again for each). */
+fun entryOf(f: File): Entry = runCatching {
+    val a = Files.readAttributes(f.toPath(), BasicFileAttributes::class.java)
+    Entry(f, a.isDirectory, if (a.isDirectory) 0 else a.size(), a.lastModifiedTime().toMillis())
+}.getOrElse { Entry(f, f.isDirectory, f.length(), f.lastModified()) }
+
+/** [entries] with the number of items in each folder filled in. Opening every folder is the slow part of a listing, so it is done after the list is already on screen. */
+fun countChildren(entries: List<Entry>): List<Entry> = entries.map { if (it.isDir) it.copy(children = it.file.list()?.size ?: 0) else it }
 
 /** Every mounted storage volume (internal, SD card, USB) as (label, root folder). */
 fun storageRoots(context: Context): List<Pair<String, File>> =
@@ -48,16 +60,17 @@ fun storageRoots(context: Context): List<Pair<String, File>> =
 
 /** The entries of [dir] with folders first, then ordered by [by]. A folder we are not allowed to read lists as empty. */
 fun listDir(dir: File, showHidden: Boolean, by: SortBy, ascending: Boolean): List<Entry> {
-    val entries = (dir.listFiles() ?: return emptyList())
-        .filter { showHidden || !it.name.startsWith(".") }
-        .map(::entryOf)
+    val names = dir.list() ?: return emptyList()
+    // each file's details cost a trip to the storage, which waits rather than works, so many are asked for at once
+    val entries = names.filter { showHidden || !it.startsWith(".") }.toList().parallelStream().map { entryOf(File(dir, it)) }.toList()
     val order: Comparator<Entry> = when (by) {
-        SortBy.NAME -> compareBy { it.file.name.lowercase() }
+        SortBy.NAME -> compareBy { it.key }
         SortBy.DATE -> compareBy { it.modified }
         SortBy.SIZE -> compareBy { it.size }
-        SortBy.TYPE -> compareBy<Entry> { it.file.extension.lowercase() }.thenBy { it.file.name.lowercase() }
+        SortBy.TYPE -> compareBy<Entry> { it.file.extension.lowercase() }.thenBy { it.key }
     }
-    return entries.sortedWith(compareBy<Entry> { !it.isDir }.then(if (ascending) order else order.reversed()))
+    val sorted = entries.sortedWith(compareBy<Entry> { !it.isDir }.then(if (ascending) order else order.reversed()))
+    return sorted
 }
 
 /**
@@ -92,8 +105,13 @@ suspend fun categoryFiles(context: Context, category: Category): List<Entry> = w
         putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_EXCLUDE)
     }
     val entries = mutableListOf<Entry>()
-    context.contentResolver.query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), arrayOf(MediaStore.MediaColumns.DATA), args, null)?.use { c ->
-        while (c.moveToNext()) File(c.getString(0).orEmpty()).takeIf { it.isFile }?.let { entries += entryOf(it) } // skips rows whose file is gone
+    // path, size and date all come from the media library's own row, so no file is touched on disk (that is what makes a big library slow)
+    val columns = arrayOf(MediaStore.MediaColumns.DATA, MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATE_MODIFIED)
+    context.contentResolver.query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), columns, args, null)?.use { c ->
+        while (c.moveToNext()) {
+            val path = c.getString(0) ?: continue
+            if (c.getLong(1) > 0 || category != Category.LARGE) entries += Entry(File(path), false, c.getLong(1), c.getLong(2) * 1000)
+        }
     }
     if (category == Category.LARGE) entries.sortedByDescending { it.size } else entries.sortedByDescending { it.modified }
 }

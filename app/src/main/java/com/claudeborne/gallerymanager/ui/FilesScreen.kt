@@ -65,6 +65,7 @@ import com.claudeborne.gallerymanager.data.LARGE_FILE_BYTES
 import com.claudeborne.gallerymanager.data.MediaItem
 import com.claudeborne.gallerymanager.data.SortBy
 import com.claudeborne.gallerymanager.data.categoryFiles
+import com.claudeborne.gallerymanager.data.countChildren
 import com.claudeborne.gallerymanager.data.createFolder
 import com.claudeborne.gallerymanager.data.folderStats
 import com.claudeborne.gallerymanager.data.isImage
@@ -161,7 +162,12 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
                 searchFiles(if (allScope || dir == null) roots.map { it.second } else listOf(dir), term, hidden) { entries = it }
             }
             cat != null -> entries = categoryFiles(context, cat)
-            dir != null -> entries = withContext(Dispatchers.IO) { listDir(dir, hidden, sort, ascending) }
+            dir != null -> {
+                // the list goes on screen first; the item counts of its folders (one extra disk read each) follow
+                val listed = withContext(Dispatchers.IO) { listDir(dir, hidden, sort, ascending) }
+                entries = listed
+                if (listed.any { it.isDir }) entries = withContext(Dispatchers.IO) { countChildren(listed) }
+            }
             else -> entries = emptyList()
         }
     }
@@ -484,7 +490,7 @@ private fun FileList(entries: List<Entry>, grid: Boolean, selected: Set<String>,
 }
 
 private fun subtitle(context: Context, e: Entry): String =
-    (if (e.isDir) "${e.children} ITEMS" else Formatter.formatShortFileSize(context, e.size).uppercase()) + " · ${dateText(e.modified)}"
+    (if (e.isDir) (if (e.children >= 0) "${e.children} ITEMS" else "FOLDER") else Formatter.formatShortFileSize(context, e.size).uppercase()) + " · ${dateText(e.modified)}"
 
 /** One file row; [note] replaces the size and date line, [path] adds a line with the folder. */
 @OptIn(ExperimentalFoundationApi::class)
