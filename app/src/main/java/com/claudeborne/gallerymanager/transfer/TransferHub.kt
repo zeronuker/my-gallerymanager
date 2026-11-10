@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicLong
  * Every request needs the session token, which is part of the address shown on screen and in its QR code.
  */
 object TransferHub {
-    const val DEFAULT_PORT = 8686
+    const val DEFAULT_PORT = LocalSend.PORT // LocalSend's own port, so the web page and LocalSend share one
 
     /** One file moving in or out; [done] counts the bytes so far. */
     class Item(val incoming: Boolean, val name: String, val size: Long) {
@@ -57,7 +57,8 @@ object TransferHub {
         private set
     private var offers: List<Offer> = emptyList()
     private var server: MiniHttpServer? = null
-    private lateinit var appContext: Context
+    private var discovery: LocalSend.Discovery? = null
+    internal lateinit var appContext: Context
 
     /** Where files sent to this phone are saved. */
     val saveDir: File get() = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Received")
@@ -78,12 +79,16 @@ object TransferHub {
         port = s.start(DEFAULT_PORT)
         server = s
         running = true
+        discovery = LocalSend.Discovery(appContext).also { it.start() } // other LocalSend apps on the network find this phone, and it finds them
     }
 
     fun stop() {
+        discovery?.stop()
+        discovery = null
         server?.stop()
         server = null
         running = false
+        LocalSend.endSession()
     }
 
     /** Addresses another device can open as (what the network is, address): Wi-Fi first, then the rest. The fast links show up here too. */
@@ -109,6 +114,7 @@ object TransferHub {
     // ---- server side ----
 
     private fun handle(req: HttpRequest, res: HttpResponse) {
+        if (req.path.startsWith(LocalSend.API)) return LocalSend.handle(req, res) // LocalSend has no token; the user accepts each transfer instead
         if (req.query["t"] != token) return res.send(403, "text/plain", "forbidden".toByteArray())
         when {
             req.method == "GET" && req.path == "/" -> res.send(200, "text/html; charset=utf-8", WebPage.html(Build.MODEL, token).toByteArray())
@@ -135,33 +141,41 @@ object TransferHub {
     }.toString()
 
     /** Keeps a path sent by the other side inside the save folder: no empty parts, no "." and no "..". */
-    private fun cleanRel(name: String?): String? =
+    internal fun cleanRel(name: String?): String? =
         name.orEmpty().replace('\\', '/').split('/').filter { it.isNotEmpty() && it != "." && it != ".." }.takeIf { it.isNotEmpty() }?.joinToString("/")
 
     private fun upload(req: HttpRequest, res: HttpResponse) {
         val rel = cleanRel(req.query["name"]) ?: return res.send(400, "text/plain", "bad name".toByteArray())
-        val size = req.body.total
+        val saved = receiveFile(rel, req.bodyLength, req.query["mtime"]?.toLongOrNull(), req.body)
+        res.send(200, "application/json", JSONObject().put("ok", true).put("name", saved.name).toString().toByteArray())
+    }
+
+    /**
+     * Saves [body] as [rel] (a path below the save folder) under a free name and tells the media library. [size] is the length the sender
+     * announced, or -1 if unknown. The file is renamed into place only once complete, so a broken transfer leaves no half file.
+     */
+    internal fun receiveFile(rel: String, size: Long, mtime: Long?, body: InputStream): File {
         val parent = File(saveDir, rel.substringBeforeLast('/', "")).apply { mkdirs() }
         val target = freeName(parent, rel.substringAfterLast('/'))
-        val part = File(parent, target.name + ".part") // renamed only once complete, so a broken transfer leaves no half file
+        val part = File(parent, target.name + ".part")
         val item = Item(true, rel, size).also { items.add(it) }
         try {
             part.outputStream().use { out ->
                 val buf = ByteArray(BUFFER)
                 while (true) {
-                    val n = req.body.read(buf)
+                    val n = body.read(buf)
                     if (n < 0) break
                     out.write(buf, 0, n)
                     item.done += n
                     bytes.addAndGet(n.toLong())
                 }
             }
-            if (item.done != size) throw IOException("incomplete")
+            if (size >= 0 && item.done != size) throw IOException("incomplete")
             part.renameTo(target)
-            req.query["mtime"]?.toLongOrNull()?.let { target.setLastModified(it) }
+            mtime?.let { target.setLastModified(it) }
             item.finished = true
             MediaScannerConnection.scanFile(appContext, arrayOf(target.path), null, null)
-            res.send(200, "application/json", JSONObject().put("ok", true).put("name", target.name).toString().toByteArray())
+            return target
         } catch (e: IOException) {
             item.error = e.message ?: "failed"
             part.delete()

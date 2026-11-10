@@ -16,12 +16,21 @@ import java.util.concurrent.Executors
 
 const val BUFFER = 256 * 1024
 
-/** [body] ends after Content-Length bytes; a handler that reads less than all of it makes the connection unusable for the next request. */
-class HttpRequest(val method: String, val path: String, val query: Map<String, String>, val headers: Map<String, String>, val body: LimitedInput)
+/**
+ * [body] ends where the request body ends (after Content-Length bytes, or at the last chunk); [bodyLength] is -1 for a chunked body.
+ * A handler that reads less than all of it makes the connection unusable for the next request.
+ */
+class HttpRequest(
+    val method: String, val path: String, val query: Map<String, String>, val headers: Map<String, String>,
+    val body: InputStream, val bodyLength: Long, val remote: String,
+)
 
-class LimitedInput(private val source: InputStream, val total: Long) : InputStream() {
-    var remaining = total
-        private set
+/** A request body that knows whether it was read to its end. */
+interface Body { val finished: Boolean }
+
+class LimitedInput(private val source: InputStream, total: Long) : InputStream(), Body {
+    private var remaining = total
+    override val finished get() = remaining <= 0
 
     override fun read(): Int {
         if (remaining <= 0) return -1
@@ -34,6 +43,38 @@ class LimitedInput(private val source: InputStream, val total: Long) : InputStre
         if (remaining <= 0) return -1
         val n = source.read(b, off, minOf(len.toLong(), remaining).toInt())
         if (n > 0) remaining -= n
+        return n
+    }
+}
+
+/** A body sent with Transfer-Encoding: chunked, which some clients use when they stream a file of unknown length. */
+class ChunkedInput(private val source: InputStream) : InputStream(), Body {
+    private var left = 0L
+    private var needLineBreak = false
+    override var finished = false
+        private set
+
+    override fun read(): Int {
+        val one = ByteArray(1)
+        return if (read(one, 0, 1) < 0) -1 else one[0].toInt() and 0xff
+    }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        if (finished) return -1
+        if (left == 0L) {
+            if (needLineBreak) { readLine(source); needLineBreak = false }
+            val size = (readLine(source) ?: throw IOException("bad chunk")).substringBefore(';').trim().toLongOrNull(16) ?: throw IOException("bad chunk")
+            if (size == 0L) {
+                while (true) { val trailer = readLine(source); if (trailer == null || trailer.isEmpty()) break }
+                finished = true
+                return -1
+            }
+            left = size
+        }
+        val n = source.read(b, off, minOf(len.toLong(), left).toInt())
+        if (n < 0) throw IOException("chunk ended early")
+        left -= n
+        if (left == 0L) needLineBreak = true
         return n
     }
 }
@@ -133,10 +174,12 @@ class MiniHttpServer(private val handler: (HttpRequest, HttpResponse) -> Unit) {
                     val path = target.substringBefore('?')
                     val query = target.substringAfter('?', "").split('&').filter { it.contains('=') }
                         .associate { URLDecoder.decode(it.substringBefore('='), "UTF-8") to URLDecoder.decode(it.substringAfter('='), "UTF-8") }
-                    val body = LimitedInput(input, headers["content-length"]?.toLongOrNull() ?: 0)
+                    val chunked = headers["transfer-encoding"]?.contains("chunked", ignoreCase = true) == true
+                    val length = headers["content-length"]?.toLongOrNull() ?: 0
+                    val body: InputStream = if (chunked) ChunkedInput(input) else LimitedInput(input, length)
                     val res = HttpResponse(output)
                     try {
-                        handler(HttpRequest(parts[0], path, query, headers, body), res)
+                        handler(HttpRequest(parts[0], path, query, headers, body, if (chunked) -1 else length, s.inetAddress?.hostAddress.orEmpty()), res)
                     } catch (e: IOException) {
                         return
                     } catch (e: Exception) {
@@ -144,7 +187,7 @@ class MiniHttpServer(private val handler: (HttpRequest, HttpResponse) -> Unit) {
                         res.send(500, "text/plain", (e.message ?: "error").toByteArray())
                     }
                     output.flush()
-                    if (body.remaining > 0 || headers["connection"].equals("close", ignoreCase = true)) return
+                    if (!(body as Body).finished || headers["connection"].equals("close", ignoreCase = true)) return
                 }
             }
         } catch (_: IOException) { /* the other side went away */ }

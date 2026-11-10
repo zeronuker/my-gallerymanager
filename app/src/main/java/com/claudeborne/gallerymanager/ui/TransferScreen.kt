@@ -52,6 +52,7 @@ import android.net.Network
 import com.claudeborne.gallerymanager.transfer.DirectGroup
 import com.claudeborne.gallerymanager.transfer.DirectJoin
 import com.claudeborne.gallerymanager.transfer.DirectLink
+import com.claudeborne.gallerymanager.transfer.LocalSend
 import com.claudeborne.gallerymanager.transfer.TransferHub
 import com.claudeborne.gallerymanager.transfer.TransferService
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -212,9 +213,24 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
             }
         }
     }
+
+    // another device (the LocalSend app, or one like it) wants to send files: nothing is saved until the user says yes
+    val incoming = remember(tick) { LocalSend.pending }
+    incoming?.let { p ->
+        CbDialog("INCOMING FILES", { p.answer.complete(false) }) {
+            Text(
+                "${p.alias} wants to send ${p.count} ${if (p.count == 1) "file" else "files"} (${Formatter.formatShortFileSize(context, p.bytes)}).",
+                style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2),
+            )
+            Row(Modifier.fillMaxWidth(), Arrangement.End) {
+                ActionText("DECLINE", cb.inkDim) { p.answer.complete(false) }
+                ActionText("ACCEPT", cb.mint) { p.answer.complete(true) }
+            }
+        }
+    }
 }
 
-/** Where to send: [host], [port] and [token] from an address like http://192.168.1.5:8686/?t=abc12345; [ssid] and [pass] too when it is a direct link. */
+/** Where to send: [host], [port] and [token] from an address like http://192.168.1.5:53317/?t=abc12345; [ssid] and [pass] too when it is a direct link. */
 private class Target(val host: String, val port: Int, val token: String, val ssid: String?, val pass: String?)
 
 private fun parseAddress(text: String): Target? {
@@ -248,6 +264,7 @@ private fun Connection(tick: Int, group: DirectGroup?, help: String) {
             return@Column
         }
         Text(help, style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
+        Text("Visible in LocalSend as ${LocalSend.alias}", style = monoStyle(cb.inkDim, 0.6.sp))
         Text(urls[0].first, style = monoStyle(cb.inkDim, 1.sp))
         Text(urls[0].second, style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = cb.mint, textAlign = TextAlign.Center))
         val qr = remember(urls[0].second) { qrBitmap(urls[0].second) }
