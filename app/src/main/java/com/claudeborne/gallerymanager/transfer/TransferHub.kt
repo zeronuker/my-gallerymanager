@@ -124,7 +124,6 @@ object TransferHub {
             req.method == "GET" && req.path == "/api/info" -> res.send(200, "application/json", JSONObject().put("name", Build.MODEL).toString().toByteArray())
             req.method == "GET" && req.path == "/api/offers" -> res.send(200, "application/json", offersJson().toByteArray())
             req.method == "GET" && req.path.startsWith("/api/file/") -> download(req, res)
-            req.method == "PUT" && req.path == "/api/upload" -> upload(req, res)
             req.method == "GET" && req.path == "/api/speed/down" -> { // the web page's speed test: a stream of zeros
                 val size = (req.query["mb"]?.toLongOrNull() ?: 64).coerceIn(1, 1024) shl 20
                 res.sendStream(200, "application/octet-stream", size, emptyMap(), Zeros(size)) { n -> bytes.addAndGet(n.toLong()) }
@@ -146,12 +145,6 @@ object TransferHub {
     /** Keeps a path sent by the other side inside the save folder: no empty parts, no "." and no "..". */
     internal fun cleanRel(name: String?): String? =
         name.orEmpty().replace('\\', '/').split('/').filter { it.isNotEmpty() && it != "." && it != ".." }.takeIf { it.isNotEmpty() }?.joinToString("/")
-
-    private fun upload(req: HttpRequest, res: HttpResponse) {
-        val rel = cleanRel(req.query["name"]) ?: return res.send(400, "text/plain", "bad name".toByteArray())
-        val saved = receiveFile(rel, req.bodyLength, req.query["mtime"]?.toLongOrNull(), req.body)
-        res.send(200, "application/json", JSONObject().put("ok", true).put("name", saved.name).toString().toByteArray())
-    }
 
     /**
      * Saves [body] as [rel] (a path below the save folder) under a free name and tells the media library. [size] is the length the sender
@@ -221,17 +214,11 @@ object TransferHub {
     /** One file to upload: the request to make for it (a method and a path with its query) and the [item] that shows its progress. */
     private class Job(val file: File, val item: Item, val method: String, val path: String)
 
-    /** Uploads [files] (file, path to show) to the phone running this app at [host]:[port]. Returns how many arrived. */
-    suspend fun send(files: List<Pair<File, String>>, host: String, port: Int, token: String, network: Network? = null): Int = withContext(Dispatchers.IO) {
-        reset()
-        val jobs = files.map { (f, rel) ->
-            Job(f, Item(false, rel, f.length()).also { items.add(it) }, "PUT", "/api/upload?t=$token&name=${URLEncoder.encode(rel, "UTF-8")}&mtime=${f.lastModified()}")
-        }
-        upload(jobs, host, port, false, network)
-    }
-
-    /** Sends [files] to a LocalSend device: asks it (the user there accepts or declines), then uploads. Returns a message for the user. */
-    suspend fun sendLocalSend(peer: LocalSend.Peer, files: List<Pair<File, String>>): String = withContext(Dispatchers.IO) {
+    /**
+     * Sends [files] to another phone running this app, or to a LocalSend device: asks it first (the user there accepts or declines), then uploads.
+     * [network] pins the connection to the direct link's network. Returns a message for the user.
+     */
+    suspend fun sendLocalSend(peer: LocalSend.Peer, files: List<Pair<File, String>>, network: Network? = null): String = withContext(Dispatchers.IO) {
         reset()
         val shown = files.map { (f, rel) -> f to Item(false, rel, f.length()).also { items.add(it) } }
         val offer = JSONObject()
@@ -243,7 +230,7 @@ object TransferHub {
         }
         offer.put("info", LocalSend.info()).put("files", list)
         val reply = try {
-            Http.post(peer.host, peer.port, peer.https, LocalSend.API + "prepare-upload", offer.toString().toByteArray(), timeoutMs = 180_000) // the other user has time to accept
+            Http.post(peer.host, peer.port, peer.https, LocalSend.API + "prepare-upload", offer.toString().toByteArray(), timeoutMs = 180_000, network = network) // the other user has time to accept
         } catch (e: IOException) {
             return@withContext Http.explain(e, peer.alias)
         }
@@ -252,6 +239,7 @@ object TransferHub {
             204 -> return@withContext "${peer.alias} needs nothing from this"
             401 -> return@withContext "${peer.alias} asks for a PIN, which this app does not support yet"
             403 -> return@withContext "${peer.alias} declined"
+            408 -> return@withContext "No answer from ${peer.alias}"
             409 -> return@withContext "${peer.alias} is busy with another transfer"
             else -> return@withContext "${peer.alias} answered ${reply.status}"
         }
@@ -261,8 +249,11 @@ object TransferHub {
         val jobs = shown.mapIndexedNotNull { i, (f, item) ->
             tokens.optString(i.toString()).takeIf { it.isNotEmpty() }?.let { Job(f, item, "POST", "${LocalSend.API}upload?sessionId=$session&fileId=$i&token=$it") }
         }
-        val ok = upload(jobs, peer.host, peer.port, peer.https, null)
-        "Sent $ok of ${files.size} to ${peer.alias}"
+        val ok = upload(jobs, peer.host, peer.port, peer.https, network)
+        if (ok < files.size) { // tell the other side it is over, so it does not wait for the rest
+            runCatching { Http.post(peer.host, peer.port, peer.https, LocalSend.API + "cancel", ByteArray(0), network = network) }
+            "Sent $ok of ${files.size} to ${peer.alias}. Some files failed."
+        } else "Sent $ok of ${files.size} to ${peer.alias}."
     }
 
     /** Runs [jobs] over a few connections at once, each reused for the next file. Returns how many were accepted. */

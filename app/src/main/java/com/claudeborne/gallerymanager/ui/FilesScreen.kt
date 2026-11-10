@@ -147,6 +147,7 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
     val dual = dualPath?.let(::File)
     var vault by remember { mutableStateOf<List<File>?>(null) } // the safe folder is open while this is set; the files in it are waiting to be moved in
     var transfer by remember { mutableStateOf<List<Pair<File, String>>?>(null) } // the files to send while the Transfer screen is open (empty: receive only)
+    var picking by rememberSaveable { mutableStateOf(false) } // SEND was tapped with nothing selected: browse, select, then tap SEND
     var sort by rememberSaveable { mutableStateOf(SortBy.NAME) }
     var ascending by rememberSaveable { mutableStateOf(true) }
     var hidden by rememberSaveable { mutableStateOf(false) }
@@ -218,7 +219,8 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
     }
     fun tap(e: Entry) {
         when {
-            selected.isNotEmpty() -> selected = toggle(selected, e.file.path) // read at the moment of the tap: a stale copy of "selecting" would open the file instead
+            picking && !e.isDir -> selected = toggle(selected, e.file.path) // choosing files to send: a tap selects, and a folder still opens
+            selected.isNotEmpty() && !picking -> selected = toggle(selected, e.file.path) // read at the moment of the tap: a stale copy of "selecting" would open the file instead
             e.isDir -> go(e.file)
             e.file.extension.lowercase() in ARCHIVE_EXTENSIONS -> dialog = FileDialog.Unzip(e.file) // a zip, rar or 7z offers to extract
             else -> open(e.file)
@@ -258,6 +260,12 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
     Column(Modifier.fillMaxSize()) {
         ScreenHeader(cat?.label ?: "FILES", count, onBack, backLabel.uppercase())
         AnimatedOverlay(busy, expandEnter, shrinkExit) { WorkingLine(it, null, cb.mint) } // copy, move, zip and extract report no percentage, so the bar sweeps
+        Visible(picking, enter = expandEnter, exit = shrinkExit) {
+            Row(Modifier.fillMaxWidth().background(cb.surface1), verticalAlignment = Alignment.CenterVertically) {
+                Text("TAP FILES TO SELECT, THEN SEND", Modifier.weight(1f).padding(start = 16.dp, top = 10.dp, bottom = 10.dp), style = monoStyle(cb.mint, 0.6.sp))
+                ActionText("CANCEL", cb.inkDim) { picking = false; selected = emptySet() }
+            }
+        }
 
         if (dir != null && root != null && !searching) Crumbs(root, rootLabel, dir) { go(it) }
         if (cat == null) {
@@ -311,9 +319,21 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
                 }
             }
         }
-        AnimatedVisibility(selecting && clipPaths.isEmpty(), enter = barEnter, exit = barExit) {
+        AnimatedVisibility((selecting || (picking && dir != null)) && clipPaths.isEmpty(), enter = barEnter, exit = barExit) {
+            val toTransfer = { files: List<File> ->
+                scope.launch { transfer = withContext(Dispatchers.IO) { expandForSend(files) }; selected = emptySet(); picking = false }
+                Unit
+            }
             ActionBar(
                 buildList {
+                    if (picking) { // choosing what to send: only the choices that lead to sending
+                        if (selecting) {
+                            add(BarItem("ALL", cb.inkDim) { selected = entries.filter { !it.isDir }.map { it.file.path }.toSet() })
+                            add(BarItem("SEND", cb.mint) { toTransfer(chosen.map { it.file }) })
+                        }
+                        if (dir != null) add(BarItem("SEND THIS FOLDER", cb.mint) { toTransfer(listOf(dir)) })
+                        return@buildList
+                    }
                     add(BarItem("ALL", cb.inkDim) { selected = entries.map { it.file.path }.toSet() })
                     add(BarItem("SHARE", cb.mint) {
                         val files = chosen.filter { !it.isDir }.map { it.file }
@@ -321,10 +341,6 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
                     })
                     add(BarItem("COPY", cb.mint) { clipPaths = chosen.map { it.file.path }; clipMove = false; selected = emptySet() })
                     add(BarItem("MOVE", cb.mint) { clipPaths = chosen.map { it.file.path }; clipMove = true; selected = emptySet() })
-                    add(BarItem("SEND", cb.mint) {
-                        val files = chosen.map { it.file }
-                        scope.launch { transfer = withContext(Dispatchers.IO) { expandForSend(files) }; selected = emptySet() }
-                    })
                     add(BarItem("SAFE", cb.mint) { vault = chosen.map { it.file }; selected = emptySet() })
                     add(BarItem("ZIP", cb.mint) { dialog = FileDialog.Zip(chosen.map { it.file }) })
                     if (chosen.size == 1) {
@@ -349,7 +365,7 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
                 val label = roots.firstOrNull { it.second.path == start }?.first ?: File(start).name
                 StorageMapScreen(File(start), label, backEnabled, onClose = { mapRoot = null }, onBrowse = { go(it); mapRoot = null }, onOpen = ::open, onChanged = { refresh++; onChanged() })
             }
-            3 -> lastTransfer?.let { TransferScreen(it, backEnabled, onClose = { transfer = null }) }
+            3 -> lastTransfer?.let { TransferScreen(it, backEnabled, onClose = { transfer = null }, onPick = { transfer = null; picking = true }) }
             4 -> lastDual?.let { DualPaneScreen(it, roots, backEnabled, onClose = { dualPath = null }, onChanged = { refresh++; onChanged() }, onOpen = ::open) }
             5 -> lastVault?.let { VaultScreen(it, backEnabled, onClose = { vault = null }, onChanged = { refresh++; onChanged() }) }
             6 -> DuplicatesScreen(roots.map { it.second }, backEnabled, onClose = { inDupes = false }, onOpen = ::open, onChanged = { refresh++; onChanged() })

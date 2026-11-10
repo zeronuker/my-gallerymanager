@@ -1,7 +1,9 @@
 package com.claudeborne.gallerymanager.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.net.wifi.WifiManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.SystemClock
@@ -18,6 +20,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,11 +82,11 @@ private enum class Mode { HOME, RECEIVE, COMPUTER, PHONE }
  * A computer needs only a browser; another phone needs this app.
  */
 @Composable
-internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolean, onClose: () -> Unit) {
+internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolean, onClose: () -> Unit, onPick: () -> Unit) {
     val cb = LocalCb.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var mode by rememberSaveable { mutableStateOf(Mode.HOME) }
+    var mode by rememberSaveable { mutableStateOf(if (files.isNotEmpty()) Mode.PHONE else Mode.HOME) } // with files selected it opens straight on the send page
     var address by rememberSaveable { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var tick by remember { mutableIntStateOf(0) } // bumped twice a second so the progress bars redraw
@@ -119,6 +124,7 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
             speed = (bytes - last) * 1000 / (now - at).coerceAtLeast(1)
             last = bytes
             at = now
+            LocalSend.checkIdle() // a transfer that stopped moving data is ended, so the next sender is not turned away
             tick++
         }
     }
@@ -138,94 +144,81 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
             TransferHub.reset() // the list of the last session does not belong on the next screen
         }
     }
-    BackHandler(enabled = backEnabled) { if (mode != Mode.HOME) mode = Mode.HOME else onClose() }
+    val rows = remember(tick, mode) { TransferHub.items.toList().asReversed() }
+    var sendResult by remember { mutableStateOf<String?>(null) } // how the send ended, until the user taps OK
+    var typing by rememberSaveable { mutableStateOf(false) } // the code field is shown after ENTER CODE
+    var confirmStop by remember { mutableStateOf(false) }
+    val moving = sending || rows.any { !it.finished && it.error == null } // a transfer is under way, so leaving needs a confirm
+
+    // back goes one step up: a computer send goes back to the phone list; with files selected the send page is the first page, so back leaves
+    fun back() { if (mode == Mode.COMPUTER) mode = Mode.PHONE else if (mode != Mode.HOME && files.isEmpty()) mode = Mode.HOME else onClose() }
+    fun requestBack() { if (moving) confirmStop = true else back() }
+    BackHandler(enabled = backEnabled) { requestBack() }
 
     fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
 
-    /** Sends to the address in [text]. If it carries a direct link (network name and password), the phone joins that network first. */
+    fun finish(message: String) { leave?.invoke(); leave = null; sending = false; status = ""; sendResult = message }
+
+    /** Asks the phone or LocalSend device at [peer] to take the files (the user there accepts or declines), then sends them. */
+    fun runSend(peer: LocalSend.Peer, network: Network?) {
+        status = "WAITING FOR ${peer.alias.uppercase()}…"
+        joinHelp = null
+        scope.launch { finish(TransferHub.sendLocalSend(peer, files, network)) }
+    }
+
+    /** Sends to the code in [text]: an address, or a scanned code. If it carries a direct link (network name and password), the phone joins that network first. */
     fun beginSend(text: String) {
         val target = parseAddress(text)
         when {
             sending -> return
-            target == null -> return toast("Enter the address shown on the other phone")
+            target == null -> return toast("That code doesn't look right")
         }
         sending = true
         joinHelp = null
-        fun finish(message: String) { leave?.invoke(); leave = null; sending = false; status = ""; toast(message) }
-        fun go(network: Network?) {
-            status = "SENDING…"
-            joinHelp = null
-            scope.launch { finish("Sent ${TransferHub.send(files, target!!.host, target.port, target.token, network)} of ${files.size}") }
-        }
-        val ssid = target!!.ssid
+        val peer = LocalSend.Peer("The other phone", target!!.host, target.port, false, "mobile")
+        val ssid = target.ssid
         val pass = target.pass
         when {
-            ssid == null || pass == null -> go(null)
-            DirectJoin.onSameNetwork(target.host) -> go(null) // already on that network (joined by hand earlier, or still joined)
+            ssid == null || pass == null -> runSend(peer, null)
+            DirectJoin.onSameNetwork(target.host) -> runSend(peer, null) // already on that network (joined by hand earlier, or still joined)
             else -> {
                 status = "JOINING…"
                 joinHelp = "When Android asks, choose the network $ssid in the list and confirm. It can take a few seconds to appear."
-                leave = DirectJoin.join(context, ssid, pass, { go(it) }, {
-                    joinHelp = "Could not join automatically. Open the phone's Wi-Fi settings, join $ssid with the password $pass, then tap SEND again."
+                leave = DirectJoin.join(context, ssid, pass, { runSend(peer, it) }, {
+                    joinHelp = "Could not join automatically. Open the phone's Wi-Fi settings, join $ssid with the password $pass, then scan again."
                     finish("Could not join the other phone's direct link")
                 })
             }
         }
     }
-    /** Sends to a LocalSend device found on the network; the user there has to accept first. */
+    /** Sends to a phone or LocalSend device found on the network; the user there has to accept first. */
     fun sendToPeer(peer: LocalSend.Peer) {
         if (sending) return
         sending = true
-        status = "WAITING FOR ${peer.alias.uppercase()}…"
-        scope.launch {
-            val message = TransferHub.sendLocalSend(peer, files)
-            sending = false
-            status = ""
-            toast(message)
-        }
+        runSend(peer, null)
     }
-    val rows = remember(tick, mode) { TransferHub.items.toList().asReversed() }
     val total = files.sumOf { it.first.length() }
+    val wifi = remember(tick) { wifiState(context) }
 
     Column(Modifier.fillMaxSize()) {
         ScreenHeader(
-            "TRANSFER", if (speed > 0) "${Formatter.formatShortFileSize(context, speed).uppercase()}/S" else when (mode) { Mode.HOME -> "WI-FI"; Mode.RECEIVE -> "RECEIVING"; Mode.COMPUTER -> "TO A COMPUTER"; Mode.PHONE -> "TO A PHONE" },
-            { if (mode != Mode.HOME) mode = Mode.HOME else onClose() }, if (mode != Mode.HOME) "TRANSFER" else "FILES",
+            when (mode) { Mode.HOME -> "TRANSFER"; Mode.RECEIVE -> "RECEIVE"; Mode.COMPUTER, Mode.PHONE -> "SEND" },
+            if (speed > 0) "${Formatter.formatShortFileSize(context, speed).uppercase()}/S" else when (mode) { Mode.HOME -> "WI-FI"; Mode.RECEIVE -> "WAITING"; Mode.COMPUTER -> "TO A COMPUTER"; Mode.PHONE -> "${files.size} ${if (files.size == 1) "FILE" else "FILES"}" },
+            ::requestBack, if (mode == Mode.COMPUTER) "SEND" else if (mode != Mode.HOME && files.isEmpty()) "TRANSFER" else "FILES",
         )
         AnimatedContent(mode, Modifier.weight(1f), transitionSpec = { fadeIn(tween(MOTION_MS)) togetherWith fadeOut(tween(MOTION_FAST_MS)) }, label = "transferMode") { shown -> when (shown) {
-            Mode.HOME -> Column {
-                if (files.isNotEmpty()) {
-                    Text("${files.size} FILES · ${Formatter.formatShortFileSize(context, total).uppercase()} READY TO SEND", Modifier.padding(16.dp), style = monoStyle(cb.mint, 1.sp))
-                    HomeRow("TO ANOTHER PHONE", "SCAN ITS CODE OR TYPE ITS ADDRESS") { mode = Mode.PHONE }
-                    HomeRow("TO A COMPUTER", "THE COMPUTER OPENS A WEB PAGE, NO INSTALL") { mode = Mode.COMPUTER }
-                } else {
-                    Text("To send, select files in Files and tap SEND.", Modifier.padding(16.dp), style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim))
-                }
-                HomeRow("RECEIVE", "SHOW A CODE FOR OTHERS TO SEND TO THIS PHONE") { mode = Mode.RECEIVE }
-                Text(
-                    "Both devices need to be on the same network. Files you receive are saved in Download/Received.",
-                    Modifier.padding(16.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim),
-                )
-                Text("THE FASTEST WAYS", Modifier.padding(start = 16.dp, top = 8.dp), style = monoStyle(cb.mint, 2.4.sp))
-                Text(
-                    "Phone to phone: RECEIVE, then \"Use a direct link\" for a router-free 5 GHz connection.\n\n" +
-                        "Phone to computer, by cable: plug the phone in, turn on USB tethering (Settings, Network, Hotspot and tethering), then RECEIVE; the cable's address appears under the code.\n\n" +
-                        "Phone to computer, by Wi-Fi: use the direct link, or turn on this phone's hotspot and join it from the computer.\n\n" +
-                        "On the computer's page, the speed test shows what each way really gives.",
-                    Modifier.padding(16.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim),
-                )
+            // the start screen, reached with nothing selected: SEND opens the file picker, RECEIVE waits for files
+            Mode.HOME -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ChoiceButton("SEND", enabled = true, primary = true) { onPick() }
+                ChoiceButton("RECEIVE", enabled = true, primary = false) { mode = Mode.RECEIVE }
+                Text("Both devices need the same Wi-Fi.", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim))
             }
             Mode.RECEIVE, Mode.COMPUTER -> Box(Modifier.fillMaxSize()) {
                 Progress(rows) {
-                    Connection(tick, group, if (shown == Mode.COMPUTER) "On the computer, open this address in a browser. Or scan the code with this app on another phone." else "On the computer, open this address in a browser to send files here. Or scan the code with this app on another phone.")
-                    Crossfade(if (group != null) 0 else if (linkBusy) 1 else 2, animationSpec = tween(MOTION_FAST_MS), label = "direct") { s ->
-                        when (s) {
-                            0 -> ActionText("STOP DIRECT LINK", cb.inkDim) { link.stop(); group = null }
-                            1 -> WorkingLine("STARTING THE DIRECT LINK…", null, cb.inkDim) // no percentage: Android gives none, so the bar sweeps
-                            else -> ActionText("USE A DIRECT LINK (NO ROUTER, FASTER)", cb.mint) { requestDirect() }
-                        }
-                    }
+                    Connection(tick, group, computer = shown == Mode.COMPUTER)
+                    FasterOptions(group, linkBusy, wifi, onStart = { requestDirect() }, onStop = { link.stop(); group = null })
                     AnimatedOverlay(linkError, expandEnter, shrinkExit) { Text(it, Modifier.padding(horizontal = 16.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = RED)) }
+                    ActionText("STOP", cb.inkDim) { requestBack() }
                 }
             }
             Mode.PHONE -> Box(Modifier.fillMaxSize()) {
@@ -235,24 +228,26 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
                     Visible(sending, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), expandEnter, shrinkExit) { ProgressBar(null) }
                     val now = System.currentTimeMillis()
                     val peers = remember(tick) { LocalSend.peers.values.filter { now - it.seen < 120_000 }.sortedBy { it.alias } }
-                    Text("NEARBY DEVICES", Modifier.padding(start = 16.dp, top = 8.dp), style = monoStyle(cb.mint, 2.4.sp))
-                    Text(
-                        if (peers.isEmpty()) "None found yet. Open LocalSend or this app's RECEIVE on the other device, on the same network." else "LocalSend devices, and this app on other phones. The other device asks before anything is saved.",
-                        Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim),
-                    )
+                    Text("PHONES NEARBY", Modifier.padding(start = 16.dp, top = 8.dp), style = monoStyle(cb.mint, 2.4.sp))
+                    if (peers.isEmpty()) Text("None found. The other phone must be on Receive.", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim))
                     peers.forEach { p -> HomeRow(p.alias, "${p.deviceType.uppercase()} · ${p.host}") { sendToPeer(p) } }
                     ActionText(if (sending) status.ifEmpty { "SENDING…" } else "SEARCH AGAIN", cb.mint) { if (!sending) TransferHub.rediscover() }
-                    Text("OR WITH A CODE", Modifier.padding(start = 16.dp, top = 8.dp), style = monoStyle(cb.mint, 2.4.sp))
+                    Text("OTHER WAYS", Modifier.padding(start = 16.dp, top = 8.dp), style = monoStyle(cb.mint, 2.4.sp))
+                    HomeRow("TO A COMPUTER", "OPENS A WEB PAGE") { mode = Mode.COMPUTER }
                     Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("On the other phone open TRANSFER, tap RECEIVE (and the direct link if you want the fastest speed), then scan its code or type the address it shows.", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim))
-                        CbTextField(address, { address = it })
                         Row {
                             ActionText("SCAN CODE", cb.mint) {
                                 GmsBarcodeScanning.getClient(context, GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()).startScan()
                                     .addOnSuccessListener { address = it.rawValue.orEmpty(); beginSend(address) }
-                                    .addOnFailureListener { toast("The scanner is not available; type the address instead") }
+                                    .addOnFailureListener { toast("The scanner is not available. Use ENTER CODE.") }
                             }
-                            ActionText(if (sending) status.ifEmpty { "SENDING…" } else "SEND", if (sending) cb.inkDim else cb.mint) { beginSend(address) }
+                            ActionText("ENTER CODE", if (typing) cb.mint else cb.inkDim) { typing = !typing }
+                        }
+                        Visible(typing, enter = expandEnter, exit = shrinkExit) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                CbTextField(address, { address = it }) // the keyboard opens only because the user asked for this field
+                                ActionText(if (sending) "SENDING…" else "SEND", if (sending) cb.inkDim else cb.mint) { beginSend(address) }
+                            }
                         }
                     }
                 }
@@ -265,8 +260,12 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
     incoming?.let { p ->
         CbDialog("INCOMING FILES", { p.answer.complete(false) }) {
             Text(
-                "${p.alias} wants to send ${p.count} ${if (p.count == 1) "file" else "files"} (${Formatter.formatShortFileSize(context, p.bytes)}).",
+                "${p.alias} (${p.from}) wants to send ${p.count} ${if (p.count == 1) "file" else "files"} (${Formatter.formatShortFileSize(context, p.bytes)}).",
                 style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2),
+            )
+            Text(
+                p.names.take(3).joinToString("\n") + if (p.names.size > 3) "\nand ${p.names.size - 3} more" else "",
+                style = monoStyle(cb.inkDim, 0.4.sp),
             )
             Row(Modifier.fillMaxWidth(), Arrangement.End) {
                 ActionText("DECLINE", cb.inkDim) { p.answer.complete(false) }
@@ -274,16 +273,46 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
             }
         }
     }
+    // how a transfer ended, on each phone, until the user taps OK; the receiver then goes on waiting
+    val received = remember(tick) { LocalSend.result }
+    received?.let { ResultDialog(it) { LocalSend.clearResult() } }
+    sendResult?.let { ResultDialog(it) { sendResult = null } }
+    if (confirmStop) {
+        CbDialog("STOP?", { confirmStop = false }) {
+            Text("This cancels the transfer that is running.", style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2))
+            Row(Modifier.fillMaxWidth(), Arrangement.End) {
+                ActionText("KEEP GOING", cb.inkDim) { confirmStop = false }
+                ActionText("STOP", RED) { confirmStop = false; back() }
+            }
+        }
+    }
 }
 
-/** Where to send: [host], [port] and [token] from an address like http://192.168.1.5:53317/?t=abc12345; [ssid] and [pass] too when it is a direct link. */
-private class Target(val host: String, val port: Int, val token: String, val ssid: String?, val pass: String?)
+@Composable
+private fun ResultDialog(text: String, onOk: () -> Unit) {
+    CbDialog("TRANSFER", onOk) {
+        Text(text, style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = LocalCb.current.ink2))
+        Row(Modifier.fillMaxWidth(), Arrangement.End) { ActionText("OK", LocalCb.current.mint, onOk) }
+    }
+}
+
+/** 0: connected to a Wi-Fi network, 1: Wi-Fi is on but not connected, 2: Wi-Fi is off. The direct link needs the Wi-Fi switch on, but not a router. */
+private fun wifiState(context: Context): Int {
+    val wm = context.applicationContext.getSystemService(WifiManager::class.java)
+    return when {
+        wm == null || !wm.isWifiEnabled -> 2
+        TransferHub.addresses().any { it.first == "WI-FI" } -> 0
+        else -> 1
+    }
+}
+
+/** Where to send: [host] and [port] from a scanned code (http://192.168.1.5:53317/?t=abc12345) or a typed one (192.168.1.5); [ssid] and [pass] too when it is a direct link. */
+private class Target(val host: String, val port: Int, val ssid: String?, val pass: String?)
 
 private fun parseAddress(text: String): Target? {
     val uri = runCatching { Uri.parse(text.trim().let { if ("://" in it) it else "http://$it" }) }.getOrNull() ?: return null
-    val host = uri.host ?: return null
-    val token = uri.getQueryParameter("t") ?: return null
-    return Target(host, if (uri.port > 0) uri.port else TransferHub.DEFAULT_PORT, token, uri.getQueryParameter("ssid"), uri.getQueryParameter("pw"))
+    val host = uri.host?.takeIf { it.isNotEmpty() } ?: return null
+    return Target(host, if (uri.port > 0) uri.port else TransferHub.DEFAULT_PORT, uri.getQueryParameter("ssid"), uri.getQueryParameter("pw"))
 }
 
 /**
@@ -291,7 +320,7 @@ private fun parseAddress(text: String): Target? {
  * password, so another phone joins the network by itself; a computer joins it by hand with the name and password shown.
  */
 @Composable
-private fun Connection(tick: Int, group: DirectGroup?, help: String) {
+private fun Connection(tick: Int, group: DirectGroup?, computer: Boolean) {
     val cb = LocalCb.current
     val urls = remember(tick, group) { if (TransferHub.running) TransferHub.addresses() else emptyList() }
     val state = if (group != null && TransferHub.running) 0 else if (urls.isEmpty()) 1 else 2
@@ -300,10 +329,10 @@ private fun Connection(tick: Int, group: DirectGroup?, help: String) {
         if (group != null && TransferHub.running) {
             val plain = "http://${group.host}:${TransferHub.port}/?t=${TransferHub.token}"
             val full = plain + "&ssid=" + Uri.encode(group.ssid) + "&pw=" + Uri.encode(group.passphrase)
-            Text("DIRECT LINK READY · 5 GHZ REQUESTED", style = monoStyle(cb.mint, 1.sp))
-            Text("On another phone, scan this code.", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
+            Text("DIRECT LINK READY", style = monoStyle(cb.mint, 1.sp))
+            Text("Phone: scan this code.", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
             Image(remember(full) { qrBitmap(full) }, "QR code", Modifier.size(200.dp).background(androidx.compose.ui.graphics.Color.White), filterQuality = FilterQuality.None)
-            Text("On a computer, join the Wi-Fi network ${group.ssid} with the password ${group.passphrase}, then open", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
+            Text("Computer: join ${group.ssid}, password ${group.passphrase}, then open:", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
             Text(plain, style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = cb.mint, textAlign = TextAlign.Center))
             return@Column
         }
@@ -312,8 +341,12 @@ private fun Connection(tick: Int, group: DirectGroup?, help: String) {
             else WorkingLine("STARTING…", null, cb.inkDim)
             return@Column
         }
-        Text(help, style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
-        Text("Visible in LocalSend as ${LocalSend.alias}", style = monoStyle(cb.inkDim, 0.6.sp))
+        val ip = urls[0].second.substringAfter("://").substringBefore(':') // a phone can type just this
+        Text(
+            if (computer) "Open this address on the computer,\nthen click a file to download it." else "Phone: scan the code or type $ip.\nComputer: open this address in a browser.",
+            style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center),
+        )
+        Text("Visible as ${LocalSend.alias}", style = monoStyle(cb.inkDim, 0.6.sp))
         Text(urls[0].first, style = monoStyle(cb.inkDim, 1.sp))
         Text(urls[0].second, style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = cb.mint, textAlign = TextAlign.Center))
         val qr = remember(urls[0].second) { qrBitmap(urls[0].second) }
@@ -328,6 +361,55 @@ private fun qrBitmap(text: String): ImageBitmap {
     val m = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0)
     val pixels = IntArray(m.width * m.height) { i -> if (m.get(i % m.width, i / m.width)) 0xFF000000.toInt() else 0xFFFFFFFF.toInt() }
     return Bitmap.createBitmap(pixels, m.width, m.height, Bitmap.Config.ARGB_8888).asImageBitmap()
+}
+
+/** A full-width button: [primary] is the filled one; a disabled one is dim and does nothing. */
+@Composable
+private fun ChoiceButton(label: String, enabled: Boolean, primary: Boolean, onClick: () -> Unit) {
+    val cb = LocalCb.current
+    val base = Modifier.fillMaxWidth()
+    val framed = if (primary) base.background(cb.grad) else base.border(1.dp, glide(enabled, cb.mint, cb.line))
+    Text(
+        label, (if (enabled) framed.clickable(onClick = onClick) else framed).padding(vertical = 14.dp),
+        style = monoStyle(glide(enabled, if (primary) DarkCb.surface0 else cb.mint, cb.inkDim), 2.2.sp).copy(fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
+    )
+}
+
+/** Offline transfer: the ways that need no router (the direct link, and a USB cable). Folded away until asked for. */
+@Composable
+private fun FasterOptions(group: DirectGroup?, linkBusy: Boolean, wifi: Int, onStart: () -> Unit, onStop: () -> Unit) {
+    val cb = LocalCb.current
+    var open by rememberSaveable(wifi != 0) { mutableStateOf(wifi != 0) } // not on Wi-Fi: this is the way in, so it opens by itself
+    Text(
+        if (open) "▾ OFFLINE TRANSFER" else "▸ OFFLINE TRANSFER",
+        Modifier.fillMaxWidth().clickable { open = !open }.padding(horizontal = 16.dp, vertical = 12.dp), style = monoStyle(cb.mint, 1.sp),
+    )
+    Visible(open, enter = expandEnter, exit = shrinkExit) {
+        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (wifi != 0) Text(if (wifi == 2) "Wi-Fi is off." else "Not connected to Wi-Fi.", style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim))
+            OptionCard("DIRECT LINK", "A private network from this phone.") {
+                Crossfade(if (wifi == 2) 3 else if (group != null) 0 else if (linkBusy) 1 else 2, animationSpec = tween(MOTION_FAST_MS), label = "direct") { s ->
+                    when (s) {
+                        0 -> ActionText("STOP DIRECT LINK", cb.inkDim, onStop)
+                        1 -> WorkingLine("STARTING THE DIRECT LINK…", null, cb.inkDim) // no percentage: Android gives none, so the bar sweeps
+                        3 -> Text("Turn on Wi-Fi to use it. No router needed.", style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.mint))
+                        else -> ActionText("START DIRECT LINK", cb.mint, onStart)
+                    }
+                }
+            }
+            OptionCard("USB CABLE", "Plug in, then turn on USB tethering in Settings.") {}
+        }
+    }
+}
+
+@Composable
+private fun OptionCard(title: String, note: String, action: @Composable ColumnScope.() -> Unit) {
+    val cb = LocalCb.current
+    Column(Modifier.fillMaxWidth().background(cb.surface1).border(1.dp, cb.line).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, style = monoStyle(cb.ink, 1.5.sp))
+        Text(note, style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim))
+        action()
+    }
 }
 
 /** One row per file moving in or out, newest first. */

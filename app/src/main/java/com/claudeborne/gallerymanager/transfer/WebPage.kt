@@ -37,25 +37,35 @@ a{color:#4c8dff}.dim{color:#8a94a8}#offers{transition:opacity .2s}[hidden]{displ
 <script>
 const T="__TOKEN__";
 const fmt=n=>n>1e9?(n/1e9).toFixed(1)+' GB':n>1e6?(n/1e6).toFixed(1)+' MB':Math.ceil(n/1e3)+' KB';
-function put(file,row){return new Promise(done=>{
-  const x=new XMLHttpRequest(),name=file.webkitRelativePath||file.name;
-  x.open('PUT','/api/upload?t='+T+'&name='+encodeURIComponent(name)+'&mtime='+file.lastModified);
+const API='/api/localsend/v2/';
+function put(file,id,session,token,row){return new Promise(done=>{
+  const x=new XMLHttpRequest();
+  x.open('POST',API+'upload?sessionId='+session+'&fileId='+id+'&token='+token);
   x.upload.onprogress=e=>{row.bar.style.width=(e.loaded*100/e.total)+'%'};
-  x.onload=()=>{row.bar.style.width='100%';row.txt.textContent=name+(x.status==200?' ✓':' ✗ '+x.status);done()};
-  x.onerror=()=>{row.txt.textContent=name+' ✗ failed';done()};
+  x.onload=()=>{row.bar.style.width='100%';row.txt.textContent=row.name+(x.status==200?' ✓':' ✗ '+x.status);done()};
+  x.onerror=()=>{row.txt.textContent=row.name+' ✗ failed';done()};
   x.send(file);
 })}
-async function run(files){
-  const q=[...files],box=document.getElementById('up');
-  async function worker(){
-    while(q.length){
-      const f=q.shift(),r=document.createElement('div');r.className='row';
-      r.innerHTML='<span></span> <span class="dim">'+fmt(f.size)+'</span><div class="bar"><i></i></div>';
-      box.prepend(r);
-      const row={txt:r.children[0],bar:r.querySelector('i')};row.txt.textContent=f.webkitRelativePath||f.name;
-      await put(f,row);
-    }
-  }
+let last=Promise.resolve();
+function run(files){const list=[...files];last=last.then(()=>batch(list))}
+async function batch(q){
+  const box=document.getElementById('up'),rows=q.map(f=>{
+    const r=document.createElement('div');r.className='row';
+    r.innerHTML='<span></span> <span class="dim">'+fmt(f.size)+'</span><div class="bar sweep"><i></i></div>';
+    box.prepend(r);
+    const row={name:f.webkitRelativePath||f.name,txt:r.children[0],bar:r.querySelector('i'),box:r.querySelector('.bar')};
+    row.txt.textContent=row.name+' · waiting for the phone to accept';return row});
+  const files={};q.forEach((f,i)=>{files[i]={id:String(i),fileName:rows[i].name,size:f.size,fileType:f.type||'application/octet-stream'}});
+  const fail=m=>rows.forEach(r=>{r.box.classList.remove('sweep');r.txt.textContent=r.name+' ✗ '+m});
+  let res;
+  try{res=await fetch(API+'prepare-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({info:{alias:'Computer (browser)',version:'2.0',deviceType:'desktop',fingerprint:'browser'},files:files})})}catch(e){return fail('the phone did not answer')}
+  if(res.status==403)return fail('declined');
+  if(res.status==408)return fail('no answer');
+  if(res.status==409)return fail('the phone is busy');
+  if(res.status!=200)return fail('failed');
+  const a=await res.json(),ids=q.map((_,i)=>i);
+  rows.forEach(r=>{r.box.classList.remove('sweep');r.txt.textContent=r.name});
+  async function worker(){while(ids.length){const i=ids.shift();await put(q[i],i,a.sessionId,a.files[i],rows[i])}}
   await Promise.all([worker(),worker(),worker(),worker()]);
 }
 const pick=document.getElementById('pick'),pickdir=document.getElementById('pickdir'),drop=document.getElementById('drop');

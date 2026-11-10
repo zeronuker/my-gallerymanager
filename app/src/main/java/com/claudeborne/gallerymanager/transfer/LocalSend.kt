@@ -46,7 +46,7 @@ object LocalSend {
     const val PORT = 53317
     const val API = "/api/localsend/v2/"
     private const val GROUP = "224.0.0.167"
-    private const val IDLE_MS = 5 * 60_000L
+    private const val IDLE_MS = 30_000L
 
     /** A device seen on the network. */
     class Peer(val alias: String, val host: String, val port: Int, val https: Boolean, val deviceType: String) {
@@ -54,18 +54,29 @@ object LocalSend {
     }
 
     /** A sender waiting for the user to accept its files. The request handler blocks on [answer]. */
-    class Pending(val alias: String, val count: Int, val bytes: Long) {
+    class Pending(val alias: String, val from: String, val count: Int, val bytes: Long, val names: List<String>) {
         val answer = CompletableFuture<Boolean>()
     }
 
-    private class LsFile(val name: String, val size: Long, val token: String, val modified: Long?) { @Volatile var done = false }
+    private class LsFile(val name: String, val size: Long, val token: String, val modified: Long?) {
+        @Volatile var done = false
+        @Volatile var failed = false
+    }
 
-    private class Session(val id: String, val files: Map<String, LsFile>) { @Volatile var last = System.currentTimeMillis() }
+    private class Session(val id: String, val alias: String, val files: Map<String, LsFile>) {
+        @Volatile var last = System.currentTimeMillis()
+        @Volatile var lastBytes = TransferHub.bytes.get()
+    }
 
     val peers = ConcurrentHashMap<String, Peer>()
     @Volatile var pending: Pending? = null
         private set
     @Volatile private var session: Session? = null
+
+    /** What to tell the user once a transfer to this phone ended (all arrived, some failed, cancelled, or it went quiet); the screen shows it and calls [clearResult]. */
+    @Volatile var result: String? = null
+        private set
+    fun clearResult() { result = null }
 
     private val random = SecureRandom()
     val fingerprint = (1..16).joinToString("") { "%02x".format(random.nextInt(256)) }
@@ -79,9 +90,27 @@ object LocalSend {
         .put("fingerprint", fingerprint).put("port", TransferHub.port).put("protocol", "http").put("download", false)
         .apply { if (announce != null) put("announce", announce) }
 
+    /** Drops everything quietly (the screen was left). */
     fun endSession() {
         session = null
         pending?.answer?.complete(false)
+        result = null
+    }
+
+    /** Ends the running session with a result for the user: "Received 2 of 3 from X", with what went wrong if anything did. */
+    private fun finishSession(s: Session, why: String? = null) {
+        val total = s.files.size
+        val ok = s.files.values.count { it.done }
+        result = if (ok == total) "Received $ok of $total from ${s.alias}." else "Received $ok of $total from ${s.alias}. ${why ?: "Some files failed."}"
+        session = null
+    }
+
+    /** Called twice a second while the screen is open: a session that moved no data for 30 seconds is over, so the next sender is not turned away as busy. */
+    fun checkIdle() {
+        val s = session ?: return
+        val bytes = TransferHub.bytes.get()
+        if (bytes != s.lastBytes) { s.lastBytes = bytes; s.last = System.currentTimeMillis() }
+        else if (System.currentTimeMillis() - s.last > IDLE_MS) finishSession(s, "The transfer stopped.")
     }
 
     // ---- receiving: the routes other LocalSend devices call ----
@@ -96,7 +125,7 @@ object LocalSend {
             }
             "POST prepare-upload" -> prepareUpload(req, res)
             "POST upload" -> upload(req, res)
-            "POST cancel" -> { endSession(); res.send(200, "text/plain", ByteArray(0)) }
+            "POST cancel" -> { session?.let { finishSession(it, "The sender cancelled.") }; res.send(200, "text/plain", ByteArray(0)) }
             else -> res.send(404, "text/plain", "not found".toByteArray())
         }
     }
@@ -123,14 +152,17 @@ object LocalSend {
         }
         if (files.isEmpty()) return res.send(204, "text/plain", ByteArray(0))
         val current = session
-        if (pending != null || (current != null && System.currentTimeMillis() - current.last < IDLE_MS)) return res.send(409, "text/plain", "busy".toByteArray())
+        if (pending != null || current != null) return res.send(409, "text/plain", "busy".toByteArray())
 
-        val p = Pending(alias, files.size, files.values.sumOf { it.size })
+        val names = files.values.map { it.name }
+        val p = Pending(alias, req.remote, files.size, files.values.sumOf { it.size }, names)
         pending = p
-        val accepted = try { p.answer.get(120, TimeUnit.SECONDS) } catch (_: Exception) { false } finally { pending = null }
+        var timedOut = false
+        val accepted = try { p.answer.get(120, TimeUnit.SECONDS) } catch (_: java.util.concurrent.TimeoutException) { timedOut = true; false } catch (_: Exception) { false } finally { pending = null }
+        if (timedOut) { result = "No answer, so the request from $alias expired."; return res.send(408, "text/plain", "no answer".toByteArray()) }
         if (!accepted) return res.send(403, "text/plain", "rejected".toByteArray())
 
-        val s = Session(randomId(), files)
+        val s = Session(randomId(), alias, files)
         session = s
         res.json(200, JSONObject().put("sessionId", s.id).put("files", JSONObject().also { o -> files.forEach { (id, f) -> o.put(id, f.token) } }))
     }
@@ -140,10 +172,16 @@ object LocalSend {
         val file = s?.files?.get(req.query["fileId"])
         if (s == null || req.query["sessionId"] != s.id || file == null || req.query["token"] != file.token) return res.send(403, "text/plain", "forbidden".toByteArray())
         s.last = System.currentTimeMillis()
-        TransferHub.receiveFile(file.name, file.size, file.modified, req.body)
-        file.done = true
+        try {
+            TransferHub.receiveFile(file.name, file.size, file.modified, req.body)
+            file.done = true
+        } catch (e: IOException) {
+            file.failed = true
+            if (session === s && s.files.values.all { it.done || it.failed }) finishSession(s)
+            throw e
+        }
         s.last = System.currentTimeMillis()
-        if (s.files.values.all { it.done }) session = null
+        if (session === s && s.files.values.all { it.done || it.failed }) finishSession(s)
         res.send(200, "text/plain", ByteArray(0))
     }
 
@@ -302,8 +340,8 @@ internal object Http {
     }
 
     /** One JSON POST on its own connection. */
-    fun post(host: String, port: Int, https: Boolean, path: String, json: ByteArray, timeoutMs: Int = 10_000): Reply =
-        open(host, port, https, timeoutMs = timeoutMs).use { s ->
+    fun post(host: String, port: Int, https: Boolean, path: String, json: ByteArray, timeoutMs: Int = 10_000, network: Network? = null): Reply =
+        open(host, port, https, network, timeoutMs).use { s ->
             val out = s.getOutputStream()
             out.write("POST $path HTTP/1.1\r\nHost: $host:$port\r\nContent-Type: application/json\r\nContent-Length: ${json.size}\r\nConnection: close\r\n\r\n".toByteArray())
             out.write(json)

@@ -157,9 +157,9 @@ internal fun CbDialog(title: String, onDismiss: () -> Unit, content: @Composable
 }
 
 @Composable
-internal fun CbTextField(value: String, onChange: (String) -> Unit, suffix: String = "") {
+internal fun CbTextField(value: String, onChange: (String) -> Unit, suffix: String = "", autoFocus: Boolean = true) {
     val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focus.requestFocus() }
+    LaunchedEffect(Unit) { if (autoFocus) focus.requestFocus() }
     Row(Modifier.fillMaxWidth().background(DarkCb.surface2).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
         BasicTextField(
             value, onChange, Modifier.weight(1f).focusRequester(focus), singleLine = true,
