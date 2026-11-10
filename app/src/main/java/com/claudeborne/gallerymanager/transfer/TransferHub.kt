@@ -82,6 +82,9 @@ object TransferHub {
         discovery = LocalSend.Discovery(appContext).also { it.start() } // other LocalSend apps on the network find this phone, and it finds them
     }
 
+    /** Announces this phone again, so devices that missed the first announcement show up. */
+    fun rediscover() { discovery?.announceAgain() }
+
     fun stop() {
         discovery?.stop()
         discovery = null
@@ -215,24 +218,70 @@ object TransferHub {
 
     // ---- client side: sending to another phone ----
 
-    /** Uploads [files] (file, path to show) to the phone at [host]:[port] over [parallel] connections. Returns how many arrived. */
-    suspend fun send(files: List<Pair<File, String>>, host: String, port: Int, token: String, network: Network? = null, parallel: Int = 4): Int = withContext(Dispatchers.IO) {
+    /** One file to upload: the request to make for it (a method and a path with its query) and the [item] that shows its progress. */
+    private class Job(val file: File, val item: Item, val method: String, val path: String)
+
+    /** Uploads [files] (file, path to show) to the phone running this app at [host]:[port]. Returns how many arrived. */
+    suspend fun send(files: List<Pair<File, String>>, host: String, port: Int, token: String, network: Network? = null): Int = withContext(Dispatchers.IO) {
         reset()
-        val queue = ConcurrentLinkedQueue(files.map { (f, rel) -> Item(false, rel, f.length()).also { items.add(it) } to f })
+        val jobs = files.map { (f, rel) ->
+            Job(f, Item(false, rel, f.length()).also { items.add(it) }, "PUT", "/api/upload?t=$token&name=${URLEncoder.encode(rel, "UTF-8")}&mtime=${f.lastModified()}")
+        }
+        upload(jobs, host, port, false, network)
+    }
+
+    /** Sends [files] to a LocalSend device: asks it (the user there accepts or declines), then uploads. Returns a message for the user. */
+    suspend fun sendLocalSend(peer: LocalSend.Peer, files: List<Pair<File, String>>): String = withContext(Dispatchers.IO) {
+        reset()
+        val shown = files.map { (f, rel) -> f to Item(false, rel, f.length()).also { items.add(it) } }
+        val offer = JSONObject()
+        val list = JSONObject()
+        shown.forEachIndexed { i, (f, item) ->
+            list.put(i.toString(), JSONObject().put("id", i.toString()).put("fileName", item.name).put("size", item.size)
+                .put("fileType", android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(f.extension.lowercase()) ?: "application/octet-stream")
+                .put("metadata", JSONObject().put("modified", java.time.Instant.ofEpochMilli(f.lastModified()).toString())))
+        }
+        offer.put("info", LocalSend.info()).put("files", list)
+        val reply = try {
+            Http.post(peer.host, peer.port, peer.https, LocalSend.API + "prepare-upload", offer.toString().toByteArray(), timeoutMs = 180_000) // the other user has time to accept
+        } catch (e: IOException) {
+            return@withContext "Could not reach ${peer.alias}"
+        }
+        when (reply.status) {
+            200 -> Unit
+            204 -> return@withContext "${peer.alias} needs nothing from this"
+            401 -> return@withContext "${peer.alias} asks for a PIN, which this app does not support yet"
+            403 -> return@withContext "${peer.alias} declined"
+            409 -> return@withContext "${peer.alias} is busy with another transfer"
+            else -> return@withContext "${peer.alias} answered ${reply.status}"
+        }
+        val answer = JSONObject(String(reply.body))
+        val session = answer.getString("sessionId")
+        val tokens = answer.getJSONObject("files")
+        val jobs = shown.mapIndexedNotNull { i, (f, item) ->
+            tokens.optString(i.toString()).takeIf { it.isNotEmpty() }?.let { Job(f, item, "POST", "${LocalSend.API}upload?sessionId=$session&fileId=$i&token=$it") }
+        }
+        val ok = upload(jobs, peer.host, peer.port, peer.https, null)
+        "Sent $ok of ${files.size} to ${peer.alias}"
+    }
+
+    /** Runs [jobs] over a few connections at once, each reused for the next file. Returns how many were accepted. */
+    private suspend fun upload(jobs: List<Job>, host: String, port: Int, https: Boolean, network: Network?, parallel: Int = 4): Int {
+        val queue = ConcurrentLinkedQueue(jobs)
         val ok = AtomicInteger()
         coroutineScope {
-            repeat(minOf(parallel, files.size)) {
+            repeat(minOf(parallel, jobs.size)) {
                 launch {
                     var socket: Socket? = null
                     try {
                         while (true) {
-                            val (item, file) = queue.poll() ?: break
+                            val job = queue.poll() ?: break
                             try {
-                                val s = socket ?: connect(host, port, network).also { socket = it }
-                                put(s, host, token, file, item)
+                                val s = socket ?: Http.open(host, port, https, network).also { socket = it }
+                                put(s, "$host:$port", job)
                                 ok.incrementAndGet()
                             } catch (e: IOException) {
-                                item.error = e.message ?: "failed"
+                                job.item.error = e.message ?: "failed"
                                 socket?.close()
                                 socket = null
                             }
@@ -243,22 +292,14 @@ object TransferHub {
                 }
             }
         }
-        ok.get()
+        return ok.get()
     }
 
-    /** [network] pins the connection to one Wi-Fi network (the direct link) even when the phone's default network is another. */
-    private fun connect(host: String, port: Int, network: Network?) = Socket().apply {
-        network?.bindSocket(this)
-        tcpNoDelay = true
-        sendBufferSize = 1 shl 20
-        soTimeout = 30_000
-        connect(InetSocketAddress(host, port), 5_000)
-    }
-
-    private fun CoroutineScope.put(socket: Socket, host: String, token: String, file: File, item: Item) {
+    private fun CoroutineScope.put(socket: Socket, hostHeader: String, job: Job) {
+        val file = job.file
+        val item = job.item
         val out = socket.getOutputStream()
-        val name = URLEncoder.encode(item.name, "UTF-8")
-        out.write("PUT /api/upload?t=$token&name=$name&mtime=${file.lastModified()} HTTP/1.1\r\nHost: $host\r\nContent-Length: ${item.size}\r\nConnection: keep-alive\r\n\r\n".toByteArray())
+        out.write("${job.method} ${job.path} HTTP/1.1\r\nHost: $hostHeader\r\nContent-Length: ${item.size}\r\nConnection: keep-alive\r\n\r\n".toByteArray())
         val buf = ByteArray(BUFFER)
         var left = item.size
         file.inputStream().use { input ->
@@ -273,22 +314,9 @@ object TransferHub {
             }
         }
         out.flush()
-        val reply = socket.getInputStream()
-        val status = readLine(reply) ?: throw IOException("no reply")
-        var length = 0L
-        while (true) {
-            val h = readLine(reply) ?: throw IOException("no reply")
-            if (h.isEmpty()) break
-            if (h.startsWith("content-length:", ignoreCase = true)) length = h.substringAfter(':').trim().toLongOrNull() ?: 0
-        }
-        reply.skipFully(length)
-        if (!status.contains(" 200")) throw IOException(status)
+        val reply = Http.readReply(socket.getInputStream())
+        if (reply.status !in 200..299) throw IOException("answered ${reply.status}")
         item.finished = true
-    }
-
-    private fun InputStream.skipFully(n: Long) {
-        var left = n
-        while (left > 0) { if (read() < 0) throw IOException("no reply"); left-- }
     }
 }
 

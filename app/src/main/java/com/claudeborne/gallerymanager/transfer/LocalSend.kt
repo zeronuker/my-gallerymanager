@@ -167,6 +167,11 @@ object LocalSend {
             lock = null
         }
 
+        fun announceAgain() {
+            val s = socket ?: return
+            thread(isDaemon = true) { announce(s, InetAddress.getByName(GROUP), info(announce = true)) }
+        }
+
         private fun interfaces(): List<NetworkInterface> {
             val all = NetworkInterface.getNetworkInterfaces() ?: return emptyList()
             return java.util.Collections.list(all).filter { it.isUp && !it.isLoopback && it.supportsMulticast() }

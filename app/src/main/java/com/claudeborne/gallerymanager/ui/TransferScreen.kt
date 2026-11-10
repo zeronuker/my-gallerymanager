@@ -120,7 +120,8 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
         group = null
         linkError = null
         link.stop()
-        if (mode == Mode.RECEIVE || mode == Mode.COMPUTER) {
+        // while sending to a phone the server and discovery run too, so LocalSend devices answer and show up in the list
+        if (mode != Mode.HOME) {
             if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) notify.launch(Manifest.permission.POST_NOTIFICATIONS)
             TransferHub.start(context, if (mode == Mode.COMPUTER) files else emptyList())
             TransferService.start(context)
@@ -142,8 +143,7 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
             target == null -> return toast("Enter the address shown on the other phone")
         }
         sending = true
-        TransferService.start(context)
-        fun finish(message: String) { leave?.invoke(); leave = null; TransferService.stop(context); sending = false; status = ""; toast(message) }
+        fun finish(message: String) { leave?.invoke(); leave = null; sending = false; status = ""; toast(message) }
         fun go(network: Network?) {
             status = "SENDING…"
             scope.launch { finish("Sent ${TransferHub.send(files, target!!.host, target.port, target.token, network)} of ${files.size}") }
@@ -152,6 +152,18 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
             status = "JOINING…"
             leave = DirectJoin.join(context, target.ssid, target.pass, { go(it) }, { finish(it) })
         } else go(null)
+    }
+    /** Sends to a LocalSend device found on the network; the user there has to accept first. */
+    fun sendToPeer(peer: LocalSend.Peer) {
+        if (sending) return
+        sending = true
+        status = "WAITING FOR ${peer.alias.uppercase()}…"
+        scope.launch {
+            val message = TransferHub.sendLocalSend(peer, files)
+            sending = false
+            status = ""
+            toast(message)
+        }
     }
     val rows = remember(tick, mode) { TransferHub.items.toList().asReversed() }
     val total = files.sumOf { it.first.length() }
@@ -197,6 +209,16 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
             }
             Mode.PHONE -> Box(Modifier.weight(1f)) {
                 Progress(rows) {
+                    val now = System.currentTimeMillis()
+                    val peers = remember(tick) { LocalSend.peers.values.filter { now - it.seen < 120_000 }.sortedBy { it.alias } }
+                    Text("NEARBY DEVICES", Modifier.padding(start = 16.dp, top = 8.dp), style = monoStyle(cb.mint, 2.4.sp))
+                    Text(
+                        if (peers.isEmpty()) "None found yet. Open LocalSend or this app's RECEIVE on the other device, on the same network." else "LocalSend devices, and this app on other phones. The other device asks before anything is saved.",
+                        Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim),
+                    )
+                    peers.forEach { p -> HomeRow(p.alias, "${p.deviceType.uppercase()} · ${p.host}") { sendToPeer(p) } }
+                    ActionText(if (sending) status.ifEmpty { "SENDING…" } else "SEARCH AGAIN", cb.mint) { if (!sending) TransferHub.rediscover() }
+                    Text("OR WITH A CODE", Modifier.padding(start = 16.dp, top = 8.dp), style = monoStyle(cb.mint, 2.4.sp))
                     Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("On the other phone open TRANSFER, tap RECEIVE (and the direct link if you want the fastest speed), then scan its code or type the address it shows.", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim))
                         CbTextField(address, { address = it })
