@@ -26,6 +26,8 @@ object Settings {
     var stripOnShare by mutableStateOf(false)
     var lock by mutableStateOf(false)
     var lockAfter by mutableIntStateOf(0) // 0 at once, 1 after a minute away, 2 after five minutes away
+    var shelfEdge by mutableIntStateOf(1) // the Settings shelf sits on the 0 left or 1 right edge
+    var shelfTap by mutableStateOf(false) // a tap on the shelf opens Settings too, not only a swipe
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
@@ -41,6 +43,8 @@ object Settings {
         stripOnShare = prefs.getBoolean("stripOnShare", stripOnShare)
         lock = prefs.getBoolean("lock", lock)
         lockAfter = prefs.getInt("lockAfter", lockAfter)
+        shelfEdge = prefs.getInt("shelfEdge", shelfEdge)
+        shelfTap = prefs.getBoolean("shelfTap", shelfTap)
     }
 
     /** Applies [change] and saves everything. */
@@ -51,6 +55,7 @@ object Settings {
             .putBoolean("autoplay", autoplay).putBoolean("muted", muted).putInt("saveMode", saveMode)
             .putInt("editQuality", editQuality).putInt("exportQuality", exportQuality).putString("collageFolder", collageFolder)
             .putBoolean("stripOnShare", stripOnShare).putBoolean("lock", lock).putInt("lockAfter", lockAfter)
+            .putInt("shelfEdge", shelfEdge).putBoolean("shelfTap", shelfTap)
             .apply()
     }
 }

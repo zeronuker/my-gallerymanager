@@ -65,6 +65,14 @@ fun SettingsScreen(favorites: Favorites, onBack: () -> Unit) {
                 Choice("GRID COLUMNS", (2..6).map { "$it" }, Settings.gridCols - 2) { Settings.update { gridCols = it + 2 } }
                 Toggle("SPLASH SCREEN", "Play the logo animation when the app starts.", Settings.splash) { Settings.update { splash = it } }
             }
+            Section("SHELF") {
+                Choice("EDGE", listOf("LEFT", "RIGHT"), Settings.shelfEdge) { Settings.update { shelfEdge = it } }
+                Text(
+                    "The small bar on that edge opens Settings when you swipe it toward the middle of the screen.",
+                    style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim),
+                )
+                Toggle("TAP TO OPEN", "Tapping the bar opens Settings too.", Settings.shelfTap) { Settings.update { shelfTap = it } }
+            }
             Section("VIEWER") {
                 Toggle("AUTOPLAY VIDEOS", "Start a video as soon as you open it.", Settings.autoplay) { Settings.update { autoplay = it } }
                 Toggle("START MUTED", "Videos open with the sound off.", Settings.muted) { Settings.update { muted = it } }

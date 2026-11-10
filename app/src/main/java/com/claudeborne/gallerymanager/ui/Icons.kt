@@ -20,7 +20,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-enum class Icon { SHARE, HEART, EDIT, TRASH, INFO, MORE, SETTINGS }
+enum class Icon { SHARE, HEART, EDIT, TRASH, INFO, MORE, SEARCH }
 
 /** Line icons drawn on a 24 x 24 grid, so the app needs no icon library and they match the brand's thin outlines. */
 @Composable
@@ -70,14 +70,9 @@ fun CbIcon(icon: Icon, color: Color, modifier: Modifier = Modifier, filled: Bool
                 drawCircle(color, 1.1f * k, p(12f, 7.6f))
             }
             Icon.MORE -> for (x in listOf(5f, 12f, 19f)) drawCircle(color, 1.7f * k, p(x, 12f))
-            Icon.SETTINGS -> {
-                drawCircle(color, 3.2f * k, p(12f, 12f), style = line)
-                drawCircle(color, 7.2f * k, p(12f, 12f), style = line)
-                for (i in 0 until 8) { // eight teeth around the ring
-                    val a = Math.toRadians(i * 45.0)
-                    val (c, s) = Math.cos(a).toFloat() to Math.sin(a).toFloat()
-                    seg(12f + 7.2f * c, 12f + 7.2f * s, 12f + 9.8f * c, 12f + 9.8f * s)
-                }
+            Icon.SEARCH -> {
+                drawCircle(color, 6.5f * k, p(10.5f, 10.5f), style = line)
+                seg(15.3f, 15.3f, 20.5f, 20.5f)
             }
         }
     }

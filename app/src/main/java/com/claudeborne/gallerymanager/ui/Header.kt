@@ -63,30 +63,20 @@ private fun BrandBanner() {
     }
 }
 
-/** What the settings icon in a main screen's header opens; provided by the main shell. */
-class Shortcuts(val onSettings: () -> Unit)
-
-val LocalShortcuts = compositionLocalOf<Shortcuts?> { null }
-
-/**
- * Brand banner on the left; screen title with its count underneath on the right. An [onBack] adds a back link on the left, under the banner.
- * With [shortcuts], the settings icon sits at the far right, level with the title.
- */
+/** Brand banner on the left; screen title with its count underneath on the right. An [onBack] adds a back link on the left, under the banner. */
 @Composable
-fun ScreenHeader(title: String, count: String, onBack: (() -> Unit)? = null, backLabel: String = "", shortcuts: Boolean = false) {
+fun ScreenHeader(title: String, count: String, onBack: (() -> Unit)? = null, backLabel: String = "") {
     val cb = LocalCb.current
-    val icons = if (shortcuts) LocalShortcuts.current else null
     Column {
-        Row(Modifier.fillMaxWidth().padding(end = 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(end = 16.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             BrandBanner()
-            Column(Modifier.weight(1f).padding(end = 4.dp), horizontalAlignment = Alignment.End) {
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
                 Text(
                     title, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     style = TextStyle(fontFamily = Tourney, fontWeight = FontWeight.Bold, fontSize = 28.sp, brush = cb.grad),
                 )
                 Text(count, style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 1.sp, color = cb.inkDim))
             }
-            if (icons != null) HeaderIcon(Icon.SETTINGS, "Settings", icons.onSettings)
         }
         if (onBack != null) {
             Text(
@@ -94,13 +84,5 @@ fun ScreenHeader(title: String, count: String, onBack: (() -> Unit)? = null, bac
                 style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.6.sp, color = cb.mint),
             )
         }
-    }
-}
-
-/** A 36dp icon button for the header's top-right corner. */
-@Composable
-private fun HeaderIcon(icon: Icon, description: String, onClick: () -> Unit) {
-    Box(Modifier.size(36.dp).semantics { contentDescription = description }.clickable(onClick = onClick), Alignment.Center) {
-        CbIcon(icon, LocalCb.current.inkDim, size = 22.dp)
     }
 }

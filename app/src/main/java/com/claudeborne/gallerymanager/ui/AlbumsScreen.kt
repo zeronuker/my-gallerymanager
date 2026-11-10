@@ -75,7 +75,7 @@ fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools,
     }
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("ALBUMS", if (selecting) "${selected.size} SELECTED" else "${albums.size - 1} ALBUMS", shortcuts = true) // Favorites is not counted
+        ScreenHeader("ALBUMS", if (selecting) "${selected.size} SELECTED" else "${albums.size - 1} ALBUMS") // Favorites is not counted
         belowHeader()
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),

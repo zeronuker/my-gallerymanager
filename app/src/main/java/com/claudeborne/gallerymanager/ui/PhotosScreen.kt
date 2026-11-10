@@ -108,7 +108,7 @@ fun PhotosScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader(title, if (selecting) "${chosen.size} SELECTED" else "${items.size} ITEMS", onBack, backLabel = "ALBUMS", shortcuts = true)
+        ScreenHeader(title, if (selecting) "${chosen.size} SELECTED" else "${items.size} ITEMS", onBack, backLabel = "ALBUMS")
         belowHeader()
 
         if (items.isEmpty()) {

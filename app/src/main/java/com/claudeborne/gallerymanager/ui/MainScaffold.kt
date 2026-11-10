@@ -99,39 +99,30 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     }
     fun openFrom(from: Int) = { m: MediaItem -> viewerFrom = from; viewerId = m.id }
     val closeViewer = { viewerId = null; if (openUri != null) (context as? Activity)?.finish() }
-    val shortcuts = remember { Shortcuts(onSettings = { showSettings = true }) }
 
-    BackHandler(enabled = showSettings) { showSettings = false }
     BackHandler(enabled = album != null && !showSettings) { openAlbum = null }
     BackHandler(enabled = viewerId != null) { closeViewer() }
+    BackHandler(enabled = showSettings) { showSettings = false } // last: Settings can open over the viewer, so Back closes it first
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().cbGrid(cb).statusBarsPadding()) {
             Box(Modifier.weight(1f)) {
-                CompositionLocalProvider(LocalShortcuts provides shortcuts) {
-                    HorizontalPager(mainPager, Modifier.fillMaxSize(), userScrollEnabled = !(mainPager.currentPage == 1 && filesDeep)) { page ->
-                        if (page == 0) {
-                            HorizontalPager(galleryPager, Modifier.fillMaxSize()) { sub ->
-                                val subTabs: @Composable () -> Unit = { SubTabs(galleryPager) }
-                                when {
-                                    sub == 0 -> PhotosScreen(images, "IMAGES", tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, gridState = imagesGrid, empty = "NO IMAGES", belowHeader = subTabs, onOpen = openFrom(FROM_IMAGES))
-                                    sub == 1 -> PhotosScreen(videos, "VIDEOS", tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, gridState = videosGrid, empty = "NO VIDEOS", belowHeader = subTabs, onOpen = openFrom(FROM_VIDEOS))
-                                    album != null -> key(album) {
-                                        val title = if (album == FAVORITES_ID) "FAVORITES" else inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM"
-                                        PhotosScreen(inAlbum, title, tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, onBack = { openAlbum = null }, onOpen = openFrom(FROM_ALBUM))
-                                    }
-                                    else -> AlbumsScreen(items, favorites.ids, tools, onChanged, subTabs) { openAlbum = it }
+                HorizontalPager(mainPager, Modifier.fillMaxSize(), userScrollEnabled = !(mainPager.currentPage == 1 && filesDeep)) { page ->
+                    if (page == 0) {
+                        HorizontalPager(galleryPager, Modifier.fillMaxSize()) { sub ->
+                            val subTabs: @Composable () -> Unit = { SubTabs(galleryPager) }
+                            when {
+                                sub == 0 -> PhotosScreen(images, "IMAGES", tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, gridState = imagesGrid, empty = "NO IMAGES", belowHeader = subTabs, onOpen = openFrom(FROM_IMAGES))
+                                sub == 1 -> PhotosScreen(videos, "VIDEOS", tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, gridState = videosGrid, empty = "NO VIDEOS", belowHeader = subTabs, onOpen = openFrom(FROM_VIDEOS))
+                                album != null -> key(album) {
+                                    val title = if (album == FAVORITES_ID) "FAVORITES" else inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM"
+                                    PhotosScreen(inAlbum, title, tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, onBack = { openAlbum = null }, onOpen = openFrom(FROM_ALBUM))
                                 }
+                                else -> AlbumsScreen(items, favorites.ids, tools, onChanged, subTabs) { openAlbum = it }
                             }
-                        } else {
-                            FilesScreen(items, trash, backEnabled = viewerId == null && editing == null && collage == null && join == null && !showSettings, onChanged, onDeep = { filesDeep = it }, onOpenMedia = openFrom(FROM_LIBRARY))
                         }
-                    }
-                }
-                if (showSettings) {
-                    // an opaque layer over the tabs; the clickable swallows taps so nothing behind it reacts
-                    Box(Modifier.fillMaxSize().cbGrid(cb).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}) {
-                        SettingsScreen(favorites, onBack = { showSettings = false })
+                    } else {
+                        FilesScreen(items, trash, backEnabled = viewerId == null && editing == null && collage == null && join == null && !showSettings, onChanged, onDeep = { filesDeep = it }, onOpenMedia = openFrom(FROM_LIBRARY))
                     }
                 }
             }
@@ -149,10 +140,18 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         viewerId?.let { id ->
             Viewer(viewerItems, id, tools, favorites, onPageChange = { viewerId = it }, onChanged = onChanged, onEdit = { editing = it }, onClose = closeViewer)
         }
+        // the shelf is over the tabs, the viewer and the Files tools; the editors below cover it, since opening Settings mid-edit could lose work
+        if (!showSettings) Shelf { showSettings = true }
         join?.let { JoinScreen(it, onClose = { join = null }, onSaved = { join = null; onChanged() }) }
         collage?.let { CollageScreen(it, onClose = { collage = null }, onSaved = { collage = null; onChanged() }) }
         editing?.let { if (it.isVideo) VideoEditor(it, onClose = { editing = null }, onSaved = { editing = null; onChanged() }, onLibraryChanged = onChanged) else Editor(it, tools, onClose = { editing = null }, onSaved = { editing = null; onChanged() }) }
         FileToolDialogs(tools)
+        if (showSettings) {
+            // a full screen over everything, the viewer included; the clickable swallows taps so nothing behind it reacts
+            Box(Modifier.fillMaxSize().cbGrid(cb).statusBarsPadding().navigationBarsPadding().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}) {
+                SettingsScreen(favorites, onBack = { showSettings = false })
+            }
+        }
     }
 }
 

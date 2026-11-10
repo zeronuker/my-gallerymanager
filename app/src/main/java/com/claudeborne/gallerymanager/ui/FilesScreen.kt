@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -260,7 +261,7 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
     }
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader(cat?.label ?: "FILES", count, onBack, backLabel.uppercase(), shortcuts = true)
+        ScreenHeader(cat?.label ?: "FILES", count, onBack, backLabel.uppercase())
 
         if (dir != null && root != null && !searching) Crumbs(root, rootLabel, dir) { go(it) }
         if (cat == null) {
@@ -268,7 +269,7 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
                 if (dir != null) ActionText("+ FOLDER", cb.mint) { dialog = FileDialog.NewFolder }
                 if (dir != null) ActionText("MAP", cb.mint) { mapRoot = dir.path }
                 if (dir != null) ActionText("SPLIT", cb.mint) { dualPath = dir.path }
-                ActionText("SEARCH", if (searching) cb.mint else cb.inkDim) { searching = !searching; if (!searching) query = "" }
+                SearchAction(searching, query, { query = it }) { searching = !searching; if (!searching) query = "" }
                 if (dir != null) {
                     SortBy.entries.forEach { s ->
                         val on = sort == s
@@ -281,7 +282,7 @@ fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: B
                 }
             }
         }
-        if (searching) SearchRow(query, { query = it }, showScope = dir != null, allScope, { allScope = it })
+        if (searching && dir != null) ScopeRow(allScope) { allScope = it }
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (onHome && !showResults) {
@@ -491,16 +492,29 @@ internal fun HomeRow(title: String, sub: String, onClick: () -> Unit) {
     }
 }
 
-/** Search box with, inside a folder, a switch between searching that folder and all storage. */
+/**
+ * The search button: a magnifier and the word SEARCH. Tapping it swaps the word for the text field, to the right of the magnifier,
+ * which stays; tapping the magnifier again closes the field.
+ */
 @Composable
-private fun SearchRow(query: String, onQuery: (String) -> Unit, showScope: Boolean, allScope: Boolean, onScope: (Boolean) -> Unit) {
+private fun SearchAction(searching: Boolean, query: String, onQuery: (String) -> Unit, onToggle: () -> Unit) {
     val cb = LocalCb.current
-    Column(Modifier.padding(horizontal = 16.dp)) {
-        CbTextField(query, onQuery)
-        if (showScope) Row {
-            ActionText("THIS FOLDER", if (!allScope) cb.mint else cb.inkDim) { onScope(false) }
-            ActionText("ALL STORAGE", if (allScope) cb.mint else cb.inkDim) { onScope(true) }
+    Row(Modifier.padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.clickable(onClick = onToggle).padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            CbIcon(Icon.SEARCH, if (searching) cb.mint else cb.inkDim, size = 20.dp)
+            if (!searching) Text("SEARCH", Modifier.padding(start = 6.dp), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.2.sp, color = cb.inkDim))
         }
+        if (searching) Box(Modifier.width(220.dp).padding(end = 8.dp)) { CbTextField(query, onQuery) }
+    }
+}
+
+/** Inside a folder: search just that folder, or all storage. */
+@Composable
+private fun ScopeRow(allScope: Boolean, onScope: (Boolean) -> Unit) {
+    val cb = LocalCb.current
+    Row(Modifier.padding(horizontal = 8.dp)) {
+        ActionText("THIS FOLDER", if (!allScope) cb.mint else cb.inkDim) { onScope(false) }
+        ActionText("ALL STORAGE", if (allScope) cb.mint else cb.inkDim) { onScope(true) }
     }
 }
 
