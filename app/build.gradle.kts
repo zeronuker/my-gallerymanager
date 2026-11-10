@@ -16,8 +16,8 @@ android {
         applicationId = "com.claudeborne.gallerymanager"
         minSdk = 33
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.7.1"
+        versionCode = 10
+        versionName = "0.8.0"
     }
 
     signingConfigs {
