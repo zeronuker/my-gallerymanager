@@ -9,15 +9,19 @@ import android.os.storage.StorageManager
 import android.provider.MediaStore
 import android.provider.MediaStore.Files.FileColumns as F
 import android.webkit.MimeTypeMap
+import com.claudeborne.gallerymanager.transfer.BUFFER
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipEntry
-import java.util.zip.ZipInputStream
+import me.zhanghai.android.libarchive.Archive
+import me.zhanghai.android.libarchive.ArchiveEntry
+import java.nio.ByteBuffer
 import java.util.zip.ZipOutputStream
 import kotlin.coroutines.resume
 
@@ -155,22 +159,62 @@ suspend fun zipFiles(context: Context, files: List<File>, destDir: File): File? 
     if (ok) { rescan(context, listOf(zip.path)); zip } else { zip.delete(); null }
 }
 
-/** Extracts [zip] into a new folder beside it named after the zip. Returns that folder, or null on failure. */
-suspend fun unzip(context: Context, zip: File): File? = withContext(Dispatchers.IO) {
-    val target = freeName(zip.parentFile ?: return@withContext null, zip.nameWithoutExtension)
+/** File extensions [extractArchive] opens. */
+val ARCHIVE_EXTENSIONS = setOf("zip", "rar", "7z")
+
+/**
+ * Extracts [archive] (zip, RAR 4 and 5, or 7z) into a new folder beside it named after the archive, using libarchive. Returns that
+ * folder, or the reason it failed. Password-protected archives are not supported.
+ */
+suspend fun extractArchive(context: Context, archive: File): Result<File> = withContext(Dispatchers.IO) {
+    val target = freeName(archive.parentFile ?: return@withContext Result.failure(IOException("no folder")), archive.nameWithoutExtension)
     val base = target.canonicalPath + File.separator
-    val ok = runCatching {
-        ZipInputStream(zip.inputStream().buffered()).use { input ->
+    var found = 0
+    val result = runCatching {
+        val handle = Archive.readNew()
+        try {
+            Archive.setCharset(handle, "UTF-8".toByteArray()) // 7z and some RAR names are UTF-16; without this libarchive cannot convert them
+            Archive.readSupportFilterAll(handle)
+            Archive.readSupportFormatAll(handle)
+            Archive.readOpenFileName(handle, archive.path.toByteArray(), 64 * 1024)
+            val buffer = ByteBuffer.allocateDirect(BUFFER)
             while (true) {
                 ensureActive()
-                val e = input.nextEntry ?: break
-                val out = File(target, e.name).canonicalFile
+                val entry = Archive.readNextHeader(handle)
+                if (entry == 0L) break
+                // a name that is not valid UTF-8 is read as raw bytes instead of being dropped
+                val name = ArchiveEntry.pathnameUtf8(entry) ?: ArchiveEntry.pathname(entry)?.let { String(it, Charsets.UTF_8) } ?: continue
+                val out = File(target, name).canonicalFile
                 if (!out.path.startsWith(base)) continue // an entry that tries to leave the folder ("../x") is skipped
-                if (e.isDirectory) out.mkdirs() else { out.parentFile?.mkdirs(); out.outputStream().use { input.copyTo(it) } }
+                // zip, 7z and RAR files are regular unless they say otherwise (some archives leave the type unset)
+                when (ArchiveEntry.filetype(entry) and ArchiveEntry.AE_IFMT) {
+                    ArchiveEntry.AE_IFLNK, ArchiveEntry.AE_IFCHR, ArchiveEntry.AE_IFBLK, ArchiveEntry.AE_IFIFO, ArchiveEntry.AE_IFSOCK -> Unit // links and special files are left out
+                    ArchiveEntry.AE_IFDIR -> { out.mkdirs(); found++ }
+                    else -> {
+                        found++
+                        out.parentFile?.mkdirs()
+                        out.outputStream().channel.use { channel ->
+                            while (true) {
+                                buffer.clear()
+                                Archive.readData(handle, buffer)
+                                if (buffer.position() == 0) break
+                                buffer.flip()
+                                while (buffer.hasRemaining()) channel.write(buffer)
+                            }
+                        }
+                        if (ArchiveEntry.mtimeIsSet(entry)) out.setLastModified(ArchiveEntry.mtime(entry) * 1000)
+                    }
+                }
             }
+            if (found == 0) throw IOException("the archive holds no files this app can extract (it may be encrypted)")
+        } finally {
+            Archive.free(handle)
         }
-    }.isSuccess
-    if (ok) { rescan(context, target.filePaths()); target } else { target.deleteRecursively(); null }
+    }
+    result.fold(
+        { rescan(context, target.filePaths()); Result.success(target) },
+        { target.deleteRecursively(); Result.failure(IOException(it.message ?: "could not read the archive")) },
+    )
 }
 
 internal fun File.filePaths(): List<String> = walkTopDown().filter { it.isFile }.map { it.path }.toList()

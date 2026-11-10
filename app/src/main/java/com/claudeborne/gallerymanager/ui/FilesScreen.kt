@@ -79,7 +79,8 @@ import com.claudeborne.gallerymanager.data.searchFiles
 import com.claudeborne.gallerymanager.data.storageRoots
 import com.claudeborne.gallerymanager.data.transfer
 import com.claudeborne.gallerymanager.transfer.expandForSend
-import com.claudeborne.gallerymanager.data.unzip
+import com.claudeborne.gallerymanager.data.ARCHIVE_EXTENSIONS
+import com.claudeborne.gallerymanager.data.extractArchive
 import com.claudeborne.gallerymanager.data.zipFiles
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -194,7 +195,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
         when {
             selected.isNotEmpty() -> selected = toggle(selected, e.file.path) // read at the moment of the tap: a stale copy of "selecting" would open the file instead
             e.isDir -> go(e.file)
-            e.file.extension.equals("zip", ignoreCase = true) -> dialog = FileDialog.Unzip(e.file) // a zip offers to extract
+            e.file.extension.lowercase() in ARCHIVE_EXTENSIONS -> dialog = FileDialog.Unzip(e.file) // a zip, rar or 7z offers to extract
             else -> open(e.file)
         }
     }
@@ -350,9 +351,9 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
                     dialog = null
                     scope.launch {
                         busy = "EXTRACTING…"
-                        val out = unzip(context, d.file)
+                        val out = extractArchive(context, d.file)
                         busy = null
-                        toast(if (out != null) "Extracted to ${out.name}" else "Could not extract")
+                        toast(out.fold({ "Extracted to ${it.name}" }, { "Could not extract: ${it.message}" }))
                         done()
                     }
                 }

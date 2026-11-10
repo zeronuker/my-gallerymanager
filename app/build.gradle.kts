@@ -77,4 +77,7 @@ dependencies {
     // file transfer: draws the QR code this phone shows, and scans the other phone's (the scanner is Google Play services, no camera permission)
     implementation("com.google.zxing:core:3.5.3")
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    // reads RAR (4 and 5), 7z and more: libarchive built for Android (Apache-2.0)
+    // ponytail: 1.1.7 needs compileSdk 37 and a newer Android Gradle plugin than this project uses; 1.1.4 builds with the current setup
+    implementation("me.zhanghai.android.libarchive:library:1.1.4")
 }
