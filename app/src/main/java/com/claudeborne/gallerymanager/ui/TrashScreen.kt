@@ -8,7 +8,9 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +19,10 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -45,6 +51,7 @@ fun TrashScreen(items: List<MediaItem>, onChanged: () -> Unit, onBack: () -> Uni
     val cb = LocalCb.current
     val context = LocalContext.current
     var selected by remember { mutableStateOf(emptySet<Long>()) }
+    var viewing by remember { mutableStateOf<Long?>(null) } // the item open full-screen to look at before deciding
     val chosen = items.filter { it.id in selected }
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
@@ -52,8 +59,11 @@ fun TrashScreen(items: List<MediaItem>, onChanged: () -> Unit, onBack: () -> Uni
     }
     fun ask(request: PendingIntent) = launcher.launch(IntentSenderRequest.Builder(request.intentSender).build())
     // trashed items carry an includeTrashed flag for display; the requests want the plain uri
-    fun plainUris() = chosen.map { it.uri.buildUpon().clearQuery().build() }
+    fun plainUris(of: List<MediaItem>) = of.map { it.uri.buildUpon().clearQuery().build() }
+    fun restore(of: List<MediaItem>) = ask(MediaStore.createTrashRequest(context.contentResolver, plainUris(of), false))
+    fun deleteForever(of: List<MediaItem>) = ask(MediaStore.createDeleteRequest(context.contentResolver, plainUris(of)))
 
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("TRASH", if (chosen.isEmpty()) "${items.size} ITEMS" else "${chosen.size} SELECTED", onBack, "BACK")
 
@@ -76,16 +86,51 @@ fun TrashScreen(items: List<MediaItem>, onChanged: () -> Unit, onBack: () -> Uni
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             items(items, key = { it.id }) { item ->
-                TrashTile(item, item.id in selected) { selected = if (item.id in selected) selected - item.id else selected + item.id }
+                // a tap looks at the item (a small thumbnail is hard to judge); a long press, or a tap once something is selected, selects it
+                val toggle = { selected = if (item.id in selected) selected - item.id else selected + item.id }
+                TrashTile(item, item.id in selected, onClick = { if (selected.isEmpty()) viewing = item.id else toggle() }, onLongClick = toggle)
             }
         }
 
         if (chosen.isNotEmpty()) {
             Row(Modifier.fillMaxWidth().background(cb.surface1).padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                 ActionText("ALL", cb.inkDim) { selected = items.map { it.id }.toSet() }
-                ActionText("RESTORE", cb.mint) { ask(MediaStore.createTrashRequest(context.contentResolver, plainUris(), false)) }
-                ActionText("DELETE", Color(0xFFFF6B6B)) { ask(MediaStore.createDeleteRequest(context.contentResolver, plainUris())) }
+                ActionText("RESTORE", cb.mint) { restore(chosen) }
+                ActionText("DELETE", Color(0xFFFF6B6B)) { deleteForever(chosen) }
             }
+        }
+    }
+    viewing?.let { id ->
+        TrashViewer(items, id, onRestore = { restore(listOf(it)) }, onDelete = { deleteForever(listOf(it)) }, onClose = { viewing = null })
+    }
+    }
+}
+
+/** Full-screen look at trashed items, swipeable, with restore and delete forever; Android asks to confirm either. */
+@Composable
+private fun TrashViewer(items: List<MediaItem>, startId: Long, onRestore: (MediaItem) -> Unit, onDelete: (MediaItem) -> Unit, onClose: () -> Unit) {
+    val pager = rememberPagerState(items.indexOfFirst { it.id == startId }.coerceAtLeast(0)) { items.size }
+    val current = items.getOrNull(pager.currentPage)
+    BackHandler(onBack = onClose)
+    LaunchedEffect(items.isEmpty()) { if (items.isEmpty()) onClose() } // the last one was restored or deleted
+    Column(Modifier.fillMaxSize().background(Color.Black)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("← BACK", Modifier.clickable(onClick = onClose), style = monoStyle(DarkCb.mint, 2.6.sp))
+            Box(Modifier.weight(1f))
+            current?.let {
+                val left = daysLeft(it)
+                Text("${pager.currentPage + 1} / ${items.size}" + if (left.isEmpty()) "" else " · ${left.uppercase()} LEFT", style = monoStyle(Color.White, 1.sp))
+            }
+        }
+        Box(Modifier.weight(1f)) {
+            HorizontalPager(pager, Modifier.fillMaxSize(), key = { items.getOrNull(it)?.id ?: it }) { page ->
+                val item = items.getOrNull(page) ?: return@HorizontalPager
+                if (item.isVideo) VideoPage(item, active = pager.settledPage == page, chrome = true, onTap = {}) else ZoomableImage(item, onTap = {})
+            }
+        }
+        Row(Modifier.fillMaxWidth().background(Color(0xFF0A1020)).padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+            ActionText("RESTORE", DarkCb.mint) { current?.let(onRestore) }
+            ActionText("DELETE FOREVER", Color(0xFFFF6B6B)) { current?.let(onDelete) }
         }
     }
 }
@@ -99,18 +144,25 @@ internal fun ActionText(label: String, color: Color, onClick: () -> Unit) {
     )
 }
 
+/** "29 days", or "1 day"; empty when the item has no removal date. */
+private fun daysLeft(item: MediaItem): String {
+    if (item.expiresMs <= 0) return ""
+    val days = ((item.expiresMs - System.currentTimeMillis()) / DAY_MS).coerceAtLeast(0)
+    return if (days == 1L) "1 day" else "$days days"
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TrashTile(item: MediaItem, selected: Boolean, onClick: () -> Unit) {
+private fun TrashTile(item: MediaItem, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val cb = LocalCb.current
-    val daysLeft = ((item.expiresMs - System.currentTimeMillis()) / DAY_MS).coerceAtLeast(0)
     Box(
-        Modifier.aspectRatio(1f).background(cb.surface2).clickable(onClick = onClick)
+        Modifier.aspectRatio(1f).background(cb.surface2).combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .then(if (selected) Modifier.border(3.dp, cb.mint) else Modifier),
     ) {
         AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         if (item.expiresMs > 0) {
             Text(
-                "${daysLeft}D",
+                daysLeft(item),
                 Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color(0x99000000)).padding(horizontal = 4.dp, vertical = 2.dp),
                 style = TextStyle(fontFamily = JetBrainsMono, fontSize = 10.sp, color = Color.White),
             )

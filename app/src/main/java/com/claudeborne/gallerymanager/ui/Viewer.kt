@@ -323,7 +323,7 @@ private fun Immersive(hidden: Boolean) {
 }
 
 @Composable
-private fun ZoomableImage(item: MediaItem, onTap: () -> Unit) {
+internal fun ZoomableImage(item: MediaItem, onTap: () -> Unit) {
     val context = LocalContext.current
     ZoomBox(onTap) {
         AsyncImage(
@@ -376,7 +376,7 @@ private fun ZoomBox(onTap: () -> Unit, content: @Composable () -> Unit) {
 
 /** Only the page on screen owns a player; others show the thumbnail. */
 @Composable
-private fun VideoPage(item: MediaItem, active: Boolean, chrome: Boolean, onTap: () -> Unit) {
+internal fun VideoPage(item: MediaItem, active: Boolean, chrome: Boolean, onTap: () -> Unit) {
     if (!active) {
         AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         return
