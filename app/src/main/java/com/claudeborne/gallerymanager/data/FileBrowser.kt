@@ -1,24 +1,40 @@
 package com.claudeborne.gallerymanager.data
 
+import android.content.ContentResolver
 import android.content.Context
 import android.media.MediaScannerConnection
+import android.os.Bundle
 import android.os.Environment
 import android.os.storage.StorageManager
+import android.provider.MediaStore
+import android.provider.MediaStore.Files.FileColumns as F
 import android.webkit.MimeTypeMap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 import kotlin.coroutines.resume
 
 // Plain java.io.File access to shared storage; it needs the "All files access" permission (Environment.isExternalStorageManager).
 
 enum class SortBy { NAME, DATE, SIZE, TYPE }
 
+/** Shortcut lists on the Files home screen, built from MediaStore so they appear without scanning the whole storage. */
+enum class Category { AUDIO, DOCUMENTS, APKS, LARGE }
+
+/** Files at or above this size count as "large" (the same 1000-based megabytes the app displays). */
+const val LARGE_FILE_BYTES = 50_000_000L
+
 /** One row of a folder listing; size, date and child count are read once so scrolling does no disk work. */
 data class Entry(val file: File, val isDir: Boolean, val size: Long, val modified: Long, val children: Int)
+
+fun entryOf(f: File): Entry = f.isDirectory.let { d -> Entry(f, d, if (d) 0 else f.length(), f.lastModified(), if (d) f.list()?.size ?: 0 else 0) }
 
 /** Every mounted storage volume (internal, SD card, USB) as (label, root folder). */
 fun storageRoots(context: Context): List<Pair<String, File>> =
@@ -30,7 +46,7 @@ fun storageRoots(context: Context): List<Pair<String, File>> =
 fun listDir(dir: File, showHidden: Boolean, by: SortBy, ascending: Boolean): List<Entry> {
     val entries = (dir.listFiles() ?: return emptyList())
         .filter { showHidden || !it.name.startsWith(".") }
-        .map { f -> f.isDirectory.let { d -> Entry(f, d, if (d) 0 else f.length(), f.lastModified(), if (d) f.list()?.size ?: 0 else 0) } }
+        .map(::entryOf)
     val order: Comparator<Entry> = when (by) {
         SortBy.NAME -> compareBy { it.file.name.lowercase() }
         SortBy.DATE -> compareBy { it.modified }
@@ -38,6 +54,44 @@ fun listDir(dir: File, showHidden: Boolean, by: SortBy, ascending: Boolean): Lis
         SortBy.TYPE -> compareBy<Entry> { it.file.extension.lowercase() }.thenBy { it.file.name.lowercase() }
     }
     return entries.sortedWith(compareBy<Entry> { !it.isDir }.then(if (ascending) order else order.reversed()))
+}
+
+/**
+ * Files and folders under [roots] whose name contains [query], found by walking the folders. [onResults] gets the matches so far
+ * every 20 hits and once more at the end, so a long search can show results while it runs. Stops at [limit] matches.
+ */
+suspend fun searchFiles(roots: List<File>, query: String, showHidden: Boolean, limit: Int = 500, onResults: (List<Entry>) -> Unit) = withContext(Dispatchers.IO) {
+    val found = mutableListOf<Entry>()
+    search@ for (root in roots) {
+        for (f in root.walkTopDown().onEnter { it == root || showHidden || !it.name.startsWith(".") }) {
+            ensureActive() // a new keystroke cancels the old search
+            if (f == root || !f.name.contains(query, ignoreCase = true) || (!showHidden && f.name.startsWith("."))) continue
+            found += entryOf(f)
+            if (found.size % 20 == 0) onResults(found.toList())
+            if (found.size >= limit) break@search
+        }
+    }
+    onResults(found.toList())
+}
+
+/** The files in [category], newest first (largest first for [Category.LARGE]). */
+suspend fun categoryFiles(context: Context, category: Category): List<Entry> = withContext(Dispatchers.IO) {
+    val where = when (category) {
+        Category.AUDIO -> "${F.MEDIA_TYPE} = ${F.MEDIA_TYPE_AUDIO}"
+        Category.DOCUMENTS -> "${F.MIME_TYPE} LIKE 'text/%' OR ${F.MIME_TYPE} = 'application/pdf' OR ${F.MIME_TYPE} = 'application/msword' OR " +
+            "${F.MIME_TYPE} LIKE 'application/vnd.ms-%' OR ${F.MIME_TYPE} LIKE 'application/vnd.openxmlformats%' OR ${F.MIME_TYPE} LIKE 'application/vnd.oasis%'"
+        Category.APKS -> "${F.MIME_TYPE} = 'application/vnd.android.package-archive' OR ${F.DISPLAY_NAME} LIKE '%.apk'"
+        Category.LARGE -> "${F.SIZE} >= $LARGE_FILE_BYTES"
+    }
+    val args = Bundle().apply {
+        putString(ContentResolver.QUERY_ARG_SQL_SELECTION, where)
+        putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_EXCLUDE)
+    }
+    val entries = mutableListOf<Entry>()
+    context.contentResolver.query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), arrayOf(MediaStore.MediaColumns.DATA), args, null)?.use { c ->
+        while (c.moveToNext()) File(c.getString(0).orEmpty()).takeIf { it.isFile }?.let { entries += entryOf(it) } // skips rows whose file is gone
+    }
+    if (category == Category.LARGE) entries.sortedByDescending { it.size } else entries.sortedByDescending { it.modified }
 }
 
 fun File.mime(): String = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.lowercase()).orEmpty()
@@ -75,24 +129,56 @@ suspend fun transfer(context: Context, files: List<File>, destDir: File, move: B
         if (move && src.parentFile?.canonicalPath == dest) return@forEach // already there
         val before = src.filePaths()
         val target = freeName(destDir, src.name)
-        val ok = runCatching { (move && src.renameTo(target)) || (src.copyRecursively(target) && (!move || src.deleteRecursively())) }.getOrDefault(false)
+        val ok = runCatching { if (move) src.moveTo(target) else src.copyRecursively(target) }.getOrDefault(false)
         if (ok) { done++; touched += target.filePaths(); if (move) touched += before } else target.deleteRecursively()
     }
     rescan(context, touched)
     done
 }
 
-/** Deletes [files] for good. Returns how many were removed. */
-suspend fun deleteFiles(context: Context, files: List<File>): Int = withContext(Dispatchers.IO) {
-    val paths = files.flatMap { it.filePaths() }
-    val done = files.count { it.deleteRecursively() }
-    rescan(context, paths)
-    done
+/** Packs [files] (folders go in whole) into a new zip in [destDir], named after the single item or "Archive". Returns the zip, or null on failure. */
+suspend fun zipFiles(context: Context, files: List<File>, destDir: File): File? = withContext(Dispatchers.IO) {
+    val single = files.singleOrNull()
+    val zip = freeName(destDir, (if (single == null) "Archive" else if (single.isDirectory) single.name else single.nameWithoutExtension) + ".zip")
+    val ok = runCatching {
+        ZipOutputStream(zip.outputStream().buffered()).use { out ->
+            files.forEach { top ->
+                top.walkTopDown().forEach { f ->
+                    ensureActive()
+                    val name = f.relativeTo(top.parentFile ?: top).path.replace('\\', '/')
+                    if (f.isDirectory) out.putNextEntry(ZipEntry("$name/")) else { out.putNextEntry(ZipEntry(name)); f.inputStream().use { it.copyTo(out) } }
+                    out.closeEntry()
+                }
+            }
+        }
+    }.isSuccess
+    if (ok) { rescan(context, listOf(zip.path)); zip } else { zip.delete(); null }
 }
 
-private fun File.filePaths(): List<String> = walkTopDown().filter { it.isFile }.map { it.path }.toList()
+/** Extracts [zip] into a new folder beside it named after the zip. Returns that folder, or null on failure. */
+suspend fun unzip(context: Context, zip: File): File? = withContext(Dispatchers.IO) {
+    val target = freeName(zip.parentFile ?: return@withContext null, zip.nameWithoutExtension)
+    val base = target.canonicalPath + File.separator
+    val ok = runCatching {
+        ZipInputStream(zip.inputStream().buffered()).use { input ->
+            while (true) {
+                ensureActive()
+                val e = input.nextEntry ?: break
+                val out = File(target, e.name).canonicalFile
+                if (!out.path.startsWith(base)) continue // an entry that tries to leave the folder ("../x") is skipped
+                if (e.isDirectory) out.mkdirs() else { out.parentFile?.mkdirs(); out.outputStream().use { input.copyTo(it) } }
+            }
+        }
+    }.isSuccess
+    if (ok) { rescan(context, target.filePaths()); target } else { target.deleteRecursively(); null }
+}
 
-private fun freeName(dir: File, name: String): File {
+internal fun File.filePaths(): List<String> = walkTopDown().filter { it.isFile }.map { it.path }.toList()
+
+/** Renames, or when that cannot work (another storage volume) copies and then removes the original. */
+internal fun File.moveTo(target: File): Boolean = renameTo(target) || (copyRecursively(target) && deleteRecursively())
+
+internal fun freeName(dir: File, name: String): File {
     var target = File(dir, name)
     if (!target.exists()) return target
     val base = name.substringBeforeLast('.', name)
@@ -103,7 +189,7 @@ private fun freeName(dir: File, name: String): File {
 }
 
 /** Tells MediaStore about changed files (added, moved or gone) so the photo and video library follows. Gives up after 5 s. */
-private suspend fun rescan(context: Context, paths: List<String>) {
+internal suspend fun rescan(context: Context, paths: List<String>) {
     if (paths.isEmpty()) return
     withTimeoutOrNull(5000) {
         suspendCancellableCoroutine { cont ->

@@ -58,20 +58,30 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import coil.compose.AsyncImage
+import com.claudeborne.gallerymanager.data.BIN_DAYS
+import com.claudeborne.gallerymanager.data.Category
 import com.claudeborne.gallerymanager.data.Entry
+import com.claudeborne.gallerymanager.data.LARGE_FILE_BYTES
 import com.claudeborne.gallerymanager.data.MediaItem
 import com.claudeborne.gallerymanager.data.SortBy
+import com.claudeborne.gallerymanager.data.categoryFiles
 import com.claudeborne.gallerymanager.data.createFolder
-import com.claudeborne.gallerymanager.data.deleteFiles
 import com.claudeborne.gallerymanager.data.folderStats
 import com.claudeborne.gallerymanager.data.isImage
 import com.claudeborne.gallerymanager.data.isVideo
+import com.claudeborne.gallerymanager.data.listBin
 import com.claudeborne.gallerymanager.data.listDir
 import com.claudeborne.gallerymanager.data.mime
+import com.claudeborne.gallerymanager.data.moveToBin
+import com.claudeborne.gallerymanager.data.purgeExpiredBin
 import com.claudeborne.gallerymanager.data.renameFile
+import com.claudeborne.gallerymanager.data.searchFiles
 import com.claudeborne.gallerymanager.data.storageRoots
 import com.claudeborne.gallerymanager.data.transfer
+import com.claudeborne.gallerymanager.data.unzip
+import com.claudeborne.gallerymanager.data.zipFiles
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -80,16 +90,19 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private val dateFmt = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm")
-private val RED = Color(0xFFFF6B6B)
+internal val RED = Color(0xFFFF6B6B)
+
+internal fun dateText(ms: Long): String = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).format(dateFmt)
 
 private sealed interface FileDialog {
     data object NewFolder : FileDialog
     class Rename(val file: File) : FileDialog
     class Delete(val files: List<File>) : FileDialog
     class Props(val file: File) : FileDialog
+    class Unzip(val file: File) : FileDialog
 }
 
-/** The Files tab: browse real folders on every storage volume and copy, move, rename, delete and share what is in them. */
+/** The Files tab: a home screen (categories, bin, storage), folder browsing, search, and the file actions. */
 @Composable
 fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () -> Unit, onOpenMedia: (MediaItem) -> Unit) {
     val cb = LocalCb.current
@@ -104,87 +117,126 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
     }
 
     val roots = remember { storageRoots(context) }
-    var path by rememberSaveable { mutableStateOf<String?>(null) } // null shows the list of storage volumes
+    var path by rememberSaveable { mutableStateOf<String?>(null) } // null: the home screen, or a category view
+    var category by rememberSaveable { mutableStateOf<Category?>(null) }
+    var inBin by rememberSaveable { mutableStateOf(false) }
     var sort by rememberSaveable { mutableStateOf(SortBy.NAME) }
     var ascending by rememberSaveable { mutableStateOf(true) }
     var hidden by rememberSaveable { mutableStateOf(false) }
     var grid by rememberSaveable { mutableStateOf(false) }
+    var searching by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var allScope by rememberSaveable { mutableStateOf(false) } // search every storage volume instead of the open folder
     var selected by rememberSaveable { mutableStateOf(emptySet<String>()) }
     var clipPaths by rememberSaveable { mutableStateOf(emptyList<String>()) } // COPY/MOVE remember what to paste; the user then browses to the target folder
     var clipMove by rememberSaveable { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     var dialog by remember { mutableStateOf<FileDialog?>(null) }
     var entries by remember { mutableStateOf<List<Entry>>(emptyList()) }
+    var binCount by remember { mutableIntStateOf(0) }
+    var busy by remember { mutableStateOf<String?>(null) }
 
     val dir = path?.let { File(it) }
-    val root = dir?.let { d -> roots.map { it.second }.filter { d.path.startsWith(it.path) }.maxByOrNull { it.path.length } }
-    LaunchedEffect(path, sort, ascending, hidden, refresh) {
-        entries = dir?.let { d -> withContext(Dispatchers.IO) { listDir(d, hidden, sort, ascending) } } ?: emptyList()
+    fun rootOf(f: File) = roots.map { it.second }.filter { f.path.startsWith(it.path) }.maxByOrNull { it.path.length }
+    val root = dir?.let { rootOf(it) }
+    val cat = category
+    val term = query.trim()
+    val showResults = searching && term.isNotEmpty()
+
+    LaunchedEffect(refresh, inBin) {
+        withContext(Dispatchers.IO) { purgeExpiredBin(context); binCount = listBin(context).size }
+    }
+    LaunchedEffect(path, sort, ascending, hidden, refresh, category, searching, query, allScope) {
+        when {
+            showResults -> {
+                delay(300) // wait for the typing to pause; the next keystroke cancels this and starts over
+                searchFiles(if (allScope || dir == null) roots.map { it.second } else listOf(dir), term, hidden) { entries = it }
+            }
+            cat != null -> entries = categoryFiles(context, cat)
+            dir != null -> entries = withContext(Dispatchers.IO) { listDir(dir, hidden, sort, ascending) }
+            else -> entries = emptyList()
+        }
     }
 
-    fun go(to: File?) { path = to?.path; selected = emptySet() }
+    fun go(to: File?) { path = to?.path; category = null; searching = false; query = ""; selected = emptySet() }
     fun up() { if (dir != null && root != null) go(if (dir.path == root.path) null else dir.parentFile) }
     fun done() { selected = emptySet(); refresh++; onChanged() }
     fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
 
     val chosen = entries.filter { it.file.path in selected }
     val selecting = chosen.isNotEmpty()
-    BackHandler(enabled = backEnabled && (selecting || dir != null)) { if (selecting) selected = emptySet() else up() }
+    BackHandler(enabled = backEnabled && !inBin && (selecting || searching || cat != null || dir != null)) {
+        when {
+            selecting -> selected = emptySet()
+            searching -> { searching = false; query = "" }
+            cat != null -> category = null
+            else -> up()
+        }
+    }
 
-    // a media file opens in our viewer when the library knows it, anything else goes to another app
+    if (inBin) {
+        BinView(backEnabled, onBack = { inBin = false }, onChanged = { refresh++; onChanged() })
+        return
+    }
+
+    // a media file opens in our viewer when the library knows it, a zip offers to extract, anything else goes to another app
     val byPath = remember(library) { library.associateBy { it.path + it.name } }
     fun open(file: File) {
-        val key = root?.let { file.relativeTo(it).path.replace('\\', '/') }
+        if (file.extension.equals("zip", ignoreCase = true)) { dialog = FileDialog.Unzip(file); return }
+        val key = rootOf(file)?.let { file.relativeTo(it).path.replace('\\', '/') }
         val media = key?.let { byPath[it] }
         if (media != null) onOpenMedia(media) else openWithApp(context, file)
     }
+    fun tap(e: Entry) { if (selecting) selected = toggle(selected, e.file.path) else if (e.isDir) go(e.file) else open(e.file) }
+    fun longPress(e: Entry) { selected = toggle(selected, e.file.path) }
+
+    val onHome = dir == null && cat == null
+    val rootLabel = roots.firstOrNull { it.second.path == root?.path }?.first.orEmpty()
+    // back goes up one folder; from a storage root or a category it goes to the home screen
+    val backLabel = when {
+        cat != null || dir == null || root == null || dir.path == root.path -> "FILES"
+        dir.parentFile?.path == root.path -> rootLabel
+        else -> dir.parentFile?.name.orEmpty()
+    }
+    val onBack: (() -> Unit)? = if (cat != null) ({ category = null }) else if (dir != null) ::up else null
+    val count = busy ?: when {
+        selecting -> "${chosen.size} SELECTED"
+        showResults -> "${entries.size} FOUND"
+        cat != null -> "${entries.size} FILES"
+        dir == null -> "${roots.size} STORAGE"
+        else -> "${entries.size} ITEMS"
+    }
 
     Column(Modifier.fillMaxSize()) {
-        val rootLabel = roots.firstOrNull { it.second.path == root?.path }?.first.orEmpty()
-        // back goes up one folder; from a storage root it goes to the list of storage volumes
-        val backLabel = when {
-            dir == null || root == null || dir.path == root.path -> "STORAGE"
-            dir.parentFile?.path == root.path -> rootLabel
-            else -> dir.parentFile?.name.orEmpty()
-        }
-        ScreenHeader("FILES", if (selecting) "${chosen.size} SELECTED" else if (dir == null) "${roots.size} STORAGE" else "${entries.size} ITEMS",
-            onBack = if (dir != null) ::up else null, backLabel = backLabel.uppercase())
+        ScreenHeader("FILES", count, onBack, backLabel.uppercase())
 
-        if (dir == null || root == null) {
-            LazyColumn(Modifier.weight(1f)) {
-                items(roots, key = { it.second.path }) { (label, folder) -> VolumeRow(label, folder) { go(folder) } }
-            }
-            return@Column
-        }
-
-        Crumbs(root, rootLabel, dir) { go(it) }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            ActionText("+ FOLDER", cb.mint) { dialog = FileDialog.NewFolder }
-            SortBy.entries.forEach { s ->
-                val on = sort == s
-                ActionText(s.name + if (on) (if (ascending) " ▲" else " ▼") else "", if (on) cb.mint else cb.inkDim) {
-                    if (on) ascending = !ascending else { sort = s; ascending = s == SortBy.NAME || s == SortBy.TYPE }
+        if (dir != null && root != null && !searching) Crumbs(root, rootLabel, dir) { go(it) }
+        if (cat == null) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                if (dir != null) ActionText("+ FOLDER", cb.mint) { dialog = FileDialog.NewFolder }
+                ActionText("SEARCH", if (searching) cb.mint else cb.inkDim) { searching = !searching; if (!searching) query = "" }
+                if (dir != null) {
+                    SortBy.entries.forEach { s ->
+                        val on = sort == s
+                        ActionText(s.name + if (on) (if (ascending) " ▲" else " ▼") else "", if (on) cb.mint else cb.inkDim) {
+                            if (on) ascending = !ascending else { sort = s; ascending = s == SortBy.NAME || s == SortBy.TYPE }
+                        }
+                    }
+                    ActionText("HIDDEN", if (hidden) cb.mint else cb.inkDim) { hidden = !hidden }
+                    ActionText(if (grid) "LIST" else "GRID", cb.inkDim) { grid = !grid }
                 }
             }
-            ActionText("HIDDEN", if (hidden) cb.mint else cb.inkDim) { hidden = !hidden }
-            ActionText(if (grid) "LIST" else "GRID", cb.inkDim) { grid = !grid }
         }
+        if (searching) SearchRow(query, { query = it }, showScope = dir != null, allScope, { allScope = it })
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (entries.isEmpty()) {
-                Text("EMPTY FOLDER", Modifier.align(Alignment.Center), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
-            } else if (grid) {
-                LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    items(entries, key = { it.file.path }) { e ->
-                        GridTile(e, e.file.path in selected, onClick = { if (selecting) selected = toggle(selected, e.file.path) else if (e.isDir) go(e.file) else open(e.file) }, onLongClick = { selected = toggle(selected, e.file.path) })
-                    }
-                }
+            if (onHome && !showResults) {
+                HomeList(roots, binCount, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true })
             } else {
-                LazyColumn(Modifier.fillMaxSize()) {
-                    items(entries, key = { it.file.path }) { e ->
-                        ListRow(e, e.file.path in selected, onClick = { if (selecting) selected = toggle(selected, e.file.path) else if (e.isDir) go(e.file) else open(e.file) }, onLongClick = { selected = toggle(selected, e.file.path) })
-                    }
-                }
+                FileList(
+                    entries, grid && cat == null && !showResults, selected, showPath = showResults || cat != null,
+                    empty = if (showResults) "NO MATCHES" else "EMPTY FOLDER", onTap = ::tap, onLong = ::longPress,
+                )
             }
         }
 
@@ -195,28 +247,46 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
                     style = monoStyle(cb.inkDim, 1.2.sp),
                 )
                 ActionText("CANCEL", cb.inkDim) { clipPaths = emptyList() }
-                ActionText("PASTE HERE", cb.mint) {
+                if (dir != null) ActionText("PASTE HERE", cb.mint) {
                     val files = clipPaths.map(::File)
                     val move = clipMove
                     clipPaths = emptyList()
-                    scope.launch { toast("${if (move) "Moved" else "Copied"} ${transfer(context, files, dir, move)} of ${files.size}"); done() }
+                    scope.launch {
+                        busy = if (move) "MOVING…" else "COPYING…"
+                        toast("${if (move) "Moved" else "Copied"} ${transfer(context, files, dir, move)} of ${files.size}")
+                        busy = null
+                        done()
+                    }
                 }
             }
         } else if (selecting) {
-            Row(Modifier.fillMaxWidth().background(cb.surface1).padding(vertical = 8.dp)) {
-                BarAction("ALL", cb.inkDim) { selected = entries.map { it.file.path }.toSet() }
-                BarAction("SHARE", cb.mint) {
-                    val files = chosen.filter { !it.isDir }.map { it.file }
-                    if (files.isEmpty()) toast("Folders can't be shared") else shareFiles(context, files)
-                }
-                BarAction("COPY", cb.mint) { clipPaths = chosen.map { it.file.path }; clipMove = false; selected = emptySet() }
-                BarAction("MOVE", cb.mint) { clipPaths = chosen.map { it.file.path }; clipMove = true; selected = emptySet() }
-                if (chosen.size == 1) {
-                    BarAction("RENAME", cb.mint) { dialog = FileDialog.Rename(chosen[0].file) }
-                    BarAction("INFO", cb.mint) { dialog = FileDialog.Props(chosen[0].file) }
-                }
-                BarAction("DELETE", RED) { dialog = FileDialog.Delete(chosen.map { it.file }) }
-            }
+            ActionBar(
+                buildList {
+                    add(BarItem("ALL", cb.inkDim) { selected = entries.map { it.file.path }.toSet() })
+                    add(BarItem("SHARE", cb.mint) {
+                        val files = chosen.filter { !it.isDir }.map { it.file }
+                        if (files.isEmpty()) toast("Folders can't be shared") else shareFiles(context, files)
+                    })
+                    add(BarItem("COPY", cb.mint) { clipPaths = chosen.map { it.file.path }; clipMove = false; selected = emptySet() })
+                    add(BarItem("MOVE", cb.mint) { clipPaths = chosen.map { it.file.path }; clipMove = true; selected = emptySet() })
+                    add(BarItem("ZIP", cb.mint) {
+                        val files = chosen.map { it.file }
+                        val into = files[0].parentFile ?: return@BarItem
+                        scope.launch {
+                            busy = "ZIPPING…"
+                            val zip = zipFiles(context, files, into)
+                            busy = null
+                            toast(if (zip != null) "Created ${zip.name}" else "Could not create the zip")
+                            done()
+                        }
+                    })
+                    if (chosen.size == 1) {
+                        add(BarItem("RENAME", cb.mint) { dialog = FileDialog.Rename(chosen[0].file) })
+                        add(BarItem("INFO", cb.mint) { dialog = FileDialog.Props(chosen[0].file) })
+                    }
+                    add(BarItem("DELETE", RED) { dialog = FileDialog.Delete(chosen.map { it.file }) })
+                },
+            )
         }
     }
 
@@ -229,25 +299,41 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
             dialog = null
             scope.launch { if (renameFile(context, d.file, name)) done() else toast("That name is taken") }
         }
-        is FileDialog.Delete -> CbDialog("DELETE", { dialog = null }) {
+        is FileDialog.Delete -> CbDialog("MOVE TO BIN", { dialog = null }) {
             Text(
-                "Delete ${if (d.files.size == 1) d.files[0].name else "${d.files.size} items"} for good? This cannot be undone.",
+                "Move ${if (d.files.size == 1) d.files[0].name else "${d.files.size} items"} to the bin? You can restore ${if (d.files.size == 1) "it" else "them"} for $BIN_DAYS days.",
                 style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2),
             )
             Row(Modifier.fillMaxWidth(), Arrangement.End) {
                 ActionText("CANCEL", cb.inkDim) { dialog = null }
-                ActionText("DELETE", RED) {
+                ActionText("MOVE TO BIN", RED) {
                     dialog = null
-                    scope.launch { toast("Deleted ${deleteFiles(context, d.files)}"); done() }
+                    scope.launch { toast("Moved ${moveToBin(context, d.files)} to the bin"); done() }
                 }
             }
         }
         is FileDialog.Props -> PropsDialog(d.file) { dialog = null }
+        is FileDialog.Unzip -> CbDialog("EXTRACT", { dialog = null }) {
+            Text("Extract ${d.file.name} into a new folder next to it?", style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2))
+            Row(Modifier.fillMaxWidth(), Arrangement.End) {
+                ActionText("CANCEL", cb.inkDim) { dialog = null }
+                ActionText("EXTRACT", cb.mint) {
+                    dialog = null
+                    scope.launch {
+                        busy = "EXTRACTING…"
+                        val out = unzip(context, d.file)
+                        busy = null
+                        toast(if (out != null) "Extracted to ${out.name}" else "Could not extract")
+                        done()
+                    }
+                }
+            }
+        }
         null -> Unit
     }
 }
 
-private fun toggle(set: Set<String>, p: String) = if (p in set) set - p else set + p
+internal fun toggle(set: Set<String>, p: String) = if (p in set) set - p else set + p
 
 @Composable
 private fun PermissionGate(context: Context) {
@@ -266,17 +352,50 @@ private fun PermissionGate(context: Context) {
     }
 }
 
+/** The home screen: shortcut categories, the bin, then the storage volumes. */
 @Composable
-private fun VolumeRow(label: String, folder: File, onClick: () -> Unit) {
-    val cb = LocalCb.current
+private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (File) -> Unit, onCategory: (Category) -> Unit, onBin: () -> Unit) {
     val context = LocalContext.current
-    val stat = remember(folder) { StatFs(folder.path) }
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp)) {
-        Text(label, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = cb.ink))
-        Text(
-            "${Formatter.formatShortFileSize(context, stat.availableBytes)} FREE OF ${Formatter.formatShortFileSize(context, stat.totalBytes)}",
-            style = monoStyle(cb.inkDim, 1.sp),
-        )
+    LazyColumn(Modifier.fillMaxSize()) {
+        item { SectionLabel("SHORTCUTS") }
+        item { HomeRow("DOWNLOADS", "THE DOWNLOAD FOLDER") { onFolder(File(roots.first().second, Environment.DIRECTORY_DOWNLOADS)) } }
+        item { HomeRow("AUDIO", "SONGS AND RECORDINGS") { onCategory(Category.AUDIO) } }
+        item { HomeRow("DOCUMENTS", "PDF, OFFICE AND TEXT FILES") { onCategory(Category.DOCUMENTS) } }
+        item { HomeRow("APKS", "APP INSTALLERS") { onCategory(Category.APKS) } }
+        item { HomeRow("LARGE FILES", "${Formatter.formatShortFileSize(context, LARGE_FILE_BYTES).uppercase()} AND ABOVE") { onCategory(Category.LARGE) } }
+        item { HomeRow("BIN", "$binCount ITEMS · KEPT $BIN_DAYS DAYS", onClick = onBin) }
+        item { SectionLabel("STORAGE") }
+        items(roots, key = { it.second.path }) { (label, folder) ->
+            val stat = remember(folder) { StatFs(folder.path) }
+            HomeRow(label, "${Formatter.formatShortFileSize(context, stat.availableBytes).uppercase()} FREE OF ${Formatter.formatShortFileSize(context, stat.totalBytes).uppercase()}") { onFolder(folder) }
+        }
+    }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(text, Modifier.padding(start = 16.dp, top = 14.dp, bottom = 4.dp), style = monoStyle(LocalCb.current.mint, 2.4.sp))
+}
+
+@Composable
+private fun HomeRow(title: String, sub: String, onClick: () -> Unit) {
+    val cb = LocalCb.current
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Text(title, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = cb.ink))
+        Text(sub, style = monoStyle(cb.inkDim, 1.sp))
+    }
+}
+
+/** Search box with, inside a folder, a switch between searching that folder and all storage. */
+@Composable
+private fun SearchRow(query: String, onQuery: (String) -> Unit, showScope: Boolean, allScope: Boolean, onScope: (Boolean) -> Unit) {
+    val cb = LocalCb.current
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        CbTextField(query, onQuery)
+        if (showScope) Row {
+            ActionText("THIS FOLDER", if (!allScope) cb.mint else cb.inkDim) { onScope(false) }
+            ActionText("ALL STORAGE", if (allScope) cb.mint else cb.inkDim) { onScope(true) }
+        }
     }
 }
 
@@ -297,14 +416,32 @@ private fun Crumbs(root: File, rootLabel: String, dir: File, onGo: (File) -> Uni
     }
 }
 
-private fun subtitle(context: Context, e: Entry): String {
-    val date = Instant.ofEpochMilli(e.modified).atZone(ZoneId.systemDefault()).format(dateFmt)
-    return (if (e.isDir) "${e.children} ITEMS" else Formatter.formatShortFileSize(context, e.size).uppercase()) + " · $date"
+/** Folder contents, search results or a category as a list or a grid. With [showPath] each row also names its folder. */
+@Composable
+private fun FileList(entries: List<Entry>, grid: Boolean, selected: Set<String>, showPath: Boolean, empty: String, onTap: (Entry) -> Unit, onLong: (Entry) -> Unit) {
+    val cb = LocalCb.current
+    if (entries.isEmpty()) {
+        Box(Modifier.fillMaxSize(), Alignment.Center) {
+            Text(empty, style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
+        }
+    } else if (grid) {
+        LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            items(entries, key = { it.file.path }) { e -> GridTile(e, e.file.path in selected, { onTap(e) }, { onLong(e) }) }
+        }
+    } else {
+        LazyColumn(Modifier.fillMaxSize()) {
+            items(entries, key = { it.file.path }) { e -> ListRow(e, e.file.path in selected, { onTap(e) }, { onLong(e) }, path = if (showPath) e.file.parent else null) }
+        }
+    }
 }
 
+private fun subtitle(context: Context, e: Entry): String =
+    (if (e.isDir) "${e.children} ITEMS" else Formatter.formatShortFileSize(context, e.size).uppercase()) + " · ${dateText(e.modified)}"
+
+/** One file row; [note] replaces the size and date line, [path] adds a line with the folder. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ListRow(e: Entry, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+internal fun ListRow(e: Entry, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, note: String? = null, path: String? = null) {
     val cb = LocalCb.current
     val context = LocalContext.current
     Row(
@@ -314,7 +451,8 @@ private fun ListRow(e: Entry, selected: Boolean, onClick: () -> Unit, onLongClic
         Box(Modifier.size(48.dp).background(cb.surface2).then(if (selected) Modifier.border(2.dp, cb.mint) else Modifier)) { Thumb(e) }
         Column(Modifier.weight(1f)) {
             Text(e.file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = cb.ink))
-            Text(subtitle(context, e), maxLines = 1, style = monoStyle(cb.inkDim, 0.6.sp))
+            Text(note ?: subtitle(context, e), maxLines = 1, style = monoStyle(cb.inkDim, 0.6.sp))
+            if (path != null) Text(path, maxLines = 1, overflow = TextOverflow.Ellipsis, style = monoStyle(cb.inkDim, 0.6.sp))
         }
     }
 }
@@ -352,6 +490,17 @@ private fun Thumb(e: Entry) {
     }
 }
 
+internal class BarItem(val label: String, val color: Color, val onClick: () -> Unit)
+
+/** The bottom action bar; more than six actions would not fit one row on a phone, so they split over two. */
+@Composable
+internal fun ActionBar(actions: List<BarItem>) {
+    val rows = if (actions.size > 6) actions.chunked((actions.size + 1) / 2) else listOf(actions)
+    Column(Modifier.fillMaxWidth().background(LocalCb.current.surface1).padding(vertical = 4.dp)) {
+        rows.forEach { row -> Row(Modifier.fillMaxWidth()) { row.forEach { BarAction(it.label, it.color, it.onClick) } } }
+    }
+}
+
 @Composable
 private fun RowScope.BarAction(label: String, color: Color, onClick: () -> Unit) {
     Text(
@@ -384,7 +533,7 @@ private fun PropsDialog(file: File, onClose: () -> Unit) {
         add("PATH" to file.parent.orEmpty())
         if (file.isDirectory) add("CONTAINS" to (stats?.let { "${it.second} files, ${Formatter.formatShortFileSize(context, it.first)}" } ?: "…"))
         else { add("TYPE" to file.mime().ifEmpty { "unknown" }); add("SIZE" to Formatter.formatShortFileSize(context, file.length())) }
-        add("MODIFIED" to Instant.ofEpochMilli(file.lastModified()).atZone(ZoneId.systemDefault()).format(dateFmt))
+        add("MODIFIED" to dateText(file.lastModified()))
     }
     CbDialog("INFO", onClose) {
         rows.forEach { (k, v) ->
