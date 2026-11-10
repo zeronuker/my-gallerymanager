@@ -3,7 +3,11 @@ package com.claudeborne.gallerymanager.ui
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.database.ContentObserver
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -58,10 +63,19 @@ fun GalleryRoot(openUri: Uri? = null) {
         askedAndDenied = !hasAccess
     }
 
-    // picks up permission changes made in Settings and new photos taken meanwhile
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        hasAccess = granted()
-        reload++
+    // picks up permission changes made in Settings
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { hasAccess = granted() }
+
+    // the media library tells us when photos or videos are added, changed or removed (a camera shot, a file received over Wi-Fi, another app);
+    // a burst of changes is waited out so ten new files cause one reload instead of ten
+    DisposableEffect(Unit) {
+        val handler = Handler(Looper.getMainLooper())
+        val again = Runnable { reload++ }
+        val observer = object : ContentObserver(handler) {
+            override fun onChange(selfChange: Boolean) { handler.removeCallbacks(again); handler.postDelayed(again, 1000) }
+        }
+        context.contentResolver.registerContentObserver(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), true, observer)
+        onDispose { context.contentResolver.unregisterContentObserver(observer); handler.removeCallbacks(again) }
     }
     LaunchedEffect(hasAccess, reload) {
         if (hasAccess) {
