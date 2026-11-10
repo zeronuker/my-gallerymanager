@@ -78,6 +78,7 @@ import com.claudeborne.gallerymanager.data.renameFile
 import com.claudeborne.gallerymanager.data.searchFiles
 import com.claudeborne.gallerymanager.data.storageRoots
 import com.claudeborne.gallerymanager.data.transfer
+import com.claudeborne.gallerymanager.transfer.expandForSend
 import com.claudeborne.gallerymanager.data.unzip
 import com.claudeborne.gallerymanager.data.zipFiles
 import kotlinx.coroutines.Dispatchers
@@ -122,6 +123,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
     var inBin by rememberSaveable { mutableStateOf(false) }
     var mapRoot by rememberSaveable { mutableStateOf<String?>(null) } // set while the storage map of that folder is open
     var inDupes by rememberSaveable { mutableStateOf(false) }
+    var transfer by remember { mutableStateOf<List<Pair<File, String>>?>(null) } // the files to send while the Transfer screen is open (empty: receive only)
     var sort by rememberSaveable { mutableStateOf(SortBy.NAME) }
     var ascending by rememberSaveable { mutableStateOf(true) }
     var hidden by rememberSaveable { mutableStateOf(false) }
@@ -167,7 +169,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
 
     val chosen = entries.filter { it.file.path in selected }
     val selecting = chosen.isNotEmpty()
-    BackHandler(enabled = backEnabled && !inBin && mapRoot == null && !inDupes && (selecting || searching || cat != null || dir != null)) {
+    BackHandler(enabled = backEnabled && !inBin && mapRoot == null && !inDupes && transfer == null && (selecting || searching || cat != null || dir != null)) {
         when {
             selecting -> selected = emptySet()
             searching -> { searching = false; query = "" }
@@ -201,6 +203,10 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
     mapRoot?.let { start ->
         val label = roots.firstOrNull { it.second.path == start }?.first ?: File(start).name
         StorageMapScreen(File(start), label, backEnabled, onClose = { mapRoot = null }, onBrowse = { go(it); mapRoot = null }, onOpen = ::open, onChanged = { refresh++; onChanged() })
+        return
+    }
+    transfer?.let { files ->
+        TransferScreen(files, backEnabled, onClose = { transfer = null })
         return
     }
     if (inDupes) {
@@ -250,7 +256,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (onHome && !showResults) {
-                HomeList(roots, binCount, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true }, onMap = { mapRoot = roots.first().second.path }, onDupes = { inDupes = true })
+                HomeList(roots, binCount, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true }, onMap = { mapRoot = roots.first().second.path }, onDupes = { inDupes = true }, onTransfer = { transfer = emptyList() })
             } else {
                 FileList(
                     entries, grid && cat == null && !showResults, selected, showPath = showResults || cat != null,
@@ -288,6 +294,10 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
                     })
                     add(BarItem("COPY", cb.mint) { clipPaths = chosen.map { it.file.path }; clipMove = false; selected = emptySet() })
                     add(BarItem("MOVE", cb.mint) { clipPaths = chosen.map { it.file.path }; clipMove = true; selected = emptySet() })
+                    add(BarItem("SEND", cb.mint) {
+                        val files = chosen.map { it.file }
+                        scope.launch { transfer = withContext(Dispatchers.IO) { expandForSend(files) }; selected = emptySet() }
+                    })
                     add(BarItem("ZIP", cb.mint) {
                         val files = chosen.map { it.file }
                         val into = files[0].parentFile ?: return@BarItem
@@ -373,7 +383,7 @@ private fun PermissionGate(context: Context) {
 
 /** The home screen: shortcut categories, the bin, then the storage volumes. */
 @Composable
-private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (File) -> Unit, onCategory: (Category) -> Unit, onBin: () -> Unit, onMap: () -> Unit, onDupes: () -> Unit) {
+private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (File) -> Unit, onCategory: (Category) -> Unit, onBin: () -> Unit, onMap: () -> Unit, onDupes: () -> Unit, onTransfer: () -> Unit) {
     val context = LocalContext.current
     LazyColumn(Modifier.fillMaxSize()) {
         item { SectionLabel("SHORTCUTS") }
@@ -384,6 +394,7 @@ private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (
         item { HomeRow("LARGE FILES", "${Formatter.formatShortFileSize(context, LARGE_FILE_BYTES).uppercase()} AND ABOVE") { onCategory(Category.LARGE) } }
         item { HomeRow("STORAGE MAP", "SEE WHAT USES THE SPACE", onClick = onMap) }
         item { HomeRow("DUPLICATES", "THE SAME FILE IN SEVERAL PLACES", onClick = onDupes) }
+        item { HomeRow("TRANSFER", "SEND OR RECEIVE FILES OVER WI-FI", onClick = onTransfer) }
         item { HomeRow("BIN", "$binCount ITEMS · KEPT $BIN_DAYS DAYS", onClick = onBin) }
         item { SectionLabel("STORAGE") }
         items(roots, key = { it.second.path }) { (label, folder) ->
@@ -399,7 +410,7 @@ private fun SectionLabel(text: String) {
 }
 
 @Composable
-private fun HomeRow(title: String, sub: String, onClick: () -> Unit) {
+internal fun HomeRow(title: String, sub: String, onClick: () -> Unit) {
     val cb = LocalCb.current
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp)) {
         Text(title, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = cb.ink))
