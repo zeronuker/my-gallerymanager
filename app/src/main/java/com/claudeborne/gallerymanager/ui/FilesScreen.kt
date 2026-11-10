@@ -192,7 +192,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
     }
     fun tap(e: Entry) {
         when {
-            selecting -> selected = toggle(selected, e.file.path)
+            selected.isNotEmpty() -> selected = toggle(selected, e.file.path) // read at the moment of the tap: a stale copy of "selecting" would open the file instead
             e.isDir -> go(e.file)
             e.file.extension.equals("zip", ignoreCase = true) -> dialog = FileDialog.Unzip(e.file) // a zip offers to extract
             else -> open(e.file)
