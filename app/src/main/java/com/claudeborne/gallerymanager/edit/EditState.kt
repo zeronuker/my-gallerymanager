@@ -7,6 +7,14 @@ enum class Adjust(val label: String, val min: Float = -1f) {
     SHARPNESS("SHARPNESS"), CLARITY("CLARITY"), VIGNETTE("VIGNETTE"), GRAIN("GRAIN", min = 0f),
 }
 
+/** Which part of the picture the Adjust sliders act on. */
+enum class Scope(val label: String) { ALL("ALL"), SUBJECT("SUBJECT"), BACKGROUND("BACKGROUND") }
+
+/** The sliders that can be limited to the subject or the background; the shader reads them in this order. */
+val ScopedAdjust = listOf(Adjust.EXPOSURE, Adjust.BRIGHTNESS, Adjust.CONTRAST, Adjust.SATURATION, Adjust.WARMTH, Adjust.SHARPNESS)
+
+private fun Map<Adjust, Float>.put(a: Adjust, v: Float) = if (v == 0f) this - a else this + (a to v)
+
 /** Crop rectangle as fractions of the rotated, straightened frame. */
 data class Crop(val l: Float = 0f, val t: Float = 0f, val r: Float = 1f, val b: Float = 1f) {
     val w get() = r - l
@@ -34,6 +42,8 @@ data class EditState(
     val angle: Float = 0f, // straighten, degrees
     val crop: Crop = Crop(),
     val adjust: Map<Adjust, Float> = emptyMap(),
+    val subject: Map<Adjust, Float> = emptyMap(), // extra changes that act only on the subject / only on the background, see [ScopedAdjust]
+    val background: Map<Adjust, Float> = emptyMap(),
     val filter: Int = 0, // index into [Filters]
     val filterAmount: Float = 1f,
     val marks: List<Mark> = emptyList(),
@@ -49,8 +59,12 @@ data class EditState(
     val teeth: Float = 0f,
     val eyes: Float = 0f,
 ) {
-    fun value(a: Adjust) = adjust[a] ?: 0f
-    fun with(a: Adjust, v: Float) = copy(adjust = if (v == 0f) adjust - a else adjust + (a to v))
+    fun value(a: Adjust, s: Scope = Scope.ALL) = (when (s) { Scope.ALL -> adjust; Scope.SUBJECT -> subject; Scope.BACKGROUND -> background })[a] ?: 0f
+    fun with(a: Adjust, v: Float, s: Scope = Scope.ALL) = when (s) {
+        Scope.ALL -> copy(adjust = adjust.put(a, v))
+        Scope.SUBJECT -> copy(subject = subject.put(a, v))
+        Scope.BACKGROUND -> copy(background = background.put(a, v))
+    }
     val isEdited get() = this != EditState()
 }
 

@@ -72,6 +72,8 @@ import com.claudeborne.gallerymanager.edit.Label
 import com.claudeborne.gallerymanager.edit.Obscure
 import com.claudeborne.gallerymanager.edit.Patch
 import com.claudeborne.gallerymanager.edit.Pt
+import com.claudeborne.gallerymanager.edit.Scope
+import com.claudeborne.gallerymanager.edit.ScopedAdjust
 import com.claudeborne.gallerymanager.edit.Sticker
 import com.claudeborne.gallerymanager.edit.autoEnhance
 import com.claudeborne.gallerymanager.edit.canReplace
@@ -110,10 +112,11 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
     }
 
     var tool by remember { mutableIntStateOf(1) }
-    // the subject is found the first time CUTOUT is opened (and again after "FIND AGAIN")
-    LaunchedEffect(tool, bitmap, maskTried) {
+    var adjScope by remember { mutableStateOf(Scope.ALL) } // ADJUST changes the whole picture, only the subject, or only the background
+    // the subject is found the first time CUTOUT is opened, or ADJUST is limited to subject/background (and again after "FIND AGAIN")
+    LaunchedEffect(tool, bitmap, maskTried, adjScope) {
         val b = bitmap
-        if (tool == 5 && b != null && mask == null && !maskTried) {
+        if ((tool == 5 || (tool == 1 && adjScope != Scope.ALL)) && b != null && mask == null && !maskTried) {
             mask = findSubject(context, b)
             maskTried = true
         }
@@ -271,7 +274,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                     }
                 }
                 // a selected text or sticker has one more slider, so the panel is taller then
-                Box(Modifier.fillMaxWidth().height(if (tool == 3 && selMark != null) 200.dp else if (tool == 1) when (adv) { ADV_LEVELS -> 250.dp; ADV_CURVES -> 330.dp; ADV_COLOUR -> 270.dp; else -> 150.dp } else 150.dp)) {
+                Box(Modifier.fillMaxWidth().height(if (tool == 3 && selMark != null) 200.dp else if (tool == 1) when (adv) { ADV_LEVELS -> 250.dp; ADV_CURVES -> 330.dp; ADV_COLOUR -> 270.dp; else -> 190.dp } else 150.dp)) {
                     val bmp = bitmap
                     if (bmp != null) when (tool) {
                         0 -> CropPanel(
@@ -297,16 +300,20 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                             adv, state, onMode = { adv = it }, onLive = { live = it }, onDone = { live?.let(::commit) },
                             channel = curveCh, onChannel = { curveCh = it }, band = band, onBand = { band = it },
                         ) else AdjustPanel(
-                            state, which, onWhich = { which = it }, onMode = { adv = it },
-                            onChange = { live = state.with(which, it) }, onDone = { live?.let(::commit) },
+                            state, which, adjScope, found = mask != null, tried = maskTried,
+                            onScope = { adjScope = it; if (it != Scope.ALL && which !in ScopedAdjust) which = Adjust.EXPOSURE },
+                            onWhich = { which = it }, onMode = { adv = it },
+                            onChange = { live = state.with(which, it, adjScope) }, onDone = { live?.let(::commit) },
                             onAuto = {
                                 val base = state
                                 scope.launch { commit(base.copy(adjust = base.adjust + withContext(Dispatchers.Default) { autoEnhance(bmp) })) }
                             },
                             onReset = {
                                 commit(
-                                    state.copy(
-                                        adjust = emptyMap(), filter = 0, filterAmount = 1f,
+                                    if (adjScope == Scope.SUBJECT) state.copy(subject = emptyMap())
+                                    else if (adjScope == Scope.BACKGROUND) state.copy(background = emptyMap())
+                                    else state.copy(
+                                        adjust = emptyMap(), subject = emptyMap(), background = emptyMap(), filter = 0, filterAmount = 1f,
                                         lvBlack = 0f, lvWhite = 1f, lvGamma = 1f, curves = Curves(), colours = NoColourTuning,
                                     ),
                                 )
@@ -581,19 +588,35 @@ private fun CropPanel(
 
 @Composable
 private fun AdjustPanel(
-    st: EditState, which: Adjust, onWhich: (Adjust) -> Unit, onMode: (Int) -> Unit, onChange: (Float) -> Unit, onDone: () -> Unit, onAuto: () -> Unit, onReset: () -> Unit,
+    st: EditState, which: Adjust, scope: Scope, found: Boolean, tried: Boolean, onScope: (Scope) -> Unit,
+    onWhich: (Adjust) -> Unit, onMode: (Int) -> Unit, onChange: (Float) -> Unit, onDone: () -> Unit, onAuto: () -> Unit, onReset: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
         LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) {
-            item { Chip("AUTO", color = DarkCb.mint, onClick = onAuto) }
-            item { Chip("RESET", onClick = onReset) }
-            item { Chip("LEVELS", color = DarkCb.ink) { onMode(ADV_LEVELS) } }
-            item { Chip("CURVES", color = DarkCb.ink) { onMode(ADV_CURVES) } }
-            item { Chip("COLOUR", color = DarkCb.ink) { onMode(ADV_COLOUR) } }
-            items(Adjust.entries) { a -> Chip(a.label, which == a) { onWhich(a) } }
+            items(Scope.entries) { s -> Chip(s.label, scope == s) { onScope(s) } }
         }
-        val v = st.value(which)
-        EditSlider(which.label, v, which.min..1f, "%+d".format((v * 100).roundToInt()), onChange, onDone) { onChange(0f); onDone() }
+        LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) {
+            if (scope == Scope.ALL) {
+                item { Chip("AUTO", color = DarkCb.mint, onClick = onAuto) }
+                item { Chip("RESET", onClick = onReset) }
+                item { Chip("LEVELS", color = DarkCb.ink) { onMode(ADV_LEVELS) } }
+                item { Chip("CURVES", color = DarkCb.ink) { onMode(ADV_CURVES) } }
+                item { Chip("COLOUR", color = DarkCb.ink) { onMode(ADV_COLOUR) } }
+                items(Adjust.entries) { a -> Chip(a.label, which == a) { onWhich(a) } }
+            } else {
+                item { Chip("RESET", onClick = onReset) }
+                items(ScopedAdjust) { a -> Chip(a.label, which == a) { onWhich(a) } }
+            }
+        }
+        if (scope != Scope.ALL && !found) {
+            Text(
+                if (tried) "NO SUBJECT FOUND IN THIS PICTURE." else "FINDING THE SUBJECT...",
+                Modifier.padding(horizontal = 16.dp), style = monoStyle(DarkCb.inkDim, 0.6.sp),
+            )
+        } else {
+            val v = st.value(which, scope)
+            EditSlider(which.label, v, which.min..1f, "%+d".format((v * 100).roundToInt()), onChange, onDone) { onChange(0f); onDone() }
+        }
     }
 }
 

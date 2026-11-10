@@ -36,6 +36,7 @@ uniform shader faceMask; // red = skin, green = open mouth, blue = eyes
 uniform float faceSkin; uniform float faceTeeth; uniform float faceEyes;
 uniform shader maskImg; // how much of each pixel belongs to the subject (alpha)
 uniform float bgMode; uniform float bgBlurR; uniform float3 bgCol; // 0 off, 1 blur, 2 colour, 3 transparent
+uniform float scopeOn; uniform float scopeSub[6]; uniform float scopeBg[6]; // changes for the subject only / background only: exposure, brightness, contrast, saturation, warmth, sharpness
 uniform float unit;
 uniform float2 vigCenter;
 uniform float vigRadius;
@@ -60,6 +61,14 @@ float3 hsv2rgb(float3 c) {
     float4 K = float4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
     float3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
     return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+// the same maths as the whole-picture sliders; all zeros leaves the colour untouched
+float3 scopedAdj(float3 c, float e, float b, float k, float s, float w) {
+    c *= exp2(e * 1.5);
+    c += b * 0.25;
+    c = (c - 0.5) * (1.0 + k * 0.8) + 0.5;
+    c.r += w * 0.12; c.b -= w * 0.12;
+    return mix(float3(lum(c)), c, 1.0 + s);
 }
 float3 px(float2 p) { return float3(image.eval(p).rgb); }
 float3 ring(float2 p, float r) {
@@ -173,6 +182,15 @@ half4 main(float2 coord) {
     float spread = clamp(max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b)), 0.0, 1.0);
     c = mix(float3(l), c, 1.0 + vibrance * (1.0 - spread));
 
+    float sharpX = 0.0;
+    if (scopeOn > 0.5) {
+        // the subject and the background each get their own changes, blended by how sure the model is about each pixel
+        float mk = smoothstep(0.25, 0.75, maskImg.eval(here).a);
+        c = mix(scopedAdj(c, scopeBg[0], scopeBg[1], scopeBg[2], scopeBg[3], scopeBg[4]),
+                scopedAdj(c, scopeSub[0], scopeSub[1], scopeSub[2], scopeSub[3], scopeSub[4]), mk);
+        sharpX = mix(scopeBg[5], scopeSub[5], mk);
+    }
+
     if (hslOn > 0.5) {
         // per-colour tuning: each colour band pulls on the pixels whose hue is near it, and only on coloured (not grey) pixels
         float3 hsv = rgb2hsv(clamp(c, 0.0, 1.0));
@@ -198,7 +216,7 @@ half4 main(float2 coord) {
         c = float3(lutImg.eval(float2(c.r * 255.0 + 0.5, 0.5)).r, lutImg.eval(float2(c.g * 255.0 + 0.5, 0.5)).g, lutImg.eval(float2(c.b * 255.0 + 0.5, 0.5)).b);
     }
 
-    c += (base - near) * sharpness * 2.0 + (base - far) * clarity * 1.2;
+    c += (base - near) * (sharpness + sharpX) * 2.0 + (base - far) * clarity * 1.2;
 
     float v = smoothstep(0.35, 1.05, length(here - vigCenter) / vigRadius);
     c = vignette >= 0.0 ? c * (1.0 - vignette * 0.8 * v) : mix(c, float3(1.0), -vignette * 0.7 * v);
@@ -295,6 +313,9 @@ class EditShader {
         shader.setFloatUniform("vigCenter", centre[0], centre[1])
         shader.setFloatUniform("vigRadius", hypot(outW.toFloat(), outH.toFloat()) / 2f * toSource)
         Adjust.entries.forEach { shader.setFloatUniform(it.name.lowercase(), st.value(it)) }
+        shader.setFloatUniform("scopeOn", if (mask != null && (st.subject.isNotEmpty() || st.background.isNotEmpty())) 1f else 0f)
+        shader.setFloatUniform("scopeSub", FloatArray(6) { st.value(ScopedAdjust[it], Scope.SUBJECT) })
+        shader.setFloatUniform("scopeBg", FloatArray(6) { st.value(ScopedAdjust[it], Scope.BACKGROUND) })
         val f = Filters[st.filter]
         shader.setFloatUniform("fSat", f.sat)
         shader.setFloatUniform("fContrast", f.contrast)
