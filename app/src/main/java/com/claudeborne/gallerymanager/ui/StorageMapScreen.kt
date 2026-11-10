@@ -1,6 +1,33 @@
 package com.claudeborne.gallerymanager.ui
 
 import android.text.format.Formatter
+import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
+import coil.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlin.math.ln
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -148,8 +175,9 @@ internal fun StorageMapScreen(
                     }
                 }
             } else {
-                Treemap(current, picked) { n ->
-                    if (n.isDir) { zoom = zoom + n.file.path; picked = null } else picked = if (picked === n) null else n
+                Treemap(current, picked) { n, inside ->
+                    // a folder zooms in (through the folder tiles it sat in, if any); a file is picked
+                    if (n.isDir) { zoom = zoom + inside.map { it.file.path } + n.file.path; picked = null } else picked = if (picked === n) null else n
                 }
             }
 
@@ -207,39 +235,150 @@ private fun Legend(result: ScanResult) {
     }
 }
 
-/** The treemap of [node]'s children. Tiles under 1.5% of the folder are merged into one "other" tile so every tile stays tappable. */
+/** A tile placed on the map: [inside] are the folder tiles it is drawn inside, outermost first (empty at the top level); [panel] means [node] is a folder that shows its own contents. */
+private class Placed(val node: MapNode, val rect: TileRect, val inside: List<MapNode>, var panel: Boolean = false)
+
+private const val HEADER_DP = 17f
+
+/**
+ * The nested treemap of [node]: its biggest folders and files, and inside each big enough folder its own biggest items (up to three levels, like
+ * WinDirStat). Tiles are coloured by file type, brighter the bigger the file, with a raised "cushion" shade. Big photos, videos and PDFs show a
+ * preview. [onTile] gets the tapped node and the folder tiles it sat inside.
+ */
 @Composable
-private fun Treemap(node: MapNode, picked: MapNode?, onTile: (MapNode) -> Unit) {
+private fun Treemap(node: MapNode, picked: MapNode?, onTile: (MapNode, List<MapNode>) -> Unit) {
     val cb = LocalCb.current
     val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    val context = LocalContext.current
     BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 4.dp)) {
         val w = constraints.maxWidth.toFloat()
         val h = constraints.maxHeight.toFloat()
-        val tiles = remember(node, w, h) { layoutTiles(node, w, h) }
-        if (tiles.isEmpty()) Text("NOTHING HERE", Modifier.align(Alignment.Center), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
-        tiles.forEach { (n, r) ->
-            val wDp = with(density) { r.w.toDp() }
-            val hDp = with(density) { r.h.toDp() }
-            val dark = !n.isDir && !n.aggregate // bright tiles take dark text
-            val fill = when { n.aggregate -> cb.surface1; n.isDir -> cb.surface2; else -> typeColor(n.file.fileType()) }
-            Box(Modifier.offset { IntOffset(r.x.roundToInt(), r.y.roundToInt()) }.size(wDp, hDp).padding(1.dp)) {
-                Column(
-                    Modifier.fillMaxSize().background(fill)
-                        .then(if (picked === n) Modifier.border(3.dp, Color.White) else if (n.isDir) Modifier.border(1.5.dp, cb.mint) else Modifier)
-                        .clickable(enabled = !n.aggregate) { onTile(n) }.padding(4.dp),
-                ) {
-                    if (wDp > 56.dp && hDp > 34.dp) {
-                        val ink = if (dark) DarkCb.surface0 else cb.ink
-                        Text(
-                            if (n.aggregate) "OTHER · ${n.count} FILES" else n.file.name, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                            style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = ink),
-                        )
-                        Text(Formatter.formatShortFileSize(LocalContext.current, n.size).uppercase(), maxLines = 1, style = TextStyle(fontFamily = JetBrainsMono, fontSize = 10.sp, color = ink))
-                    }
+        val dp = density.density
+        val placed = remember(node, w, h) { layoutNested(node, w, h, dp) }
+        if (placed.isEmpty()) Text("NOTHING HERE", Modifier.align(Alignment.Center), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
+
+        // brightness follows the size of a file relative to the others in view
+        val files = placed.filter { !it.node.isDir && !it.node.aggregate }
+        val lo = files.minOfOrNull { ln(it.node.size.toDouble()) } ?: 0.0
+        val hi = files.maxOfOrNull { ln(it.node.size.toDouble()) } ?: 1.0
+        // the previews sit under the canvas, which leaves their tiles unpainted; only the biggest few get one
+        val previews = remember(placed) {
+            files.filter { val t = it.node.file.fileType(); (t == FileType.PHOTO || t == FileType.VIDEO || it.node.file.extension.equals("pdf", true)) && it.rect.w > 56 * dp && it.rect.h > 46 * dp }
+                .sortedByDescending { it.rect.w * it.rect.h }.take(28)
+        }
+        previews.forEach { p ->
+            val r = p.rect
+            Box(Modifier.offset { IntOffset(r.x.roundToInt() + 1, r.y.roundToInt() + 1) }.size(with(density) { (r.w - 2).toDp() }, with(density) { (r.h - 2).toDp() }).clip(RectangleShape)) {
+                if (p.node.file.extension.equals("pdf", true)) PdfFirstPage(p.node.file) else AsyncImage(p.node.file, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            }
+        }
+
+        Canvas(
+            Modifier.fillMaxSize().pointerInput(placed) {
+                detectTapGestures { at ->
+                    val hit = placed.lastOrNull { !it.node.aggregate && at.x >= it.rect.x && at.x <= it.rect.x + it.rect.w && at.y >= it.rect.y && at.y <= it.rect.y + it.rect.h }
+                    if (hit != null) onTile(hit.node, hit.inside)
                 }
+            },
+        ) {
+            placed.forEach { p ->
+                val r = p.rect
+                val n = p.node
+                val topLeft = Offset(r.x + 1f, r.y + 1f)
+                val size = Size(r.w - 2f, r.h - 2f)
+                if (size.width <= 1f || size.height <= 1f) return@forEach
+                val hasPreview = p in previews
+                if (!hasPreview) {
+                    val fill = when {
+                        n.aggregate -> cb.surface1
+                        n.isDir -> cb.surface2
+                        else -> shadeFor(n.file.fileType(), n.size, lo, hi)
+                    }
+                    drawRect(fill, topLeft, size)
+                }
+                if (!n.isDir || n.aggregate) {
+                    // cushion: a highlight toward the top left and a darker rim, which gives every tile its raised look
+                    drawRect(
+                        Brush.radialGradient(
+                            0f to Color.White.copy(alpha = 0.30f), 0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.38f),
+                            center = Offset(topLeft.x + size.width * 0.3f, topLeft.y + size.height * 0.25f), radius = maxOf(size.width, size.height) * 0.85f,
+                        ),
+                        topLeft, size,
+                    )
+                }
+                if (n.isDir && !n.aggregate) drawRect(cb.mint.copy(alpha = if (p.panel) 0.6f else 0.9f), topLeft, size, style = Stroke(1.5f))
+                if (picked === n) drawRect(Color.White, topLeft, size, style = Stroke(3f * dp))
+                label(measurer, p, topLeft, size, dp, Formatter.formatShortFileSize(context, n.size).uppercase())
             }
         }
     }
+}
+
+/** The name and size on a tile, on a dark strip so it reads over any colour or preview. */
+private fun DrawScope.label(measurer: TextMeasurer, p: Placed, at: Offset, size: Size, dp: Float, sizeText: String) {
+    val n = p.node
+    if (size.width < 58 * dp || (size.height < 28 * dp && !p.panel)) return
+    val text = if (n.aggregate) "${n.count} small files" else n.file.name
+    val color = if (n.isDir && !n.aggregate) Color(0xFF3DDC97) else Color(0xFFE8ECF5)
+    val title = measurer.measure(
+        text = if (p.panel) "$text  $sizeText" else text,
+        style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = color),
+        overflow = TextOverflow.Ellipsis, maxLines = 1, constraints = Constraints(maxWidth = (size.width - 8 * dp).toInt().coerceAtLeast(1)),
+    )
+    drawRect(Color(0xB8080C18), Offset(at.x + 2 * dp, at.y + 2 * dp), Size(title.size.width + 8 * dp, title.size.height + 2 * dp))
+    drawText(title, topLeft = Offset(at.x + 6 * dp, at.y + 3 * dp))
+    if (!p.panel && size.height > 46 * dp) {
+        val sub = measurer.measure(sizeText, TextStyle(fontFamily = JetBrainsMono, fontSize = 10.sp, color = Color(0xFF9FB0D0)), maxLines = 1)
+        drawRect(Color(0xB8080C18), Offset(at.x + 2 * dp, at.y + title.size.height + 5 * dp), Size(sub.size.width + 8 * dp, sub.size.height + 2 * dp))
+        drawText(sub, topLeft = Offset(at.x + 6 * dp, at.y + title.size.height + 6 * dp))
+    }
+}
+
+/** A file's tile colour: its type's hue, lighter and more saturated the bigger the file is among those in view. */
+private fun shadeFor(t: FileType, size: Long, lo: Double, hi: Double): Color {
+    val k = if (hi > lo) ((ln(size.toDouble()) - lo) / (hi - lo)).toFloat().coerceIn(0f, 1f) else 1f
+    val base = typeColor(t)
+    val dark = Color(base.red * 0.28f, base.green * 0.28f, base.blue * 0.28f, 1f)
+    return lerp(dark, base, 0.35f + 0.65f * k)
+}
+
+/** The first page of a PDF as a picture, drawn once in the background. Nothing shows if the file cannot be opened. */
+@Composable
+private fun PdfFirstPage(file: File) {
+    val page by produceState<ImageBitmap?>(null, file) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                    PdfRenderer(fd).use { renderer ->
+                        renderer.openPage(0).use { p ->
+                            val scale = 320f / p.width
+                            val bmp = Bitmap.createBitmap(320, (p.height * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888).apply { eraseColor(android.graphics.Color.WHITE) }
+                            p.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            bmp.asImageBitmap()
+                        }
+                    }
+                }
+            }.getOrNull()
+        }
+    }
+    page?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter) }
+}
+
+/** The top-level tiles of [node] and, inside each folder tile that is big enough, its own biggest items, down to three levels. [dp] is pixels per dp. */
+private fun layoutNested(node: MapNode, w: Float, h: Float, dp: Float): List<Placed> {
+    val out = ArrayList<Placed>()
+    fun add(n: MapNode, r: TileRect, inside: List<MapNode>, depth: Int) {
+        val placed = Placed(n, r, inside)
+        out += placed
+        if (!n.isDir || n.aggregate || depth >= 3 || r.w < 90 * dp || r.h < 70 * dp) return
+        val inner = layoutTiles(n, r.w - 6, r.h - HEADER_DP * dp - 5)
+        if (inner.isEmpty()) return
+        placed.panel = true
+        for ((c, cr) in inner) add(c, TileRect(r.x + 3 + cr.x, r.y + HEADER_DP * dp + 2 + cr.y, cr.w, cr.h), inside + n, depth + 1)
+    }
+    for ((n, r) in layoutTiles(node, w, h)) add(n, r, emptyList(), 1)
+    return out
 }
 
 private fun layoutTiles(node: MapNode, w: Float, h: Float): List<Pair<MapNode, TileRect>> {
