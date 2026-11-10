@@ -124,6 +124,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
     var inBin by rememberSaveable { mutableStateOf(false) }
     var mapRoot by rememberSaveable { mutableStateOf<String?>(null) } // set while the storage map of that folder is open
     var inDupes by rememberSaveable { mutableStateOf(false) }
+    var vault by remember { mutableStateOf<List<File>?>(null) } // the safe folder is open while this is set; the files in it are waiting to be moved in
     var transfer by remember { mutableStateOf<List<Pair<File, String>>?>(null) } // the files to send while the Transfer screen is open (empty: receive only)
     var sort by rememberSaveable { mutableStateOf(SortBy.NAME) }
     var ascending by rememberSaveable { mutableStateOf(true) }
@@ -170,7 +171,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
 
     val chosen = entries.filter { it.file.path in selected }
     val selecting = chosen.isNotEmpty()
-    BackHandler(enabled = backEnabled && !inBin && mapRoot == null && !inDupes && transfer == null && (selecting || searching || cat != null || dir != null)) {
+    BackHandler(enabled = backEnabled && !inBin && mapRoot == null && !inDupes && transfer == null && vault == null && (selecting || searching || cat != null || dir != null)) {
         when {
             selecting -> selected = emptySet()
             searching -> { searching = false; query = "" }
@@ -208,6 +209,10 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
     }
     transfer?.let { files ->
         TransferScreen(files, backEnabled, onClose = { transfer = null })
+        return
+    }
+    vault?.let { files ->
+        VaultScreen(files, backEnabled, onClose = { vault = null }, onChanged = { refresh++; onChanged() })
         return
     }
     if (inDupes) {
@@ -257,7 +262,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (onHome && !showResults) {
-                HomeList(roots, binCount, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true }, onMap = { mapRoot = roots.first().second.path }, onDupes = { inDupes = true }, onTransfer = { transfer = emptyList() })
+                HomeList(roots, binCount, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true }, onMap = { mapRoot = roots.first().second.path }, onDupes = { inDupes = true }, onTransfer = { transfer = emptyList() }, onVault = { vault = emptyList() })
             } else {
                 FileList(
                     entries, grid && cat == null && !showResults, selected, showPath = showResults || cat != null,
@@ -299,6 +304,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
                         val files = chosen.map { it.file }
                         scope.launch { transfer = withContext(Dispatchers.IO) { expandForSend(files) }; selected = emptySet() }
                     })
+                    add(BarItem("SAFE", cb.mint) { vault = chosen.map { it.file }; selected = emptySet() })
                     add(BarItem("ZIP", cb.mint) {
                         val files = chosen.map { it.file }
                         val into = files[0].parentFile ?: return@BarItem
@@ -384,7 +390,7 @@ private fun PermissionGate(context: Context) {
 
 /** The home screen: shortcut categories, the bin, then the storage volumes. */
 @Composable
-private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (File) -> Unit, onCategory: (Category) -> Unit, onBin: () -> Unit, onMap: () -> Unit, onDupes: () -> Unit, onTransfer: () -> Unit) {
+private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (File) -> Unit, onCategory: (Category) -> Unit, onBin: () -> Unit, onMap: () -> Unit, onDupes: () -> Unit, onTransfer: () -> Unit, onVault: () -> Unit) {
     val context = LocalContext.current
     LazyColumn(Modifier.fillMaxSize()) {
         item { SectionLabel("SHORTCUTS") }
@@ -395,6 +401,7 @@ private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (
         item { HomeRow("LARGE FILES", "${Formatter.formatShortFileSize(context, LARGE_FILE_BYTES).uppercase()} AND ABOVE") { onCategory(Category.LARGE) } }
         item { HomeRow("STORAGE MAP", "SEE WHAT USES THE SPACE", onClick = onMap) }
         item { HomeRow("DUPLICATES", "THE SAME FILE IN SEVERAL PLACES", onClick = onDupes) }
+        item { HomeRow("SAFE FOLDER", "ENCRYPTED, OPENS WITH YOUR FINGERPRINT OR PIN", onClick = onVault) }
         item { HomeRow("TRANSFER", "SEND OR RECEIVE FILES OVER WI-FI", onClick = onTransfer) }
         item { HomeRow("BIN", "$binCount ITEMS · KEPT $BIN_DAYS DAYS", onClick = onBin) }
         item { SectionLabel("STORAGE") }
@@ -581,7 +588,7 @@ private fun PropsDialog(file: File, onClose: () -> Unit) {
 
 private fun fileUri(context: Context, file: File): Uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 
-private fun openWithApp(context: Context, file: File) {
+internal fun openWithApp(context: Context, file: File) {
     val view = Intent(Intent.ACTION_VIEW).setDataAndType(fileUri(context, file), file.mime().ifEmpty { "*/*" }).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     try { context.startActivity(view) } catch (_: ActivityNotFoundException) { Toast.makeText(context, "No app can open this", Toast.LENGTH_SHORT).show() }
 }
