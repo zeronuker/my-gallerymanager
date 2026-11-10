@@ -132,6 +132,7 @@ internal fun DualPaneScreen(start: File, roots: List<Pair<String, File>>, backEn
         ActionBar(
             buildList {
                 if (chosen.isNotEmpty()) {
+                    add(BarItem("ALL", cb.inkDim) { here.selected = here.entries.map { it.file.path }.toSet() })
                     add(BarItem("COPY →", cb.mint) { send(move = false) })
                     add(BarItem("MOVE →", cb.mint) { send(move = true) })
                     add(BarItem("DELETE", RED) { erase = chosen })

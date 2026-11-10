@@ -173,10 +173,15 @@ suspend fun transfer(context: Context, files: List<File>, destDir: File, move: B
     done
 }
 
-/** Packs [files] (folders go in whole) into a new zip in [destDir], named after the single item or "Archive". Returns the zip, or null on failure. */
-suspend fun zipFiles(context: Context, files: List<File>, destDir: File): File? = withContext(Dispatchers.IO) {
+/** The name offered for a zip of [files] (without ".zip"): the single item's name, or "Archive". */
+fun defaultZipName(files: List<File>): String {
     val single = files.singleOrNull()
-    val zip = freeName(destDir, (if (single == null) "Archive" else if (single.isDirectory) single.name else single.nameWithoutExtension) + ".zip")
+    return if (single == null) "Archive" else if (single.isDirectory) single.name else single.nameWithoutExtension
+}
+
+/** Packs [files] (folders go in whole) into a new zip called [baseName] in [destDir]; a taken name gets " (1)". Returns the zip, or null on failure. */
+suspend fun zipFiles(context: Context, files: List<File>, destDir: File, baseName: String = defaultZipName(files)): File? = withContext(Dispatchers.IO) {
+    val zip = freeName(destDir, "$baseName.zip")
     val ok = runCatching {
         ZipOutputStream(zip.outputStream().buffered()).use { out ->
             files.forEach { top ->

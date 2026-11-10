@@ -87,6 +87,7 @@ import com.claudeborne.gallerymanager.data.transfer
 import com.claudeborne.gallerymanager.transfer.expandForSend
 import com.claudeborne.gallerymanager.data.ARCHIVE_EXTENSIONS
 import com.claudeborne.gallerymanager.data.extractArchive
+import com.claudeborne.gallerymanager.data.defaultZipName
 import com.claudeborne.gallerymanager.data.zipFiles
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -108,6 +109,7 @@ private sealed interface FileDialog {
     class Delete(val files: List<File>) : FileDialog
     class Props(val file: File) : FileDialog
     class Unzip(val file: File) : FileDialog
+    class Zip(val files: List<File>) : FileDialog
 }
 
 /** The Files tab: a home screen (categories, bin, storage), folder browsing, search, and the file actions. */
@@ -326,17 +328,7 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
                         scope.launch { transfer = withContext(Dispatchers.IO) { expandForSend(files) }; selected = emptySet() }
                     })
                     add(BarItem("SAFE", cb.mint) { vault = chosen.map { it.file }; selected = emptySet() })
-                    add(BarItem("ZIP", cb.mint) {
-                        val files = chosen.map { it.file }
-                        val into = files[0].parentFile ?: return@BarItem
-                        scope.launch {
-                            busy = "ZIPPING…"
-                            val zip = zipFiles(context, files, into)
-                            busy = null
-                            toast(if (zip != null) "Created ${zip.name}" else "Could not create the zip")
-                            done()
-                        }
-                    })
+                    add(BarItem("ZIP", cb.mint) { dialog = FileDialog.Zip(chosen.map { it.file }) })
                     if (chosen.size == 1) {
                         add(BarItem("RENAME", cb.mint) { dialog = FileDialog.Rename(chosen[0].file) })
                         add(BarItem("INFO", cb.mint) { dialog = FileDialog.Props(chosen[0].file) })
@@ -367,6 +359,17 @@ fun FilesScreen(library: List<MediaItem>, backEnabled: Boolean, onChanged: () ->
                     dialog = null
                     scope.launch { toast("Moved ${moveToBin(context, d.files)} to the bin"); done() }
                 }
+            }
+        }
+        is FileDialog.Zip -> NameDialog("ZIP", defaultZipName(d.files), "CREATE", { dialog = null }, allowSame = true, suffix = ".zip") { name ->
+            dialog = null
+            val into = d.files[0].parentFile
+            if (into != null) scope.launch {
+                busy = "ZIPPING…"
+                val zip = zipFiles(context, d.files, into, name.removeSuffix(".zip"))
+                busy = null
+                toast(if (zip != null) "Created ${zip.name}" else "Could not create the zip")
+                done()
             }
         }
         is FileDialog.Props -> PropsDialog(d.file) { dialog = null }
@@ -612,12 +615,12 @@ private fun RowScope.BarAction(label: String, color: Color, onClick: () -> Unit)
 }
 
 @Composable
-private fun NameDialog(title: String, initial: String, action: String, onCancel: () -> Unit, onOk: (String) -> Unit) {
+private fun NameDialog(title: String, initial: String, action: String, onCancel: () -> Unit, allowSame: Boolean = false, suffix: String = "", onOk: (String) -> Unit) {
     var text by remember { mutableStateOf(initial) }
     val name = text.trim()
-    val valid = name.isNotEmpty() && '/' !in name && name != initial
+    val valid = name.isNotEmpty() && '/' !in name && (allowSame || name != initial) // a zip may keep the offered name; a rename must change it
     CbDialog(title, onCancel) {
-        CbTextField(text, { text = it })
+        CbTextField(text, { text = it }, suffix)
         Row(Modifier.fillMaxWidth(), Arrangement.End) {
             ActionText("CANCEL", DarkCb.inkDim, onCancel)
             ActionText(action, if (valid) DarkCb.mint else DarkCb.inkDim) { if (valid) onOk(name) }
