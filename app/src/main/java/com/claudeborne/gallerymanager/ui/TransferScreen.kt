@@ -412,7 +412,7 @@ private fun TransferChannels(
         Column(Modifier.fillMaxWidth().padding(16.dp), Arrangement.spacedBy(10.dp), Alignment.CenterHorizontally) {
             when (which) {
                 0 -> WifiPanel(computer, wifiUrl, wifi, urls)
-                1 -> DirectPanel(group, directReady, linkBusy, linkError, wifi, onStopDirect)
+                1 -> DirectPanel(group, directReady, linkBusy, linkError, wifi, computer, onStopDirect)
                 2 -> UsbPanel(usbUrl, usbLeft, usbFailed, onRetry = { usbSince = SystemClock.elapsedRealtime() }, onSettings = {
                     val tether = Intent().setClassName("com.android.settings", "com.android.settings.TetherSettings")
                     runCatching { context.startActivity(tether) }.onFailure { runCatching { context.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) } }
@@ -448,34 +448,67 @@ private fun ColumnScope.WifiPanel(computer: Boolean, url: String?, wifi: Int, ur
         else Text(if (wifi == 2) "Wi-Fi is off." else "NO WI-FI CONNECTION", style = monoStyle(cb.inkDim, 2.sp))
         return
     }
-    val ip = url.substringAfter("://").substringBefore(':') // a phone can type just this
-    Text(
-        if (computer) "Open this address on the computer,\nthen click a file to download it." else "Phone: scan the code or type $ip.\nComputer: open this address in a browser.",
-        style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center),
-    )
-    Text("Visible as ${LocalSend.alias}", style = monoStyle(cb.inkDim, 0.6.sp))
-    Column(Modifier.fillMaxWidth().doubleChamferFrame(cb).padding(16.dp), Arrangement.spacedBy(10.dp), Alignment.CenterHorizontally) {
-        Image(remember(url) { qrBitmap(url) }, "QR code", Modifier.size(200.dp).background(Color.White), filterQuality = FilterQuality.None)
-        Text(url, style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = cb.mint, textAlign = TextAlign.Center))
+    if (computer) {
+        Steps(listOf("Connect the computer to the same Wi-Fi as this phone.", "Open a browser on the computer.", "Type this address in its address bar, then click a file to download it."))
+        AddressFrame(url)
+    } else {
+        val ip = url.substringAfter("://").substringBefore(':') // a phone can type just this
+        Text(
+            "Phone: scan the code or type $ip.\nComputer: open this address in a browser.",
+            style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center),
+        )
+        Text("Visible as ${LocalSend.alias}", style = monoStyle(cb.inkDim, 0.6.sp))
+        Column(Modifier.fillMaxWidth().doubleChamferFrame(cb).padding(16.dp), Arrangement.spacedBy(10.dp), Alignment.CenterHorizontally) {
+            Image(remember(url) { qrBitmap(url) }, "QR code", Modifier.size(200.dp).background(Color.White), filterQuality = FilterQuality.None)
+            Text(url, style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = cb.mint, textAlign = TextAlign.Center))
+        }
     }
     // other networks this phone is on (a hotspot, ethernet): a faster way in than the router
     urls.filter { it.first !in setOf("WI-FI", "USB CABLE", "DIRECT LINK") }.forEach { (label, u) -> Text("$label  $u", style = monoStyle(cb.inkDim, 0.6.sp), textAlign = TextAlign.Center) }
 }
 
+/** Numbered steps. */
+@Composable
+private fun Steps(steps: List<String>) {
+    val cb = LocalCb.current
+    Column(Modifier.fillMaxWidth(), Arrangement.spacedBy(6.dp)) {
+        steps.forEachIndexed { i, step ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("${i + 1}", style = monoStyle(cb.mint, 0.sp))
+                Text(step, style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.ink))
+            }
+        }
+    }
+}
+
+/** An address to type, big, in the brand frame. */
+@Composable
+private fun AddressFrame(url: String) {
+    val cb = LocalCb.current
+    Column(Modifier.fillMaxWidth().doubleChamferFrame(cb).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(url, style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = cb.mint, textAlign = TextAlign.Center))
+    }
+}
+
 /** The direct link's details: a private network this phone makes. Its code carries the network name and password, so another phone joins by itself. */
 @Composable
-private fun ColumnScope.DirectPanel(group: DirectGroup?, ready: Boolean, busy: Boolean, error: String?, wifi: Int, onStop: () -> Unit) {
+private fun ColumnScope.DirectPanel(group: DirectGroup?, ready: Boolean, busy: Boolean, error: String?, wifi: Int, computer: Boolean, onStop: () -> Unit) {
     val cb = LocalCb.current
     when {
         ready && group != null -> {
             val plain = "http://${group.host}:${TransferHub.port}/?t=${TransferHub.token}"
             val full = plain + "&ssid=" + Uri.encode(group.ssid) + "&pw=" + Uri.encode(group.passphrase)
-            Text("Phone: scan this code.", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
-            Column(Modifier.fillMaxWidth().doubleChamferFrame(cb).padding(16.dp), Arrangement.spacedBy(10.dp), Alignment.CenterHorizontally) {
-                Image(remember(full) { qrBitmap(full) }, "QR code", Modifier.size(200.dp).background(Color.White), filterQuality = FilterQuality.None)
+            if (computer) {
+                Steps(listOf("Join the Wi-Fi network ${group.ssid} on the computer, password ${group.passphrase}.", "Open a browser on the computer.", "Type this address in its address bar, then click a file to download it."))
+                AddressFrame(plain)
+            } else {
+                Text("Phone: scan this code.", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
+                Column(Modifier.fillMaxWidth().doubleChamferFrame(cb).padding(16.dp), Arrangement.spacedBy(10.dp), Alignment.CenterHorizontally) {
+                    Image(remember(full) { qrBitmap(full) }, "QR code", Modifier.size(200.dp).background(Color.White), filterQuality = FilterQuality.None)
+                }
+                Text("Computer: join ${group.ssid}, password ${group.passphrase}, then open:", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
+                Text(plain, style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = cb.mint, textAlign = TextAlign.Center))
             }
-            Text("Computer: join ${group.ssid}, password ${group.passphrase}, then open:", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
-            Text(plain, style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = cb.mint, textAlign = TextAlign.Center))
             ActionText("STOP DIRECT LINK", cb.inkDim, onStop)
         }
         busy -> WorkingLine("STARTING THE DIRECT LINK…", null, cb.inkDim) // no percentage: Android gives none, so the bar sweeps
@@ -501,14 +534,7 @@ private fun ColumnScope.UsbPanel(url: String?, left: Int, failed: Boolean, onRet
             IconBrandButton("OPEN ANDROID SETTINGS", Icon.GEAR, Modifier.fillMaxWidth(), onClick = onSettings)
         }
         else -> {
-            Column(Modifier.fillMaxWidth(), Arrangement.spacedBy(4.dp)) {
-                listOf("Plug the cable into the computer.", "Turn on USB tethering in Android settings.", "The address appears here. Open it on the computer.").forEachIndexed { i, step ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("${i + 1}", style = monoStyle(cb.mint, 0.sp))
-                        Text(step, style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.ink))
-                    }
-                }
-            }
+            Steps(listOf("Plug the cable into the computer.", "Turn on USB tethering in Android settings.", "The address appears here. Open it on the computer."))
             ProgressBar((USB_WAIT_S - left) / USB_WAIT_S.toFloat(), color = cb.mint, track = cb.line)
             IconBrandButton("OPEN ANDROID SETTINGS", Icon.GEAR, Modifier.fillMaxWidth(), onClick = onSettings)
         }
