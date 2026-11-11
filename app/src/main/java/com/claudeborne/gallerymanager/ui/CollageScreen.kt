@@ -120,7 +120,6 @@ fun CollageScreen(items: List<MediaItem>, onClose: () -> Unit, onSaved: () -> Un
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 ActionText("✕", DarkCb.inkDim) { onClose() }
                 Box(Modifier.weight(1f))
-                ActionText("SWAP", if (swap) DarkCb.mint else DarkCb.ink) { swap = !swap }
                 ActionText("SAVE", DarkCb.mint) { photos?.let { save(it) } }
             }
 
@@ -145,6 +144,9 @@ fun CollageScreen(items: List<MediaItem>, onClose: () -> Unit, onSaved: () -> Un
             }
 
             Column(Modifier.fillMaxWidth().background(Panel).navigationBarsPadding()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), Arrangement.End) {
+                    ActionText("SWAP", glide(swap, DarkCb.mint, DarkCb.ink)) { swap = !swap }
+                }
                 Row(Modifier.fillMaxWidth()) {
                     listOf("LAYOUT", "RATIO", "STYLE").forEachIndexed { i, label ->
                         Column(Modifier.weight(1f).clickable { tab = i }, horizontalAlignment = Alignment.CenterHorizontally) {

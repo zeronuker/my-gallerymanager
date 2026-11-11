@@ -148,8 +148,6 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
                 Text("← BACK", Modifier.clickable(onClick = onClose), style = monoStyle(DarkCb.mint, 2.6.sp))
                 Box(Modifier.weight(1f))
                 Text("${pager.currentPage + 1} / ${items.size}", style = monoStyle(Color.White, 1.sp))
-                // file tools: rename, move and copy for everything; resize, set as and print for photos
-                if (current != null) IconAction(Icon.MORE, Color.White, "More") { showMore = !showMore; showInfo = false }
             } }
 
             Visible(chrome && showInfo && current != null, Modifier.align(Alignment.BottomCenter), enter = popEnter, exit = popExit) {
@@ -201,6 +199,8 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
                 }
             }
             IconAction(Icon.INFO, DarkCb.mint, "Info", enabled = current != null) { showInfo = !showInfo; showMore = false }
+            // file tools: rename, move and copy for everything; resize, set as and print for photos
+            IconAction(Icon.MORE, DarkCb.mint, "More", enabled = current != null) { showMore = !showMore; showInfo = false }
         } }
     }
 }

@@ -69,7 +69,7 @@ fun CbIcon(icon: Icon, color: Color, modifier: Modifier = Modifier, filled: Bool
                 seg(12f, 11f, 12f, 17f)
                 drawCircle(color, 1.1f * k, p(12f, 7.6f))
             }
-            Icon.MORE -> for (x in listOf(5f, 12f, 19f)) drawCircle(color, 1.7f * k, p(x, 12f))
+            Icon.MORE -> for (y in listOf(5f, 12f, 19f)) drawCircle(color, 1.7f * k, p(12f, y)) // three dots, one above the other
             Icon.SEARCH -> {
                 drawCircle(color, 6.5f * k, p(10.5f, 10.5f), style = line)
                 seg(15.3f, 15.3f, 20.5f, 20.5f)

@@ -47,6 +47,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -289,16 +291,9 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
         if (cat == null) {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                 if (dir != null) ActionText("+ FOLDER", cb.mint) { dialog = FileDialog.NewFolder }
-                if (dir != null) ActionText("MAP", cb.mint) { mapRoot = dir.path }
-                if (dir != null) ActionText("SPLIT", cb.mint) { dualPath = dir.path }
                 SearchAction(searching, query, { query = it }) { searching = !searching; if (!searching) query = "" }
                 if (dir != null) {
-                    SortBy.entries.forEach { s ->
-                        val on = sort == s
-                        ActionText(s.name + if (on) (if (ascending) " ▲" else " ▼") else "", if (on) cb.mint else cb.inkDim) {
-                            if (on) ascending = !ascending else { sort = s; ascending = s == SortBy.NAME || s == SortBy.TYPE }
-                        }
-                    }
+                    SortMenu(sort, ascending) { s -> if (s == sort) ascending = !ascending else { sort = s; ascending = s == SortBy.NAME || s == SortBy.TYPE } }
                     ActionText("HIDDEN", if (hidden) cb.mint else cb.inkDim) { hidden = !hidden }
                     ActionText(if (grid) "LIST" else "GRID", cb.inkDim) { grid = !grid }
                 }
@@ -534,6 +529,25 @@ private fun SearchAction(searching: Boolean, query: String, onQuery: (String) ->
         }
         AnimatedVisibility(searching, enter = fadeIn(tween(MOTION_FAST_MS)) + expandHorizontally(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_FAST_MS)) + shrinkHorizontally(tween(MOTION_FAST_MS))) {
             Box(Modifier.width(220.dp).padding(end = 8.dp)) { CbTextField(query, onQuery) }
+        }
+    }
+}
+
+/** The sort button: shows the current order and opens a menu of the choices; choosing the current one again flips the direction. */
+@Composable
+private fun SortMenu(sort: SortBy, ascending: Boolean, onPick: (SortBy) -> Unit) {
+    val cb = LocalCb.current
+    var open by remember { mutableStateOf(false) }
+    val arrow = if (ascending) "▲" else "▼"
+    Box {
+        ActionText("SORT · ${sort.name} $arrow", cb.mint) { open = true }
+        DropdownMenu(open, { open = false }, containerColor = cb.surface2) {
+            SortBy.entries.forEach { s ->
+                DropdownMenuItem(
+                    text = { Text(s.name + if (s == sort) " $arrow" else "", style = monoStyle(if (s == sort) cb.mint else cb.ink, 1.5.sp)) },
+                    onClick = { open = false; onPick(s) },
+                )
+            }
         }
     }
 }
