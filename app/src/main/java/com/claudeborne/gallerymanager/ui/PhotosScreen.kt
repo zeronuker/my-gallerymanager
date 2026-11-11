@@ -36,6 +36,13 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -96,9 +103,11 @@ fun PhotosScreen(
     val context = LocalContext.current
     var cols by rememberSaveable { mutableIntStateOf(Settings.gridCols) }
     val groups = remember(items) { items.groupBy { dayLabel(it.takenMs) }.toList() }
+    val order = remember(groups) { groups.flatMap { it.second }.map { it.id } } // tile order on screen, for selecting a run of tiles by dragging
 
-    // long-press starts selecting; while anything is selected a tap toggles instead of opening
+    // long-press starts selecting and dragging across tiles keeps going; while anything is selected a tap toggles instead of opening
     var selected by rememberSaveable { mutableStateOf(emptySet<Long>()) }
+    val haptic = LocalHapticFeedback.current
     val chosen = items.filter { it.id in selected }
     val selecting = chosen.isNotEmpty()
     fun toggle(id: Long) { selected = if (id in selected) selected - id else selected + id }
@@ -120,7 +129,8 @@ fun PhotosScreen(
         LazyVerticalGrid(
             columns = GridCells.Fixed(cols),
             state = gridState,
-            modifier = Modifier.weight(1f).pinchToResize(cols) { cols = it },
+            modifier = Modifier.weight(1f).pinchToResize(cols) { cols = it }
+                .dragToSelect(gridState, order, { selected }, { selected = it }) { haptic.performHapticFeedback(HapticFeedbackType.LongPress) },
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
@@ -133,7 +143,7 @@ fun PhotosScreen(
                     )
                 }
                 items(day, key = { it.id }) { item ->
-                    Box(Modifier.animateItem()) { Tile(item, item.id in selected, onClick = { if (selecting) toggle(item.id) else onOpen(item) }, onLongClick = { toggle(item.id) }) }
+                    Box(Modifier.animateItem()) { Tile(item, item.id in selected, onClick = { if (selecting) toggle(item.id) else onOpen(item) }) }
                 }
             }
         }
@@ -191,12 +201,11 @@ internal fun BoxScope.SelectedMark(selected: Boolean) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Tile(item: MediaItem, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun Tile(item: MediaItem, selected: Boolean, onClick: () -> Unit) {
     val cb = LocalCb.current
     Box(
-        Modifier.aspectRatio(1f).background(cb.surface2).combinedClickable(onClick = onClick, onLongClick = onLongClick)
+        Modifier.aspectRatio(1f).background(cb.surface2).clickable(onClick = onClick)
             .border(3.dp, glide(selected, cb.mint, Color.Transparent)),
     ) {
         AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -207,6 +216,76 @@ private fun Tile(item: MediaItem, selected: Boolean, onClick: () -> Unit, onLong
                 Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color(0x99000000)).padding(horizontal = 4.dp, vertical = 2.dp),
                 style = TextStyle(fontFamily = JetBrainsMono, fontSize = 10.sp, color = Color.White),
             )
+        }
+    }
+}
+
+/**
+ * Long-press a tile to select it, then keep the finger down and drag across tiles: every tile passed over is selected (or unselected,
+ * when the long press was on a selected tile), and the grid scrolls when the finger is near its top or bottom edge. A swipe that starts
+ * before the long press is still an ordinary scroll. [order] is the ids in tile order; [selected] reads the current selection.
+ */
+private fun Modifier.dragToSelect(
+    state: LazyGridState, order: List<Long>, selected: () -> Set<Long>, onSelected: (Set<Long>) -> Unit, onStart: () -> Unit,
+): Modifier {
+    val index = order.withIndex().associate { it.value to it.index }
+    return pointerInput(state, order) {
+        val edge = 72.dp.toPx()
+        coroutineScope {
+            var active = false
+            var pos = Offset.Zero
+            var last = -1
+            var add = true
+            fun tileAt(p: Offset): Int {
+                val hit = state.layoutInfo.visibleItemsInfo.firstOrNull {
+                    it.key is Long && p.x >= it.offset.x && p.x < it.offset.x + it.size.width && p.y >= it.offset.y && p.y < it.offset.y + it.size.height
+                } ?: return -1
+                return index[hit.key] ?: -1
+            }
+            fun extendTo(i: Int) {
+                if (i < 0 || i == last) return
+                val run = if (i > last) order.subList(last + 1, i + 1) else order.subList(i, last)
+                onSelected(if (add) selected() + run else selected() - run.toSet())
+                last = i
+            }
+            var speed = 0f
+            launch { while (true) { if (active && speed != 0f) { state.scrollBy(speed); extendTo(tileAt(pos)) }; delay(16) } }
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                // a long press: the finger stays where it is, alone, for the long-press time
+                val cancelled = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                    while (true) {
+                        val e = awaitPointerEvent(PointerEventPass.Initial)
+                        val c = e.changes.firstOrNull { it.id == down.id }
+                        if (e.changes.size > 1 || c == null || !c.pressed || (c.position - down.position).getDistance() > viewConfiguration.touchSlop) return@withTimeoutOrNull true
+                    }
+                    @Suppress("UNREACHABLE_CODE") false
+                }
+                if (cancelled != null) return@awaitEachGesture
+                val start = tileAt(down.position)
+                if (start < 0) return@awaitEachGesture
+                onStart()
+                active = true
+                pos = down.position
+                last = start
+                add = order[start] !in selected()
+                onSelected(if (add) selected() + order[start] else selected() - order[start])
+                while (true) {
+                    val e = awaitPointerEvent(PointerEventPass.Initial)
+                    val c = e.changes.firstOrNull { it.id == down.id }
+                    e.changes.forEach { it.consume() } // the tiles and the grid see nothing of this finger any more
+                    if (c == null || !c.pressed) break
+                    pos = c.position
+                    extendTo(tileAt(pos))
+                    speed = when {
+                        pos.y < edge -> -(edge - pos.y) / edge * 28f
+                        pos.y > size.height - edge -> (pos.y - (size.height - edge)) / edge * 28f
+                        else -> 0f
+                    }
+                }
+                speed = 0f
+                active = false
+            }
         }
     }
 }
