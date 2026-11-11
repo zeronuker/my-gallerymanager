@@ -464,12 +464,12 @@ private fun PermissionGate(context: Context) {
     }
 }
 
-/** The home screen: a card for each storage volume, the file categories as icon cards with their counts, then the tools as icon cards. */
+/** The home screen: a card for each storage volume, the file categories as icon cards with their counts, then the tools as small icon cards, three across. */
 @Composable
 private fun HomeList(roots: List<Pair<String, File>>, counts: Map<Category, Int>, onFolder: (File) -> Unit, onCategory: (Category) -> Unit, onBin: () -> Unit, onMap: () -> Unit, onDupes: () -> Unit, onTransfer: () -> Unit, onVault: () -> Unit, onDual: () -> Unit) {
     val tools = listOf(
-        Triple(Icon.MAP, "STORAGE MAP", onMap), Triple(Icon.DUPLICATES, "DUPLICATES", onDupes), Triple(Icon.DUAL, "DUAL PANE", onDual),
-        Triple(Icon.LOCK, "SAFE FOLDER", onVault), Triple(Icon.TRANSFER, "TRANSFER", onTransfer), Triple(Icon.TRASH, "TRASH", onBin),
+        Triple(Icon.TRANSFER, "TRANSFER", onTransfer), Triple(Icon.DUAL, "DUAL PANE", onDual), Triple(Icon.LOCK, "SAFE FOLDER", onVault),
+        Triple(Icon.MAP, "STORAGE MAP", onMap), Triple(Icon.DUPLICATES, "DUPLICATES", onDupes), Triple(Icon.TRASH, "TRASH", onBin),
     )
     val seen = remember { HashSet<String>() } // what has already faded in, so scrolling a card back into view does not replay it
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -486,11 +486,11 @@ private fun HomeList(roots: List<Pair<String, File>>, counts: Map<Category, Int>
             }
         }
         item { SectionLabel("TOOLS") }
-        itemsIndexed(tools.chunked(2)) { i, pair ->
+        itemsIndexed(tools.chunked(3)) { i, row ->
             val first = remember { seen.add("tool-$i") }
             Row(Modifier.appear(300 + i * 45, first).padding(horizontal = 16.dp), Arrangement.spacedBy(8.dp)) {
-                pair.forEach { (icon, name, open) -> ToolCard(icon, name, Modifier.weight(1f), open) }
-                if (pair.size == 1) Spacer(Modifier.weight(1f))
+                row.forEach { (icon, name, open) -> ToolTile(icon, name, Modifier.weight(1f), open) }
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }
@@ -541,16 +541,13 @@ private fun CategoryCard(cat: Category, count: Int?, modifier: Modifier, onClick
     }
 }
 
-/** A tool: a big icon above its name. */
+/** A tool: its icon on a small card, with its name under the card, like an app icon. */
 @Composable
-private fun ToolCard(icon: Icon, title: String, modifier: Modifier, onClick: () -> Unit) {
+private fun ToolTile(icon: Icon, title: String, modifier: Modifier, onClick: () -> Unit) {
     val cb = LocalCb.current
-    Column(
-        modifier.background(cb.surface1).border(1.dp, cb.line).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 18.dp),
-        Arrangement.spacedBy(10.dp), Alignment.CenterHorizontally,
-    ) {
-        CbIcon(icon, cb.mint, size = 32.dp)
-        Text(title, maxLines = 1, style = monoStyle(cb.ink, 1.5.sp))
+    Column(modifier.clickable(onClick = onClick).padding(vertical = 4.dp), Arrangement.spacedBy(7.dp), Alignment.CenterHorizontally) {
+        Box(Modifier.size(64.dp).background(cb.surface1).border(1.dp, cb.line), Alignment.Center) { CbIcon(icon, cb.mint, size = 30.dp) }
+        Text(title, maxLines = 1, style = monoStyle(cb.ink, 1.2.sp))
     }
 }
 

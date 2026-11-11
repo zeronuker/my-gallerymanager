@@ -35,6 +35,18 @@ fun File.fileType(): FileType {
     }
 }
 
+/** The extensions the map gives a colour of their own; every other file counts as "other". */
+val MAP_EXTENSIONS = listOf("jpg", "heic", "png", "webp", "dng", "mp4", "mov", "mkv", "opus", "mp3", "m4a", "pdf", "docx", "apk", "zip", "db")
+private val EXTENSION_SET = MAP_EXTENSIONS.toSet()
+private val EXTENSION_ALIAS = mapOf("jpeg" to "jpg", "heif" to "heic", "m4v" to "mp4", "doc" to "docx")
+
+/** One of [MAP_EXTENSIONS], or "other": what colours the file's tile and which line of the type table it counts in. */
+fun File.extKey(): String {
+    val e = extension.lowercase()
+    val k = EXTENSION_ALIAS[e] ?: e
+    return if (k in EXTENSION_SET) k else "other"
+}
+
 /**
  * A folder or file in the size tree. Files under [SMALL_FILE_BYTES] are not kept one by one: each folder holds their total as a
  * single [aggregate] node, which keeps the tree small on a phone with hundreds of thousands of files.
@@ -49,10 +61,10 @@ class MapNode(
     val aggregate: Boolean = false,
 )
 
-/** The scanned [root] plus the bytes and file counts per [FileType] over everything scanned (small files included). */
-class ScanResult(val root: MapNode, val bytes: LongArray, val counts: IntArray)
+/** The scanned [root] plus the bytes and file counts per [FileType] and per [extKey] over everything scanned (small files included). */
+class ScanResult(val root: MapNode, val bytes: LongArray, val counts: IntArray, val extBytes: Map<String, Long>, val extCount: Map<String, Int>)
 
-const val SMALL_FILE_BYTES = 64 * 1024L
+const val SMALL_FILE_BYTES = 16 * 1024L
 
 private class Builder(val file: File) {
     val kids = mutableListOf<MapNode>()
@@ -65,6 +77,8 @@ suspend fun scanTree(root: File, onProgress: (Int) -> Unit): ScanResult = withCo
     val job = coroutineContext.job
     val bytes = LongArray(FileType.entries.size)
     val counts = IntArray(FileType.entries.size)
+    val extBytes = HashMap<String, Long>()
+    val extCount = HashMap<String, Int>()
     val stack = ArrayDeque<Builder>()
     var result: MapNode? = null
     var seen = 0
@@ -81,6 +95,9 @@ suspend fun scanTree(root: File, onProgress: (Int) -> Unit): ScanResult = withCo
             val type = f.fileType().ordinal
             bytes[type] += size
             counts[type]++
+            val key = f.extKey()
+            extBytes[key] = (extBytes[key] ?: 0L) + size
+            extCount[key] = (extCount[key] ?: 0) + 1
             if (++seen % 500 == 0) onProgress(seen)
             val parent = stack.last()
             if (size >= SMALL_FILE_BYTES) parent.kids += MapNode(f, false, size, emptyList(), 1, attrs.lastModifiedTime().toMillis())
@@ -99,7 +116,7 @@ suspend fun scanTree(root: File, onProgress: (Int) -> Unit): ScanResult = withCo
         }
     })
     onProgress(seen)
-    ScanResult(result ?: MapNode(root, true, 0, emptyList(), 0), bytes, counts)
+    ScanResult(result ?: MapNode(root, true, 0, emptyList(), 0), bytes, counts, extBytes, extCount)
 }
 
 /** The nodes along [paths] below [root], starting with [root] itself; stops early if a path is no longer in the tree. */

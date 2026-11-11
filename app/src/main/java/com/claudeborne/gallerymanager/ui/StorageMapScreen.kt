@@ -79,6 +79,7 @@ import com.claudeborne.gallerymanager.data.MapNode
 import com.claudeborne.gallerymanager.data.ScanResult
 import com.claudeborne.gallerymanager.data.TileRect
 import com.claudeborne.gallerymanager.data.fileType
+import com.claudeborne.gallerymanager.data.extKey
 import com.claudeborne.gallerymanager.data.largestFiles
 import com.claudeborne.gallerymanager.data.moveToBin
 import com.claudeborne.gallerymanager.data.scanTree
@@ -88,25 +89,14 @@ import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.roundToInt
 
-private fun typeColor(t: FileType) = when (t) {
-    FileType.PHOTO -> Color(0xFF3DDC97)
-    FileType.VIDEO -> Color(0xFF4C8DFF)
-    FileType.AUDIO -> Color(0xFFB388FF)
-    FileType.DOCUMENT -> Color(0xFFFFB74D)
-    FileType.ARCHIVE -> Color(0xFFFF8A65)
-    FileType.APP -> Color(0xFFF06292)
-    FileType.OTHER -> Color(0xFF8A94A8)
-}
-
-private fun typeLabel(t: FileType) = when (t) {
-    FileType.PHOTO -> "PHOTOS"
-    FileType.VIDEO -> "VIDEOS"
-    FileType.AUDIO -> "AUDIO"
-    FileType.DOCUMENT -> "DOCUMENTS"
-    FileType.ARCHIVE -> "ARCHIVES"
-    FileType.APP -> "APPS"
-    FileType.OTHER -> "OTHER"
-}
+/** The vivid colour of each extension in [MAP_EXTENSIONS]; "other" is a quiet grey. */
+private val ExtColors = mapOf(
+    "jpg" to Color(0xFF19D68A), "heic" to Color(0xFF00C2A8), "png" to Color(0xFF8BE04A), "webp" to Color(0xFFC4E03A), "dng" to Color(0xFF2FE6C2),
+    "mp4" to Color(0xFF3B82FF), "mov" to Color(0xFF6A5CFF), "mkv" to Color(0xFF4CC9F0), "opus" to Color(0xFFFF9F1C), "mp3" to Color(0xFFFFC233),
+    "m4a" to Color(0xFFFFB347), "pdf" to Color(0xFFEF476F), "docx" to Color(0xFFF78FB3), "apk" to Color(0xFFFF5D3A), "zip" to Color(0xFFB455F7), "db" to Color(0xFF22D3EE),
+)
+private val OtherColor = Color(0xFF8B93A7)
+private fun extColor(key: String) = ExtColors[key] ?: OtherColor
 
 /** The last scan of each folder, kept while the app runs, so opening the map again shows it at once. */
 private class CachedScan(val result: ScanResult, val at: Long)
@@ -137,7 +127,7 @@ internal fun StorageMapScreen(
     var progress by remember { mutableIntStateOf(0) }
     var reload by remember { mutableIntStateOf(0) } // raised by RESCAN, and after something was deleted
     var zoom by rememberSaveable { mutableStateOf(emptyList<String>()) } // folders below the start, deepest last
-    var largest by rememberSaveable { mutableStateOf(false) }
+    var view by rememberSaveable { mutableIntStateOf(0) } // 0 the map, 1 the file types, 2 the largest files
     var picked by remember { mutableStateOf<MapNode?>(null) }
     var erase by remember { mutableStateOf<MapNode?>(null) }
 
@@ -187,8 +177,9 @@ internal fun StorageMapScreen(
             }
         }
         Row(Modifier.fillMaxWidth()) {
-            ActionText("MAP", if (!largest) cb.mint else cb.inkDim) { largest = false; picked = null }
-            ActionText("LARGEST", if (largest) cb.mint else cb.inkDim) { largest = true; picked = null }
+            ActionText("MAP", if (view == 0) cb.mint else cb.inkDim) { view = 0; picked = null }
+            ActionText("TYPES", if (view == 1) cb.mint else cb.inkDim) { view = 1; picked = null }
+            ActionText("LARGEST", if (view == 2) cb.mint else cb.inkDim) { view = 2; picked = null }
             ActionText("BROWSE HERE", cb.inkDim) { onBrowse(current.file) }
         }
         // when the map was made, and a way to make it again; while it is being redone the old map stays and a bar sweeps
@@ -203,33 +194,34 @@ internal fun StorageMapScreen(
             }
         }
         Visible(scanning, Modifier.padding(horizontal = 16.dp), expandEnter, shrinkExit) { ProgressBar(null) }
-        if (!largest) Legend(result)
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            // the map, its zoomed folders and the LARGEST list fade into one another
-            Crossfade(if (largest) null else current, Modifier.fillMaxSize(), animationSpec = tween(MOTION_MS), label = "map") { node ->
-                if (node == null) {
-                    val top = remember(result) { largestFiles(result.root) }
-                    LazyColumn(Modifier.fillMaxSize()) {
-                        items(top, key = { it.file.path }) { n ->
-                            ListRow(Entry(n.file, false, n.size, n.modified, 0), picked === n, onClick = { picked = if (picked === n) null else n }, onLongClick = {}, path = n.file.parent)
-                        }
-                    }
-                } else {
-                    Treemap(node, picked) { n, inside ->
+            // the map, its zoomed folders, the file types and the LARGEST list fade into one another
+            Crossfade(if (view == 0) current else view, Modifier.fillMaxSize(), animationSpec = tween(MOTION_MS), label = "map") { target ->
+                when (target) {
+                    is MapNode -> Treemap(target, picked) { n, inside ->
                         // a folder zooms in (through the folder tiles it sat in, if any); a file is picked
                         if (n.isDir) { zoom = zoom + inside.map { it.file.path } + n.file.path; picked = null } else picked = if (picked === n) null else n
+                    }
+                    1 -> TypesList(result)
+                    else -> {
+                        val top = remember(result) { largestFiles(result.root) }
+                        LazyColumn(Modifier.fillMaxSize()) {
+                            items(top, key = { it.file.path }) { n ->
+                                ListRow(Entry(n.file, false, n.size, n.modified, 0), picked === n, onClick = { picked = if (picked === n) null else n }, onLongClick = {}, path = n.file.parent)
+                            }
+                        }
                     }
                 }
             }
 
             // the card floats over the bottom of the map, so picking a tile does not make the map reflow
             AnimatedOverlay(picked, barEnter, barExit, Modifier.align(Alignment.BottomCenter)) { n ->
-            val base = if (largest) result.root.size else current.size
+            val base = if (view == 2) result.root.size else current.size
             Column(Modifier.fillMaxWidth().background(cb.surface1).padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(n.file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = cb.ink))
                 Text(
-                    "${Formatter.formatShortFileSize(context, n.size).uppercase()} · ${if (base > 0) n.size * 100 / base else 0}% OF ${if (largest) "ALL" else "THIS FOLDER"} · ${dateText(n.modified)}",
+                    "${Formatter.formatShortFileSize(context, n.size).uppercase()} · ${if (base > 0) n.size * 100 / base else 0}% OF ${if (view == 2) "ALL" else "THIS FOLDER"} · ${dateText(n.modified)}",
                     style = monoStyle(cb.inkDim, 0.6.sp),
                 )
                 Text(n.file.parent.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis, style = monoStyle(cb.inkDim, 0.6.sp))
@@ -241,6 +233,7 @@ internal fun StorageMapScreen(
             }
             }
         }
+        if (view == 0) TypeTable(result)
     }
 
     erase?.let { n ->
@@ -262,16 +255,53 @@ internal fun StorageMapScreen(
     }
 }
 
-/** Colour key for the file types, with the bytes each takes over everything scanned. */
+/** The biggest extensions under the map: colour, name, size and share of everything scanned, two to a line. */
 @Composable
-private fun Legend(result: ScanResult) {
+private fun TypeTable(result: ScanResult) {
     val cb = LocalCb.current
     val context = LocalContext.current
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-        FileType.entries.filter { result.counts[it.ordinal] > 0 }.sortedByDescending { result.bytes[it.ordinal] }.forEach { t ->
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                Box(Modifier.size(10.dp).background(typeColor(t)))
-                Text("${typeLabel(t)} ${Formatter.formatShortFileSize(context, result.bytes[t.ordinal]).uppercase()}", maxLines = 1, style = monoStyle(cb.inkDim, 0.6.sp))
+    val top = remember(result) { result.extBytes.entries.sortedByDescending { it.value }.take(10) }
+    val total = result.root.size.coerceAtLeast(1)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        top.chunked(2).forEach { pair ->
+            Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(10.dp)) {
+                pair.forEach { e ->
+                    Row(Modifier.weight(1f), Arrangement.spacedBy(6.dp), Alignment.CenterVertically) {
+                        Box(Modifier.size(10.dp).background(extColor(e.key)))
+                        Text(
+                            "${extLabel(e.key)} ${Formatter.formatShortFileSize(context, e.value).uppercase()} · ${e.value * 100 / total}%",
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, style = monoStyle(cb.inkDim, 0.6.sp),
+                        )
+                    }
+                }
+                if (pair.size == 1) Box(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+private fun extLabel(key: String) = if (key == "other") "OTHER" else ".$key"
+
+/** Every extension, biggest first: how many files, how much space, and a bar for its share. */
+@Composable
+private fun TypesList(result: ScanResult) {
+    val cb = LocalCb.current
+    val context = LocalContext.current
+    val rows = remember(result) { result.extBytes.entries.sortedByDescending { it.value } }
+    val total = result.root.size.coerceAtLeast(1)
+    LazyColumn(Modifier.fillMaxSize()) {
+        items(rows, key = { it.key }) { e ->
+            val count = result.extCount[e.key] ?: 0
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.size(12.dp).background(extColor(e.key)))
+                    Text(extLabel(e.key), Modifier.weight(1f), style = monoStyle(cb.ink, 1.5.sp))
+                    Text(
+                        "$count ${if (count == 1) "FILE" else "FILES"} · ${Formatter.formatShortFileSize(context, e.value).uppercase()} · ${e.value * 100 / total}%",
+                        style = monoStyle(cb.inkDim, 0.6.sp),
+                    )
+                }
+                ProgressBar((e.value.toDouble() / total).toFloat(), Modifier.padding(top = 5.dp), color = extColor(e.key), track = cb.line)
             }
         }
     }
@@ -284,8 +314,7 @@ private const val HEADER_DP = 17f
 
 /**
  * The nested treemap of [node]: its biggest folders and files, and inside each big enough folder its own biggest items (up to three levels, like
- * WinDirStat). Tiles are coloured by file type, brighter the bigger the file, with a raised "cushion" shade. Big photos, videos and PDFs show a
- * preview. [onTile] gets the tapped node and the folder tiles it sat inside.
+ * WinDirStat). Every file is a tile in the vivid colour of its extension, with a raised "cushion" shade. [onTile] gets the tapped node and the folder tiles it sat inside.
  */
 @Composable
 private fun Treemap(node: MapNode, picked: MapNode?, onTile: (MapNode, List<MapNode>) -> Unit) {
@@ -299,22 +328,6 @@ private fun Treemap(node: MapNode, picked: MapNode?, onTile: (MapNode, List<MapN
         val dp = density.density
         val placed = remember(node, w, h) { layoutNested(node, w, h, dp) }
         if (placed.isEmpty()) Text("NOTHING HERE", Modifier.align(Alignment.Center), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
-
-        // brightness follows the size of a file relative to the others in view
-        val files = placed.filter { !it.node.isDir && !it.node.aggregate }
-        val lo = files.minOfOrNull { ln(it.node.size.toDouble()) } ?: 0.0
-        val hi = files.maxOfOrNull { ln(it.node.size.toDouble()) } ?: 1.0
-        // the previews sit under the canvas, which leaves their tiles unpainted; only the biggest few get one
-        val previews = remember(placed) {
-            files.filter { val t = it.node.file.fileType(); (t == FileType.PHOTO || t == FileType.VIDEO || it.node.file.extension.equals("pdf", true)) && it.rect.w > 56 * dp && it.rect.h > 46 * dp }
-                .sortedByDescending { it.rect.w * it.rect.h }.take(28)
-        }
-        previews.forEach { p ->
-            val r = p.rect
-            Box(Modifier.offset { IntOffset(r.x.roundToInt() + 1, r.y.roundToInt() + 1) }.size(with(density) { (r.w - 2).toDp() }, with(density) { (r.h - 2).toDp() }).clip(RectangleShape)) {
-                if (p.node.file.extension.equals("pdf", true)) PdfFirstPage(p.node.file) else AsyncImage(p.node.file, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            }
-        }
 
         Canvas(
             Modifier.fillMaxSize().pointerInput(placed) {
@@ -330,16 +343,13 @@ private fun Treemap(node: MapNode, picked: MapNode?, onTile: (MapNode, List<MapN
                 val topLeft = Offset(r.x + 1f, r.y + 1f)
                 val size = Size(r.w - 2f, r.h - 2f)
                 if (size.width <= 1f || size.height <= 1f) return@forEach
-                val hasPreview = p in previews
-                if (!hasPreview) {
-                    val fill = when {
-                        n.aggregate -> cb.surface1
-                        n.isDir -> cb.surface2
-                        else -> shadeFor(n.file.fileType(), n.size, lo, hi)
-                    }
-                    drawRect(fill, topLeft, size)
+                val fill = when {
+                    n.aggregate -> cb.surface1
+                    n.isDir -> cb.surface2
+                    else -> extColor(n.file.extKey())
                 }
-                if (!n.isDir || n.aggregate) {
+                drawRect(fill, topLeft, size)
+                if ((!n.isDir || n.aggregate) && minOf(size.width, size.height) > 8f) { // a speck is just its colour
                     // cushion: a highlight toward the top left and a darker rim, which gives every tile its raised look
                     drawRect(
                         Brush.radialGradient(
@@ -377,14 +387,6 @@ private fun DrawScope.label(measurer: TextMeasurer, p: Placed, at: Offset, size:
     }
 }
 
-/** A file's tile colour: its type's hue, lighter and more saturated the bigger the file is among those in view. */
-private fun shadeFor(t: FileType, size: Long, lo: Double, hi: Double): Color {
-    val k = if (hi > lo) ((ln(size.toDouble()) - lo) / (hi - lo)).toFloat().coerceIn(0f, 1f) else 1f
-    val base = typeColor(t)
-    val dark = Color(base.red * 0.28f, base.green * 0.28f, base.blue * 0.28f, 1f)
-    return lerp(dark, base, 0.35f + 0.65f * k)
-}
-
 /** The first page of a PDF as a picture, drawn once in the background. Nothing shows if the file cannot be opened. */
 @Composable
 internal fun PdfFirstPage(file: File, width: Int = 320, contentScale: ContentScale = ContentScale.Crop) {
@@ -414,22 +416,30 @@ private fun layoutNested(node: MapNode, w: Float, h: Float, dp: Float): List<Pla
         val placed = Placed(n, r, inside)
         out += placed
         if (!n.isDir || n.aggregate || depth >= 3 || r.w < 90 * dp || r.h < 70 * dp) return
-        val inner = layoutTiles(n, r.w - 6, r.h - HEADER_DP * dp - 5)
+        val inner = layoutTiles(n, r.w - 6, r.h - HEADER_DP * dp - 5, dp)
         if (inner.isEmpty()) return
         placed.panel = true
         for ((c, cr) in inner) add(c, TileRect(r.x + 3 + cr.x, r.y + HEADER_DP * dp + 2 + cr.y, cr.w, cr.h), inside + n, depth + 1)
     }
-    for ((n, r) in layoutTiles(node, w, h)) add(n, r, emptyList(), 1)
+    for ((n, r) in layoutTiles(node, w, h, dp)) add(n, r, emptyList(), 1)
     return out
 }
 
-private fun layoutTiles(node: MapNode, w: Float, h: Float): List<Pair<MapNode, TileRect>> {
+/**
+ * Every item of [node] gets its own tile, biggest first. What would come out smaller than a 3dp square, and so could not be seen as its own
+ * tile, is merged into one quiet "small files" tile instead (capped at [MAX_TILES] tiles so a folder of many thousands stays quick to draw).
+ */
+private fun layoutTiles(node: MapNode, w: Float, h: Float, dp: Float): List<Pair<MapNode, TileRect>> {
     val kids = node.children.filter { it.size > 0 }
     val total = kids.sumOf { it.size }
     if (total == 0L) return emptyList()
-    val big = kids.take(40).takeWhile { it.size * 1000 >= total * 15 }
-    val rest = kids.drop(big.size)
-    val tiles = (if (rest.size > 1) big + MapNode(node.file, false, rest.sumOf { it.size }, emptyList(), rest.sumOf { it.count }, aggregate = true) else big + rest)
+    val minArea = 9f * dp * dp
+    val cut = kids.indexOfFirst { it.size.toDouble() / total * w * h < minArea }
+    val shown = (if (cut < 0) kids else kids.take(maxOf(cut, 1))).take(MAX_TILES)
+    val rest = kids.drop(shown.size)
+    val tiles = (if (rest.size > 1) shown + MapNode(node.file, false, rest.sumOf { it.size }, emptyList(), rest.sumOf { it.count }, aggregate = true) else shown + rest)
         .sortedByDescending { it.size }
     return tiles.zip(squarify(tiles.map { it.size }, w, h))
 }
+
+private const val MAX_TILES = 3000
