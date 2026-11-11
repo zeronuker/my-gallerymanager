@@ -29,6 +29,11 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.graphics.graphicsLayer
+import com.claudeborne.gallerymanager.data.Settings
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
@@ -79,6 +84,9 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     val mainPager = rememberPagerState { mainTabs.size } // Gallery <-> Files
     val galleryPager = rememberPagerState { galleryTabs.size } // Images <-> Videos <-> Albums
     var showSettings by rememberSaveable { mutableStateOf(false) } // settings, shown over the tabs
+    val settingsPos = remember { Animatable(0f) } // how much of the Settings window shows, 0 closed to 1 open; it follows the finger while the bar is dragged
+    val settingsVisible by remember { derivedStateOf { settingsPos.value > 0f } }
+    LaunchedEffect(showSettings) { settingsPos.animateTo(if (showSettings) 1f else 0f, tween(if (showSettings) MOTION_MS else MOTION_FAST_MS)) }
     var openAlbum by rememberSaveable { mutableStateOf<Long?>(null) }
     var viewerFrom by rememberSaveable { mutableIntStateOf(FROM_LIBRARY) }
     var viewerId by rememberSaveable {
@@ -174,22 +182,35 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         AnimatedOverlay(viewerId) { id ->
             Viewer(viewerItems, id, tools, favorites, onPageChange = { viewerId = it }, onChanged = onChanged, onEdit = { editing = it }, onClose = closeViewer)
         }
-        // the shelf is over the tabs, the viewer and the Files tools; the editors below cover it, since opening Settings mid-edit could lose work
-        AnimatedVisibility(!showSettings, Modifier.fillMaxSize(), enter = fadeIn(tween(MOTION_MS)), exit = fadeOut(tween(MOTION_FAST_MS))) {
-            Shelf(onOpen = { showSettings = true })
-        }
         AnimatedOverlay(join) { JoinScreen(it, onClose = { join = null }, onSaved = { join = null; onChanged() }) }
         AnimatedOverlay(collage) { CollageScreen(it, onClose = { collage = null }, onSaved = { collage = null; onChanged() }) }
         AnimatedOverlay(editing) { if (it.isVideo) VideoEditor(it, onClose = { editing = null }, onSaved = { editing = null; onChanged() }, onLibraryChanged = onChanged) else Editor(it, tools, onClose = { editing = null }, onSaved = { editing = null; onChanged() }) }
         FileToolDialogs(tools)
-        // a full screen over everything, the viewer included; the clickable swallows taps so nothing behind it reacts
-        AnimatedVisibility(showSettings, Modifier.fillMaxSize(), enter = overlayEnter, exit = overlayExit) {
-            Box(Modifier.fillMaxSize().cbGrid(cb).statusBarsPadding().navigationBarsPadding().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}) {
+        // a full screen over everything, the viewer included; it slides in from the edge the bar is on and out again, and follows the finger while
+        // the bar is dragged. The clickable swallows taps so nothing behind it reacts.
+        if (settingsVisible) {
+            val shelfRight = Settings.shelfEdge == 1
+            Box(
+                Modifier.fillMaxSize().graphicsLayer { translationX = (1f - settingsPos.value) * size.width * (if (shelfRight) 1f else -1f) }
+                    .cbGrid(cb).statusBarsPadding().navigationBarsPadding().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
+            ) {
                 SettingsScreen(favorites, onBack = { showSettings = false }, openPicker = { pickerRequest = it })
             }
         }
-        // while Settings is open the real bar shows over it, so the size and position sliders can be judged
-        if (showSettings) Shelf(preview = true)
+        // the one bar, over the tabs, the viewer, the Files tools and Settings; the editors cover it, since opening Settings mid-edit could lose work.
+        // It never swaps for another copy, so it does not jump: it brightens and changes length while the window moves.
+        val shelfCovered = editing != null || collage != null || join != null
+        AnimatedVisibility(!shelfCovered || showSettings, Modifier.fillMaxSize(), enter = fadeIn(tween(MOTION_MS)), exit = fadeOut(tween(MOTION_FAST_MS))) {
+            Shelf(
+                open = showSettings, moving = settingsPos.isRunning,
+                onDrag = { f -> scope.launch { settingsPos.snapTo(f) } },
+                onRelease = { go ->
+                    if (go) showSettings = !showSettings // the effect above finishes the slide from where the finger left it
+                    else scope.launch { settingsPos.animateTo(if (showSettings) 1f else 0f, tween(MOTION_FAST_MS)) } // not far enough: back to where it was
+                },
+                onToggle = { showSettings = !showSettings },
+            )
+        }
         // last, so it covers everything, Settings and the viewer included
         AnimatedOverlay(pickerRequest) { r ->
             Picker(

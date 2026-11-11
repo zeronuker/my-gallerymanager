@@ -49,57 +49,70 @@ import kotlinx.coroutines.delay
 private const val HIDE_AFTER_MS = 3000L
 
 /**
- * The Settings shelf: a small bar on the left or right edge, placed and sized by the user in Settings, on every screen it is placed over.
- * Swiping it toward the middle of the screen calls [onOpen]; a tap does too when the user turned that on. The area that takes the swipe is
- * wider and taller than the bar so a thumb can find it, and it is kept out of Android's Back gesture so the swipe is not taken for Back.
+ * The Settings shelf: a small bar on the left or right edge, placed and sized by the user in Settings. Dragging it toward the middle of the
+ * screen pulls the Settings window in under the finger: [onDrag] gets how much of the window shows (0 to 1) and [onRelease] whether the drag
+ * went far enough to switch. A tap switches too when the user turned that on, and always while Settings is [open], when this same bar is the
+ * way to close it (tap it, or drag it back to the edge). Slide or tap, the bar does the same: while the window moves ([moving]) or is dragged
+ * it brightens and gets longer when opening, shorter when closing; its thickness never changes, and it never leaves the edge.
  * With auto-hide the bar fades out after a few seconds and comes back when a finger touches near it; the swipe area works either way.
- * A [preview] only draws the bar (always visible) so it can be shown over Settings while it is adjusted.
  */
 @Composable
-fun Shelf(onOpen: () -> Unit = {}, preview: Boolean = false) {
+fun Shelf(open: Boolean, moving: Boolean, onDrag: (Float) -> Unit, onRelease: (Boolean) -> Unit, onToggle: () -> Unit) {
     val right = Settings.shelfEdge == 1
     val tap = Settings.shelfTap
     val inset = Settings.shelfInset.dp
     val thickness = Settings.shelfThickness
     val threshold = with(LocalDensity.current) { 40.dp.toPx() }
+    val closeThreshold = with(LocalDensity.current) { 12.dp.toPx() } // closing drags toward the edge, which is right there, so it is short
     val moved = remember { floatArrayOf(0f) }
-    // while a finger is on the bar it follows the swipe, grows and brightens; it springs back when let go
     var dragging by remember { mutableStateOf(false) }
-    var pull by remember { mutableFloatStateOf(0f) }
     var touches by remember { mutableIntStateOf(0) }
     var hidden by remember { mutableStateOf(false) }
-    // every touch near the bar shows it again and restarts the countdown
-    LaunchedEffect(touches, Settings.shelfAutoHide, preview) {
+    // every touch near the bar shows it again and restarts the countdown; while Settings is open the bar stays, so the sliders can be judged
+    LaunchedEffect(touches, Settings.shelfAutoHide, open) {
         hidden = false
-        if (Settings.shelfAutoHide && !preview) { delay(HIDE_AFTER_MS); hidden = true }
+        if (Settings.shelfAutoHide && !open) { delay(HIDE_AFTER_MS); hidden = true }
     }
-    val shownPull by animateFloatAsState(if (dragging) pull else 0f, if (dragging) snap() else tween(MOTION_FAST_MS), label = "pull")
-    val fade by animateFloatAsState(if (hidden && !dragging) 0f else 1f, tween(MOTION_MS), label = "shelfFade")
-    val barWidth by animateDpAsState((if (dragging) thickness * 2 else thickness).dp, tween(MOTION_FAST_MS), label = "barWidth")
-    val barColor by animateColorAsState(if (dragging) Color(0xFF3FE0C5) else Color(0x803FE0C5), tween(MOTION_FAST_MS), label = "barColor")
+    val lit = dragging || moving
+    val opening = if (dragging) !open else open // a drag starts from the state it is leaving; the slide after it is already in the new state
+    val fade by animateFloatAsState(if (hidden && !lit && !open) 0f else 1f, tween(MOTION_MS), label = "shelfFade")
+    val length by animateFloatAsState(if (!lit) 1f else if (opening) 1.25f else 0.8f, tween(MOTION_FAST_MS), label = "barLength")
+    val barColor by animateColorAsState(if (lit) Color(0xFF3FE0C5) else Color(0x803FE0C5), tween(MOTION_FAST_MS), label = "barColor")
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val touchH = maxOf(Settings.shelfHeight + 24, 100).dp
-        val touchW = inset + (thickness * 2).dp + 24.dp
+        val widthPx = with(LocalDensity.current) { maxWidth.toPx() }
+        val touchH = ((Settings.shelfHeight * 1.25f).toInt() + 24).coerceAtLeast(100).dp
+        // closed: a wide strip at the edge so a thumb can find it; open: a little narrower, so Settings' own controls stay usable. Both reach the edge.
+        val touchW = inset + (if (open) thickness + 28 else thickness * 2 + 24).dp
         val top = (maxHeight * (Settings.shelfY / 100f) - touchH / 2).coerceIn(0.dp, maxOf(0.dp, maxHeight - touchH))
-        val touch = if (preview) Modifier else Modifier
+        val touch = Modifier
             .systemGestureExclusion()
-            .semantics { contentDescription = "Settings shelf" }
+            .semantics { contentDescription = if (open) "Close Settings" else "Settings shelf" }
             .pointerInput(Unit) { awaitEachGesture { awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial); touches++ } }
             .draggable(
-                rememberDraggableState { moved[0] += it; pull = if (right) moved[0].coerceIn(-threshold, 0f) else moved[0].coerceIn(0f, threshold) }, Orientation.Horizontal,
-                onDragStarted = { moved[0] = 0f; pull = 0f; dragging = true },
-                onDragStopped = { dragging = false; if (if (right) moved[0] < -threshold else moved[0] > threshold) onOpen() },
+                rememberDraggableState {
+                    moved[0] += it
+                    val toward = if (right) -moved[0] else moved[0] // positive: toward the middle of the screen
+                    onDrag(((if (open) 1f else 0f) + toward / widthPx).coerceIn(0f, 1f)) // the window shows as much as the finger has pulled
+                },
+                Orientation.Horizontal,
+                onDragStarted = { moved[0] = 0f; dragging = true },
+                onDragStopped = {
+                    dragging = false
+                    val toward = if (right) -moved[0] else moved[0]
+                    onRelease(if (open) toward < -closeThreshold else toward > threshold)
+                },
             )
-            .then(if (tap) Modifier.clickable(remember { MutableInteractionSource() }, null) { onOpen() } else Modifier)
+            .then(if (tap || open) Modifier.clickable(remember { MutableInteractionSource() }, null) { onToggle() } else Modifier)
         Box(
-            Modifier.align(if (right) Alignment.TopEnd else Alignment.TopStart).offset(y = top).width(touchW).height(touchH).then(touch),
+            Modifier.align(if (right) Alignment.TopEnd else Alignment.TopStart).offset(y = top)
+                .width(touchW).height(touchH).then(touch),
             if (right) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
             Box(
                 Modifier.padding(if (right) PaddingValues(end = inset) else PaddingValues(start = inset))
-                    .graphicsLayer { translationX = shownPull; alpha = fade }
-                    .size(barWidth, Settings.shelfHeight.dp).clip(RoundedCornerShape(2.dp)).background(barColor),
+                    .graphicsLayer { alpha = fade }
+                    .size(thickness.dp, (Settings.shelfHeight * length).dp).clip(RoundedCornerShape(2.dp)).background(barColor),
             )
         }
     }
