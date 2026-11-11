@@ -164,7 +164,7 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
             AnimatedVisibility(chosen.isNotEmpty(), enter = barEnter, exit = barExit) {
                 ActionBar(
                     listOf(
-                        BarItem("ALL", cb.inkDim) { selected = rows.map { it.key }.toSet() },
+                        BarItem(if (chosen.size == rows.size) "DESELECT ALL" else "ALL", cb.inkDim) { selected = if (chosen.size == rows.size) emptySet() else rows.map { it.key }.toSet() },
                         BarItem("RESTORE", cb.mint) { restore(chosen) },
                         BarItem("DELETE", RED) { erase = chosen },
                     ),

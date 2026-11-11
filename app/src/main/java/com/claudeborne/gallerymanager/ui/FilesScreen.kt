@@ -318,7 +318,7 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
         AnimatedVisibility(selecting, enter = barEnter, exit = barExit) {
             ActionBar(
                 buildList {
-                    add(BarItem("ALL", cb.inkDim) { selected = entries.map { it.file.path }.toSet() })
+                    add(BarItem(if (chosen.size == entries.size) "DESELECT ALL" else "ALL", cb.inkDim) { selected = if (chosen.size == entries.size) emptySet() else entries.map { it.file.path }.toSet() })
                     add(BarItem("SHARE", cb.mint) {
                         val files = chosen.filter { !it.isDir }.map { it.file }
                         if (files.isEmpty()) toast("Folders can't be shared") else shareFiles(context, files)
@@ -705,7 +705,7 @@ internal class BarItem(val label: String, val color: Color, val onClick: () -> U
 internal fun ActionBar(actions: List<BarItem>) {
     val rows = if (actions.size > 6) actions.chunked((actions.size + 1) / 2) else listOf(actions)
     Column(Modifier.fillMaxWidth().background(LocalCb.current.surface1).padding(vertical = 4.dp)) {
-        rows.forEach { row -> Row(Modifier.fillMaxWidth()) { row.forEach { BarAction(it.label, it.color, it.onClick) } } }
+        rows.forEach { row -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { row.forEach { BarAction(it.label, it.color, it.onClick) } } }
     }
 }
 

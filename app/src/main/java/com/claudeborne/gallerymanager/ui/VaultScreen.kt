@@ -190,7 +190,7 @@ internal fun VaultScreen(pendingAdd: List<File>, backEnabled: Boolean, onClose: 
         AnimatedVisibility(stage == Stage.OPEN && selected.isNotEmpty(), enter = barEnter, exit = barExit) {
             ActionBar(
                 listOf(
-                    BarItem("ALL", cb.inkDim) { selected = rows.map { it.name }.toSet() },
+                    BarItem(if (rows.all { it.name in selected }) "DESELECT ALL" else "ALL", cb.inkDim) { selected = if (rows.all { it.name in selected }) emptySet() else rows.map { it.name }.toSet() },
                     BarItem("RESTORE", cb.mint) {
                         val items = chosen
                         scope.launch {

@@ -88,7 +88,8 @@ fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools,
         }
         AnimatedVisibility(selecting, enter = barEnter, exit = barExit) { ActionBar(
             buildList {
-                add(BarItem("ALL", cb.inkDim) { selected = albums.drop(1).map { it.id }.toSet() })
+                val everyAlbum = albums.drop(1).all { it.id in selected } // Favorites is a view, not an album to pick
+                add(BarItem(if (everyAlbum) "DESELECT ALL" else "ALL", cb.inkDim) { selected = if (everyAlbum) emptySet() else albums.drop(1).map { it.id }.toSet() })
                 add(BarItem("SHARE", cb.mint) { shareMedia(context, chosen) })
                 add(BarItem("COPY", cb.mint) { tools.copy(chosen) { selected = emptySet() } })
                 add(BarItem("MOVE", cb.mint) { tools.move(chosen) { selected = emptySet() } })

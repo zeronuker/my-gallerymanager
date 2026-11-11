@@ -149,8 +149,8 @@ fun PhotosScreen(
         }
 
         AnimatedVisibility(selecting, enter = barEnter, exit = barExit) {
-            Row(Modifier.fillMaxWidth().background(cb.surface1).padding(vertical = 8.dp)) {
-                BarAction("ALL", cb.inkDim) { selected = items.map { it.id }.toSet() }
+            Row(Modifier.fillMaxWidth().background(cb.surface1).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                BarAction(if (chosen.size == items.size) "DESELECT ALL" else "ALL", cb.inkDim) { selected = if (chosen.size == items.size) emptySet() else items.map { it.id }.toSet() }
                 BarAction("SHARE", cb.mint) { share(context, chosen) }
                 BarAction("COPY", cb.mint) { tools.copy(chosen) { selected = emptySet() } }
                 BarAction("MOVE", cb.mint) { tools.move(chosen) { selected = emptySet() } }
