@@ -292,8 +292,8 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
             IconAction(Icon.PLUS, cb.mint, "New folder") { dialog = FileDialog.NewFolder }
         }
         if (cat == null) {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                SearchAction(searching, query, { query = it }) { searching = !searching; if (!searching) query = "" }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                SearchAction(searching, query, { query = it }, Modifier.weight(1f)) { searching = !searching; if (!searching) query = "" }
                 if (dir != null) {
                     SortMenu(sort, ascending) { s -> if (s == sort) ascending = !ascending else { sort = s; ascending = s == SortBy.NAME || s == SortBy.TYPE } }
                     ViewMenu(grid, hidden, { grid = it }) { hidden = !hidden }
@@ -521,15 +521,15 @@ internal fun HomeRow(title: String, sub: String, onClick: () -> Unit) {
  * which stays; tapping the magnifier again closes the field.
  */
 @Composable
-private fun SearchAction(searching: Boolean, query: String, onQuery: (String) -> Unit, onToggle: () -> Unit) {
+private fun SearchAction(searching: Boolean, query: String, onQuery: (String) -> Unit, modifier: Modifier, onToggle: () -> Unit) {
     val cb = LocalCb.current
-    Row(Modifier.padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.clickable(onClick = onToggle).padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             CbIcon(Icon.SEARCH, if (searching) cb.mint else cb.inkDim, size = 20.dp)
             AnimatedVisibility(!searching, enter = fadeIn(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_FAST_MS))) { Text("SEARCH", Modifier.padding(start = 6.dp), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.2.sp, color = cb.inkDim)) }
         }
-        AnimatedVisibility(searching, enter = fadeIn(tween(MOTION_FAST_MS)) + expandHorizontally(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_FAST_MS)) + shrinkHorizontally(tween(MOTION_FAST_MS))) {
-            Box(Modifier.width(220.dp).padding(end = 8.dp)) { CbTextField(query, onQuery) }
+        AnimatedVisibility(searching, Modifier.weight(1f), enter = fadeIn(tween(MOTION_FAST_MS)) + expandHorizontally(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_FAST_MS)) + shrinkHorizontally(tween(MOTION_FAST_MS))) {
+            Box(Modifier.fillMaxWidth().padding(end = 4.dp)) { CbTextField(query, onQuery) }
         }
     }
 }
@@ -541,7 +541,7 @@ private fun SortMenu(sort: SortBy, ascending: Boolean, onPick: (SortBy) -> Unit)
     var open by remember { mutableStateOf(false) }
     val arrow = if (ascending) "▲" else "▼"
     Box {
-        ActionText("SORT · ${sort.name} $arrow", cb.mint) { open = true }
+        ActionText("SORT ▾", cb.mint) { open = true }
         DropdownMenu(open, { open = false }, containerColor = cb.surface2) {
             SortBy.entries.forEach { s ->
                 DropdownMenuItem(
@@ -559,7 +559,7 @@ private fun ViewMenu(grid: Boolean, hidden: Boolean, onGrid: (Boolean) -> Unit, 
     val cb = LocalCb.current
     var open by remember { mutableStateOf(false) }
     Box {
-        ActionText("VIEW · ${if (grid) "GRID" else "LIST"}", cb.mint) { open = true }
+        ActionText("VIEW ▾", cb.mint) { open = true }
         DropdownMenu(open, { open = false }, containerColor = cb.surface2) {
             listOf(
                 ("LIST" + if (!grid) " ✓" else "") to { onGrid(false) },
