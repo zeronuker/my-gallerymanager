@@ -77,6 +77,12 @@ internal fun SettingsScreen(favorites: Favorites, onBack: () -> Unit, openPicker
                     style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim),
                 )
                 Toggle("TAP TO OPEN", "Tapping the bar opens Settings too.", Settings.shelfTap) { Settings.update { shelfTap = it } }
+                Toggle("AUTO HIDE", "The bar fades out after 3 seconds and comes back when you touch near the edge. Swiping it still works while it is hidden.", Settings.shelfAutoHide) { Settings.update { shelfAutoHide = it } }
+                // the real bar shows over this screen while these are changed; tap a number to put it back
+                EditSlider("THICKNESS", Settings.shelfThickness.toFloat(), 2f..12f, "${Settings.shelfThickness} dp", { Settings.update { shelfThickness = it.toInt() } }, {}) { Settings.update { shelfThickness = 4 } }
+                EditSlider("HEIGHT", Settings.shelfHeight.toFloat(), 30f..200f, "${Settings.shelfHeight} dp", { Settings.update { shelfHeight = it.toInt() } }, {}) { Settings.update { shelfHeight = 72 } }
+                EditSlider("VERTICAL POSITION", Settings.shelfY.toFloat(), 10f..90f, "${Settings.shelfY}%", { Settings.update { shelfY = it.toInt() } }, {}) { Settings.update { shelfY = 38 } }
+                EditSlider("DISTANCE FROM EDGE", Settings.shelfInset.toFloat(), 0f..60f, "${Settings.shelfInset} dp", { Settings.update { shelfInset = it.toInt() } }, {}) { Settings.update { shelfInset = 0 } }
             }
             Section("VIEWER") {
                 Toggle("AUTOPLAY VIDEOS", "Start a video as soon as you open it.", Settings.autoplay) { Settings.update { autoplay = it } }

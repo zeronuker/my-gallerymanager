@@ -157,7 +157,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         }
         // the shelf is over the tabs, the viewer and the Files tools; the editors below cover it, since opening Settings mid-edit could lose work
         AnimatedVisibility(!showSettings, Modifier.fillMaxSize(), enter = fadeIn(tween(MOTION_MS)), exit = fadeOut(tween(MOTION_FAST_MS))) {
-            Box(Modifier.fillMaxSize()) { Shelf { showSettings = true } }
+            Shelf(onOpen = { showSettings = true })
         }
         AnimatedOverlay(join) { JoinScreen(it, onClose = { join = null }, onSaved = { join = null; onChanged() }) }
         AnimatedOverlay(collage) { CollageScreen(it, onClose = { collage = null }, onSaved = { collage = null; onChanged() }) }
@@ -169,6 +169,8 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
                 SettingsScreen(favorites, onBack = { showSettings = false }, openPicker = { pickerRequest = it })
             }
         }
+        // while Settings is open the real bar shows over it, so the size and position sliders can be judged
+        if (showSettings) Shelf(preview = true)
         // last, so it covers everything, Settings and the viewer included
         AnimatedOverlay(pickerRequest) { r ->
             Picker(
