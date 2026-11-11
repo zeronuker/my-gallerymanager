@@ -234,7 +234,7 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                 SvgIconButton("resetAll", glide(changed, DarkCb.ink, DarkCb.inkDim), "Reset all edits") { if (changed) askReset = true }
                 SvgIconButton("redo", glide(canRedo, DarkCb.ink, DarkCb.inkDim), "Redo") { redo() }
                 Box(Modifier.weight(1f))
-                ActionText("SAVE", if (changed) DarkCb.mint else DarkCb.inkDim) { if (changed) save() }
+                SvgIconButton("save", glide(changed, DarkCb.mint, DarkCb.inkDim), "Save") { if (changed) save() }
             }
 
             BoxWithConstraints(

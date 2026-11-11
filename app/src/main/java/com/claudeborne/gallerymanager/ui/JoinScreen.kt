@@ -104,7 +104,7 @@ fun JoinScreen(items: List<MediaItem>, onClose: () -> Unit, onSaved: () -> Unit)
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 CloseButton { if (!saving) onClose() }
                 Text("JOIN · ${clips.size} CLIPS · ${fmt(total)}", Modifier.weight(1f).padding(horizontal = 8.dp), style = monoStyle(DarkCb.ink, 1.5.sp), maxLines = 1)
-                ActionText("SAVE", if (ready && clips.size >= 2) DarkCb.mint else DarkCb.inkDim) { if (ready && clips.size >= 2 && !saving) save() }
+                SvgIconButton("save", glide(ready && clips.size >= 2, DarkCb.mint, DarkCb.inkDim), "Save") { if (ready && clips.size >= 2 && !saving) save() }
             }
 
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

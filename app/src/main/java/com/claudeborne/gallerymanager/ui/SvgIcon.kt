@@ -35,6 +35,7 @@ private const val NO = "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M9 9l6 6M
 
 private val ICONS: Map<String, String> = mapOf(
     // trash
+    "save" to "<path d=\"M4 3h12l4 4v14H4z\"/><path d=\"M8 3v5h7V3M7 21v-7h10v7\"/>",
     "restore" to "<path d=\"M4 12a8 8 0 1 0 2.5-5.8\"/><path d=\"M4 4v5h5\"/>",
     "deleteForever" to TR + "<path d=\"M10 11l4 5M14 11l-4 5\"/>",
     // tool tabs

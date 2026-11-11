@@ -227,7 +227,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                 SvgIconButton("resetAll", glide(state.isEdited, DarkCb.ink, DarkCb.inkDim), "Reset all edits") { if (state.isEdited) dialog = 3 }
                 SvgIconButton("redo", glide(at < history.lastIndex, DarkCb.ink, DarkCb.inkDim), "Redo") { if (at < history.lastIndex) { at++; live = null; selected = -1 } }
                 Box(Modifier.weight(1f))
-                ActionText("SAVE", if (state.isEdited) DarkCb.mint else DarkCb.inkDim) { if (state.isEdited) startSave() else onClose() }
+                SvgIconButton("save", glide(state.isEdited, DarkCb.mint, DarkCb.inkDim), "Save") { if (state.isEdited) startSave() else onClose() }
             }
 
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -624,10 +624,10 @@ internal fun Chip(label: String, selected: Boolean = false, color: Color = DarkC
 }
 
 @Composable
-internal fun EditSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, display: String, onChange: (Float) -> Unit, onDone: () -> Unit, onReset: () -> Unit) {
+internal fun EditSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, display: String, onChange: (Float) -> Unit, onDone: () -> Unit, labelColor: Color = DarkCb.inkDim, onReset: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-            Text(label, style = monoStyle(DarkCb.inkDim, 1.5.sp))
+            Text(label, style = monoStyle(labelColor, 1.5.sp))
             Text(display, Modifier.clickable(onClick = onReset), style = monoStyle(DarkCb.mint, 1.5.sp)) // tap the number to reset
         }
         Slider(

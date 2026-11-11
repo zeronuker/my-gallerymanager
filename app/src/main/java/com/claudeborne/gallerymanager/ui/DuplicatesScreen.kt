@@ -36,7 +36,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.claudeborne.gallerymanager.data.BIN_DAYS
-import com.claudeborne.gallerymanager.data.DUP_MIN_BYTES
 import com.claudeborne.gallerymanager.data.DupGroup
 import com.claudeborne.gallerymanager.data.Entry
 import com.claudeborne.gallerymanager.data.findDuplicates
@@ -92,13 +91,7 @@ internal fun DuplicatesScreen(roots: List<File>, backEnabled: Boolean, onClose: 
             Box(Modifier.weight(1f).fillMaxWidth(), Alignment.Center) { LoadingPane(status) } // the scan reports a message, not a percentage, so the bar sweeps
             return@Column
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "Identical files of ${size(DUP_MIN_BYTES)} or more. Tap to select, long-press to open.",
-                Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 4.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim),
-            )
-            if (list.isNotEmpty()) ViewMenu(grid, { grid = it })
-        }
+        if (list.isNotEmpty()) Row(Modifier.fillMaxWidth(), Arrangement.End) { ViewMenu(grid, { grid = it }) }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (list.isEmpty()) {
                 Text("NO DUPLICATES FOUND", Modifier.align(Alignment.Center), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))

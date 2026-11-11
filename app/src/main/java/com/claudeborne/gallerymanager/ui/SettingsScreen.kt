@@ -89,9 +89,9 @@ internal fun SettingsScreen(favorites: Favorites, onBack: () -> Unit, openPicker
                 Toggle("START MUTED", Settings.muted) { Settings.update { muted = it } }
             }
             Section("EDITING") {
-                Setting("WHEN YOU SAVE", listOf("ASK", "COPY", "REPLACE"), Settings.saveMode) { Settings.update { saveMode = it } }
-                EditSlider("EDIT QUALITY", Settings.editQuality.toFloat(), 50f..100f, "${Settings.editQuality}", { Settings.update { editQuality = it.toInt() } }, {}) { Settings.update { editQuality = 95 } }
-                EditSlider("EXPORT QUALITY", Settings.exportQuality.toFloat(), 50f..100f, "${Settings.exportQuality}", { Settings.update { exportQuality = it.toInt() } }, {}) { Settings.update { exportQuality = 90 } }
+                Setting("WHEN SAVING", listOf("ASK", "COPY", "REPLACE"), Settings.saveMode) { Settings.update { saveMode = it } }
+                EditSlider("EDIT QUALITY", Settings.editQuality.toFloat(), 50f..100f, "${Settings.editQuality}", { Settings.update { editQuality = it.toInt() } }, {}, cb.ink) { Settings.update { editQuality = 95 } }
+                EditSlider("EXPORT QUALITY", Settings.exportQuality.toFloat(), 50f..100f, "${Settings.exportQuality}", { Settings.update { exportQuality = it.toInt() } }, {}, cb.ink) { Settings.update { exportQuality = 90 } }
                 Row(
                     Modifier.fillMaxWidth().clickable {
                         // the collage folder lives inside Pictures, so the picker cannot leave it
@@ -103,10 +103,10 @@ internal fun SettingsScreen(favorites: Favorites, onBack: () -> Unit, openPicker
                                 onFolder = { d -> Settings.update { collageFolder = d.relativeTo(pictures).path } },
                             ),
                         )
-                    }.padding(vertical = 6.dp),
+                    }.padding(horizontal = 16.dp, vertical = 6.dp), // lines up with the sliders above
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text("COLLAGE FOLDER", style = monoStyle(cb.inkDim, 1.5.sp))
+                    Text("COLLAGE FOLDER", style = monoStyle(cb.ink, 1.5.sp))
                     Text("Pictures/${Settings.collageFolder}", style = monoStyle(cb.mint, 1.sp))
                 }
             }
@@ -140,7 +140,7 @@ internal fun SettingsScreen(favorites: Favorites, onBack: () -> Unit, openPicker
                     Crossfade(Formatter.formatShortFileSize(context, cacheBytes), animationSpec = tween(MOTION_MS), label = "cache") { Text(it, style = monoStyle(cb.inkDim, 1.sp)) }
                 }
                 Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("AI UPSCALE MODEL", style = monoStyle(cb.inkDim, 1.5.sp))
+                    Text("AI UPSCALE MODEL", style = monoStyle(cb.ink, 1.5.sp))
                     Text("4.9 MB, BUILT IN", style = monoStyle(cb.inkDim, 1.sp))
                 }
             }
@@ -214,7 +214,7 @@ private fun Toggle(label: String, on: Boolean, onChange: (Boolean) -> Unit) {
 private fun Setting(label: String, options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
     val cb = LocalCb.current
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.weight(1f).padding(end = 8.dp), style = monoStyle(cb.inkDim, 1.5.sp))
+        Text(label, Modifier.weight(1f).padding(end = 8.dp), style = monoStyle(cb.ink, 1.5.sp))
         options.forEachIndexed { i, o -> Chip(o, selected == i) { onSelect(i) } }
     }
 }
@@ -222,5 +222,5 @@ private fun Setting(label: String, options: List<String>, selected: Int, onSelec
 /** A smooth slider in 0.1 steps; tap the number to put it back to [default]. */
 @Composable
 private fun ShelfSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, unit: String, default: Float, onChange: (Float) -> Unit) {
-    EditSlider(label, value, range, String.format(Locale.US, "%.1f", value) + unit, { onChange((it * 10).roundToInt() / 10f) }, {}) { onChange(default) }
+    EditSlider(label, value, range, String.format(Locale.US, "%.1f", value) + unit, { onChange((it * 10).roundToInt() / 10f) }, {}, LocalCb.current.ink) { onChange(default) }
 }

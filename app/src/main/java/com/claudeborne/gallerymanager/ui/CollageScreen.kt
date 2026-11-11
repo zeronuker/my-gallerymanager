@@ -120,7 +120,7 @@ fun CollageScreen(items: List<MediaItem>, onClose: () -> Unit, onSaved: () -> Un
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 CloseButton { onClose() }
                 Box(Modifier.weight(1f))
-                ActionText("SAVE", DarkCb.mint) { photos?.let { save(it) } }
+                SvgIconButton("save", DarkCb.mint, "Save") { photos?.let { save(it) } }
             }
 
             val p = photos
