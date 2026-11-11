@@ -53,7 +53,7 @@ private class Album(val id: Long, val name: String, val cover: MediaItem?, val c
 /** The albums grid. A long press selects albums, then the bar acts on every photo and video in them, as it does for files in the Files tab. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools, onChanged: () -> Unit, belowHeader: @Composable () -> Unit = {}, onOpen: (Long) -> Unit) {
+fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools, onChanged: () -> Unit, onOpen: (Long) -> Unit) {
     val cb = LocalCb.current
     val context = LocalContext.current
     // items arrive newest first, so the first of each bucket is its cover and albums sort by recent activity;
@@ -76,8 +76,7 @@ fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools,
     }
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("ALBUMS", if (selecting) "${selected.size} SELECTED" else "${albums.size - 1} ALBUMS") // Favorites is not counted
-        belowHeader()
+        ScreenHeader("ALBUMS", if (selecting) "${selected.size} SELECTED" else "${albums.size - 1} ALBUMS", fixed = true) // Favorites is not counted
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier.weight(1f),

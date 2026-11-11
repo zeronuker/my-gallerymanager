@@ -95,14 +95,6 @@ fun <T : Any> AnimatedOverlay(value: T?, enter: EnterTransition = overlayEnter, 
     Visible(value != null, modifier, enter, exit) { if (shown != null) content(shown) }
 }
 
-/** The 2dp line under a tab: the brand gradient fades in when [selected]. */
-@Composable
-fun TabUnderline(selected: Boolean, modifier: Modifier = Modifier) {
-    val cb = LocalCb.current
-    val a by animateFloatAsState(if (selected) 1f else 0f, tween(MOTION_FAST_MS), label = "tab")
-    Box(modifier.fillMaxWidth().height(2.dp).background(cb.line)) { Box(Modifier.fillMaxSize().alpha(a).background(cb.grad)) }
-}
-
 /** [on] colour or [off] colour, glided between. */
 @Composable
 fun glide(on: Boolean, onColor: Color, offColor: Color): Color = animateColorAsState(if (on) onColor else offColor, tween(MOTION_FAST_MS), label = "glide").value

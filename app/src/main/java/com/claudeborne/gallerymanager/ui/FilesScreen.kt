@@ -284,7 +284,7 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
     }
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader(cat?.label ?: "FILES", count, onBack, backLabel.uppercase())
+        ScreenHeader(cat?.label ?: "FILES", count, onBack, backLabel.uppercase(), fixed = true)
         AnimatedOverlay(busy, expandEnter, shrinkExit) { WorkingLine(it, null, cb.mint) } // copy, move, zip and extract report no percentage, so the bar sweeps
 
         if (dir != null && root != null && !searching) Crumbs(root, rootLabel, dir) { go(it) }
@@ -419,7 +419,7 @@ internal fun toggle(set: Set<String>, p: String) = if (p in set) set - p else se
 private fun PermissionGate(context: Context) {
     val cb = LocalCb.current
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("FILES", "NO ACCESS")
+        ScreenHeader("FILES", "NO ACCESS", fixed = true)
         Column(Modifier.weight(1f).padding(32.dp), Arrangement.spacedBy(16.dp, Alignment.CenterVertically), Alignment.CenterHorizontally) {
             Text(
                 "To browse all folders, Altus Cirrus needs \"All files access\". Turn it on for this app, then come back. Nothing leaves your phone.",

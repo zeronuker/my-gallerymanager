@@ -17,7 +17,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,6 +29,13 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
+import kotlin.math.abs
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -114,40 +120,49 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     BackHandler(enabled = showSettings) { showSettings = false } // last: Settings can open over the viewer, so Back closes it first
 
     Box(Modifier.fillMaxSize()) {
+        val headerInfo = remember { HeaderInfo() }
         Column(Modifier.fillMaxSize().cbGrid(cb).statusBarsPadding()) {
-            Box(Modifier.weight(1f)) {
-                HorizontalPager(mainPager, Modifier.fillMaxSize(), userScrollEnabled = !(mainPager.currentPage == 1 && filesDeep)) { page ->
-                    if (page == 0) {
-                        HorizontalPager(galleryPager, Modifier.fillMaxSize()) { sub ->
-                            val subTabs: @Composable () -> Unit = { SubTabs(galleryPager) }
-                            when {
-                                sub == 0 -> PhotosScreen(images, "IMAGES", tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, gridState = imagesGrid, empty = "NO IMAGES", belowHeader = subTabs, onOpen = openFrom(FROM_IMAGES))
-                                sub == 1 -> PhotosScreen(videos, "VIDEOS", tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, gridState = videosGrid, empty = "NO VIDEOS", belowHeader = subTabs, onOpen = openFrom(FROM_VIDEOS))
-                                // opening an album slides it in over the albums list; closing slides it back out
-                                else -> AnimatedContent(
-                                    album,
-                                    transitionSpec = { if (targetState != null) pushEnter togetherWith fadeOut(tween(MOTION_FAST_MS)) else fadeIn(tween(MOTION_MS)) togetherWith pushExit },
-                                    label = "album",
-                                ) { a ->
-                                    if (a != null) key(a) {
-                                        val title = if (a == FAVORITES_ID) "FAVORITES" else inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM"
-                                        PhotosScreen(inAlbum, title, tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, onBack = { openAlbum = null }, onOpen = openFrom(FROM_ALBUM))
-                                    } else AlbumsScreen(items, favorites.ids, tools, onChanged, subTabs) { openAlbum = it }
+            CompositionLocalProvider(LocalHeaderInfo provides headerInfo) {
+                // the header stays put while the pages swipe under it; a Files tool that draws its own header takes its place
+                Visible(!(mainPager.currentPage == 1 && filesDeep), enter = expandEnter, exit = shrinkExit) {
+                    HeaderBar(headerInfo.title, headerInfo.count, headerInfo.onBack, headerInfo.backLabel)
+                }
+                Box(Modifier.weight(1f)) {
+                    HorizontalPager(mainPager, Modifier.fillMaxSize(), userScrollEnabled = !(mainPager.currentPage == 1 && filesDeep)) { page ->
+                        if (page == 0) {
+                            Column(Modifier.fillMaxSize()) {
+                                SubTabs(galleryPager)
+                                HorizontalPager(galleryPager, Modifier.weight(1f).fillMaxWidth()) { sub ->
+                                    CompositionLocalProvider(LocalPageActive provides (mainPager.currentPage == 0 && galleryPager.currentPage == sub)) {
+                                        when {
+                                            sub == 0 -> PhotosScreen(images, "IMAGES", tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, gridState = imagesGrid, empty = "NO IMAGES", onOpen = openFrom(FROM_IMAGES))
+                                            sub == 1 -> PhotosScreen(videos, "VIDEOS", tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, gridState = videosGrid, empty = "NO VIDEOS", onOpen = openFrom(FROM_VIDEOS))
+                                            // opening an album slides it in over the albums list; closing slides it back out
+                                            else -> AnimatedContent(
+                                                album,
+                                                transitionSpec = { if (targetState != null) pushEnter togetherWith fadeOut(tween(MOTION_FAST_MS)) else fadeIn(tween(MOTION_MS)) togetherWith pushExit },
+                                                label = "album",
+                                            ) { a ->
+                                                if (a != null) key(a) {
+                                                    val title = if (a == FAVORITES_ID) "FAVORITES" else inAlbum.firstOrNull()?.bucketName?.uppercase() ?: "ALBUM"
+                                                    PhotosScreen(inAlbum, title, tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, onBack = { openAlbum = null }, onOpen = openFrom(FROM_ALBUM))
+                                                } else AlbumsScreen(items, favorites.ids, tools, onChanged) { openAlbum = it }
+                                            }
+                                        }
+                                    }
                                 }
                             }
+                        } else {
+                            CompositionLocalProvider(LocalPageActive provides (mainPager.currentPage == 1)) {
+                                FilesScreen(items, trash, backEnabled = viewerId == null && editing == null && collage == null && join == null && !showSettings, onChanged, onDeep = { filesDeep = it }, onOpenMedia = openFrom(FROM_LIBRARY), openPicker = { pickerRequest = it })
+                            }
                         }
-                    } else {
-                        FilesScreen(items, trash, backEnabled = viewerId == null && editing == null && collage == null && join == null && !showSettings, onChanged, onDeep = { filesDeep = it }, onOpenMedia = openFrom(FROM_LIBRARY), openPicker = { pickerRequest = it })
                     }
                 }
-            }
-            Row(Modifier.fillMaxWidth().background(cb.surface1).navigationBarsPadding()) {
-                mainTabs.forEachIndexed { i, label ->
-                    TabButton(label, selected = mainPager.currentPage == i) {
-                        showSettings = false
-                        if (i == 0) openAlbum = null
-                        scope.launch { mainPager.animateScrollToPage(i) }
-                    }
+                MainTabBar(mainPager) { i ->
+                    showSettings = false
+                    if (i == 0) openAlbum = null
+                    scope.launch { mainPager.animateScrollToPage(i) }
                 }
             }
         }
@@ -183,43 +198,51 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     }
 }
 
+/** How much [i] is the tab on show: 1 at its own page, 0 a page away, and in between while swiping, so lines and colours follow the finger. */
+private fun PagerState.near(i: Int): Float = (1f - abs(currentPage + currentPageOffsetFraction - i)).coerceIn(0f, 1f)
+
+/** The 2dp line along the tabs: the bright part is one tab wide and slides with the pager. */
+@Composable
+private fun SlidingLine(pager: PagerState, count: Int) {
+    val cb = LocalCb.current
+    Box(
+        Modifier.fillMaxWidth().height(2.dp).background(cb.line).drawBehind {
+            val w = size.width / count
+            drawRect(cb.grad, Offset((pager.currentPage + pager.currentPageOffsetFraction).coerceIn(0f, count - 1f) * w, 0f), Size(w, size.height))
+        },
+    )
+}
+
+private fun tabStyle(k: Float, mint: Color, dim: Color) = TextStyle(
+    fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.2.sp, textAlign = TextAlign.Center,
+    fontWeight = if (k > 0.5f) FontWeight.Bold else FontWeight.Normal, color = lerp(dim, mint, k),
+)
+
 /** Images / Videos / Albums, under the header; tapping one slides to it, and swiping the page does the same. */
 @Composable
 private fun SubTabs(pager: PagerState) {
     val cb = LocalCb.current
     val scope = rememberCoroutineScope()
-    Row(Modifier.fillMaxWidth()) {
-        galleryTabs.forEachIndexed { i, label ->
-            val selected = pager.currentPage == i
-            Column(Modifier.weight(1f).clickable { scope.launch { pager.animateScrollToPage(i) } }, horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    label, Modifier.padding(vertical = 10.dp),
-                    style = TextStyle(
-                        fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.2.sp,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                        color = glide(selected, cb.mint, cb.inkDim),
-                    ),
-                )
-                TabUnderline(selected)
+    Column {
+        Row(Modifier.fillMaxWidth()) {
+            galleryTabs.forEachIndexed { i, label ->
+                Text(label, Modifier.weight(1f).clickable { scope.launch { pager.animateScrollToPage(i) } }.padding(vertical = 10.dp), style = tabStyle(pager.near(i), cb.mint, cb.inkDim))
             }
         }
+        SlidingLine(pager, galleryTabs.size)
     }
 }
 
+/** Gallery / Files at the bottom; the line on top of the bar slides with the swipe. */
 @Composable
-private fun RowScope.TabButton(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun MainTabBar(pager: PagerState, onSelect: (Int) -> Unit) {
     val cb = LocalCb.current
-    Column(Modifier.weight(1f).height(52.dp).clickable(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally) {
-        TabUnderline(selected)
-        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-            Text(
-                label,
-                style = TextStyle(
-                    fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.2.sp,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                    color = glide(selected, cb.mint, cb.inkDim),
-                ),
-            )
+    Column(Modifier.fillMaxWidth().background(cb.surface1).navigationBarsPadding()) {
+        SlidingLine(pager, mainTabs.size)
+        Row(Modifier.fillMaxWidth()) {
+            mainTabs.forEachIndexed { i, label ->
+                Box(Modifier.weight(1f).height(50.dp).clickable { onSelect(i) }, Alignment.Center) { Text(label, style = tabStyle(pager.near(i), cb.mint, cb.inkDim)) }
+            }
         }
     }
 }

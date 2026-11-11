@@ -15,6 +15,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,27 +73,61 @@ private fun BrandBanner() {
     }
 }
 
+/** What the fixed header above the main pages shows; the page on show fills it in (see [ScreenHeader] with `fixed`). */
+class HeaderInfo {
+    var title by mutableStateOf("")
+    var count by mutableStateOf("")
+    var onBack by mutableStateOf<(() -> Unit)?>(null)
+    var backLabel by mutableStateOf("")
+}
+
+val LocalHeaderInfo = compositionLocalOf<HeaderInfo?> { null }
+
+/** False for a page that is only half in view while swiping: only the page on show fills in the fixed header. */
+val LocalPageActive = compositionLocalOf { true }
+
+/**
+ * A screen's header. With [fixed] (the main pages) nothing is drawn here: the title, count and back link go to the one header that stays
+ * put above the swiping pages. Without it (a Files tool, Trash, Settings) the screen draws its own.
+ */
+@Composable
+fun ScreenHeader(title: String, count: String, onBack: (() -> Unit)? = null, backLabel: String = "", fixed: Boolean = false) {
+    val info = LocalHeaderInfo.current
+    val active = LocalPageActive.current
+    if (fixed && info != null) {
+        SideEffect { if (active) { info.title = title; info.count = count; info.onBack = onBack; info.backLabel = backLabel } }
+        return
+    }
+    HeaderBar(title, count, onBack, backLabel)
+}
+
 /** Brand banner on the left; screen title with its count underneath on the right. An [onBack] adds a back link on the left, under the banner. */
 @Composable
-fun ScreenHeader(title: String, count: String, onBack: (() -> Unit)? = null, backLabel: String = "") {
+fun HeaderBar(title: String, count: String, onBack: (() -> Unit)?, backLabel: String) {
     val cb = LocalCb.current
+    // the back link slides away when there is nothing to go back to; it keeps its last words and action while it does
+    var lastLabel by remember { mutableStateOf(backLabel) }
+    var lastBack by remember { mutableStateOf(onBack) }
+    if (onBack != null) { lastLabel = backLabel; lastBack = onBack }
     Column {
         Row(Modifier.fillMaxWidth().padding(end = 16.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             BrandBanner()
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                Text(
-                    title, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    style = TextStyle(fontFamily = Tourney, fontWeight = FontWeight.Bold, fontSize = 28.sp, brush = cb.grad),
-                )
+                AnimatedContent(title, transitionSpec = { fadeIn(tween(MOTION_FAST_MS)) togetherWith fadeOut(tween(MOTION_FAST_MS)) }, label = "title") { text ->
+                    Text(
+                        text, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = TextStyle(fontFamily = Tourney, fontWeight = FontWeight.Bold, fontSize = 28.sp, brush = cb.grad),
+                    )
+                }
                 // the count fades when it changes (ITEMS to SELECTED, a scan finishing, a speed appearing)
                 AnimatedContent(count, transitionSpec = { fadeIn(tween(MOTION_FAST_MS)) togetherWith fadeOut(tween(MOTION_FAST_MS)) }, label = "count") { text ->
                     Text(text, style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 1.sp, color = cb.inkDim))
                 }
             }
         }
-        if (onBack != null) {
+        Visible(onBack != null, enter = expandEnter, exit = shrinkExit) {
             Text(
-                "← $backLabel", Modifier.clickable(onClick = onBack).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 2.dp),
+                "← $lastLabel", Modifier.clickable { lastBack?.invoke() }.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 2.dp),
                 style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.6.sp, color = cb.mint),
             )
         }
