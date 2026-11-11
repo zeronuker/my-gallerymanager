@@ -33,6 +33,10 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.layout.aspectRatio
 import com.claudeborne.gallerymanager.data.Settings
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -98,6 +102,7 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
     var erase by remember { mutableStateOf<List<TrashRow>?>(null) } // what a confirm dialog is about to erase
     var binDetail by remember { mutableStateOf<String?>(null) } // key of the bin file open full-screen
     var mediaView by remember { mutableStateOf<Long?>(null) } // id of the photo or video open full-screen
+    var grid by rememberSaveable { mutableStateOf(false) } // rows or thumbnails
 
     var loaded by remember { mutableStateOf(false) }
     LaunchedEffect(refresh) { bin = withContext(Dispatchers.IO) { listBin(context).map { BinRow(it, entryOf(it.file)) } }; loaded = true }
@@ -128,9 +133,14 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
     Box(Modifier.fillMaxSize()) { // a full-screen look at one item draws over the list
         Column(Modifier.fillMaxSize()) {
             ScreenHeader("TRASH", if (chosen.isEmpty()) "${rows.size} ITEMS" else "${chosen.size} SELECTED", onBack, "FILES")
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Items are removed for good after about 30 days.", Modifier.weight(1f).padding(horizontal = 16.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim))
-                AnimatedVisibility(rows.isNotEmpty(), enter = fadeIn(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_FAST_MS))) { ActionText("EMPTY TRASH", RED) { erase = rows } }
+            Text("Items are removed for good after about 30 days.", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim))
+            Row(Modifier.fillMaxWidth(), Arrangement.End, Alignment.CenterVertically) {
+                AnimatedVisibility(rows.isNotEmpty(), enter = fadeIn(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_FAST_MS))) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ViewMenu(grid, { grid = it })
+                        ActionText("EMPTY TRASH", RED) { erase = rows }
+                    }
+                }
             }
             Crossfade(if (!loaded && rows.isEmpty()) 0 else if (rows.isEmpty()) 1 else 2, Modifier.weight(1f).fillMaxWidth(), animationSpec = tween(MOTION_MS), label = "trash") { state ->
                 if (state == 0) {
@@ -138,23 +148,32 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
                 } else if (state == 1) {
                     Box(Modifier.fillMaxSize(), Alignment.Center) { Text("THE TRASH IS EMPTY", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim)) }
                 } else {
-                    LazyColumn(Modifier.fillMaxSize()) {
+                    // a tap looks at the item (a small thumbnail is hard to judge); a long press, or a tap once something is selected, selects it
+                    fun tapOf(row: TrashRow): () -> Unit = {
+                        if (selected.isNotEmpty()) toggle(row.key)
+                        else if (row is BinRow) binDetail = row.key else if (row is MediaRow) mediaView = row.item.id
+                    }
+                    if (grid) LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         items(rows, key = { it.key }) { row ->
-                            // a tap looks at the item (a small thumbnail is hard to judge); a long press, or a tap once something is selected, selects it
-                            val onClick = {
-                                if (selected.isNotEmpty()) toggle(row.key)
-                                else if (row is BinRow) binDetail = row.key else if (row is MediaRow) mediaView = row.item.id
+                            Box(Modifier.animateItem()) {
+                                when (row) {
+                                    is BinRow -> GridTile(row.entry, row.key in selected, tapOf(row)) { toggle(row.key) }
+                                    is MediaRow -> MediaTrashTile(row.item, row.key in selected, tapOf(row)) { toggle(row.key) }
+                                }
                             }
+                        }
+                    } else LazyColumn(Modifier.fillMaxSize()) {
+                        items(rows, key = { it.key }) { row ->
                             Box(Modifier.animateItem()) {
                             when (row) {
                                 is BinRow -> {
                                     val size = if (row.entry.isDir) "FOLDER" else Formatter.formatShortFileSize(context, row.entry.size).uppercase()
                                     ListRow(
-                                        row.entry, row.key in selected, onClick, { toggle(row.key) },
+                                        row.entry, row.key in selected, tapOf(row), { toggle(row.key) },
                                         note = "$size · DELETED ${dateText(row.item.deletedMs)}", path = "FROM ${row.item.origin.parent.orEmpty()}",
                                     )
                                 }
-                                is MediaRow -> MediaTrashRow(row.item, row.key in selected, onClick) { toggle(row.key) }
+                                is MediaRow -> MediaTrashRow(row.item, row.key in selected, tapOf(row)) { toggle(row.key) }
                             }
                             }
                         }
@@ -219,6 +238,25 @@ private fun daysLeft(item: MediaItem): String {
     if (item.expiresMs <= 0) return ""
     val days = ((item.expiresMs - System.currentTimeMillis()) / DAY_MS).coerceAtLeast(0)
     return if (days == 1L) "1 day" else "$days days"
+}
+
+/** A trashed photo or video as a thumbnail with how long it has left. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MediaTrashTile(item: MediaItem, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+    val cb = LocalCb.current
+    val left = daysLeft(item)
+    Box(
+        Modifier.aspectRatio(1f).background(cb.surface2).combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .border(3.dp, glide(selected, cb.mint, Color.Transparent)),
+    ) {
+        AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        if (left.isNotEmpty()) Text(
+            left.uppercase(), Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color(0x99000000)).padding(horizontal = 4.dp, vertical = 2.dp),
+            style = TextStyle(fontFamily = JetBrainsMono, fontSize = 10.sp, color = Color.White),
+        )
+        SelectedMark(selected)
+    }
 }
 
 /** A trashed photo or video as a row that matches the file rows. */

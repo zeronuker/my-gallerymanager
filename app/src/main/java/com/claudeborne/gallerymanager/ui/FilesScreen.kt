@@ -299,7 +299,7 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
                 SearchAction(searching, query, { query = it }, Modifier.weight(1f)) { searching = !searching; if (!searching) query = "" }
                 if (dir != null) {
                     SortMenu(sort, ascending) { s -> if (s == sort) ascending = !ascending else { sort = s; ascending = s == SortBy.NAME || s == SortBy.TYPE } }
-                    ViewMenu(grid, hidden, { grid = it }) { hidden = !hidden }
+                    ViewMenu(grid, { grid = it }, hidden) { hidden = !hidden }
                 }
             }
         }
@@ -581,16 +581,16 @@ private fun SortMenu(sort: SortBy, ascending: Boolean, onPick: (SortBy) -> Unit)
 
 /** How the folder is shown: a list or a grid, and whether hidden files are listed. */
 @Composable
-private fun ViewMenu(grid: Boolean, hidden: Boolean, onGrid: (Boolean) -> Unit, onHidden: () -> Unit) {
+internal fun ViewMenu(grid: Boolean, onGrid: (Boolean) -> Unit, hidden: Boolean = false, onHidden: (() -> Unit)? = null) {
     val cb = LocalCb.current
     var open by remember { mutableStateOf(false) }
     Box {
         ActionText("VIEW ▾", cb.mint) { open = true }
         DropdownMenu(open, { open = false }, containerColor = cb.surface2) {
-            listOf(
+            listOfNotNull(
                 ("LIST" + if (!grid) " ✓" else "") to { onGrid(false) },
                 ("GRID" + if (grid) " ✓" else "") to { onGrid(true) },
-                ("SHOW HIDDEN FILES" + if (hidden) " ✓" else "") to onHidden,
+                onHidden?.let { ("SHOW HIDDEN FILES" + if (hidden) " ✓" else "") to it },
             ).forEach { (label, act) ->
                 DropdownMenuItem(text = { Text(label, style = monoStyle(cb.ink, 1.5.sp)) }, onClick = { open = false; act() })
             }
@@ -668,7 +668,7 @@ internal fun ListRow(e: Entry, selected: Boolean, onClick: () -> Unit, onLongCli
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun GridTile(e: Entry, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+internal fun GridTile(e: Entry, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val cb = LocalCb.current
     Box(
         Modifier.aspectRatio(1f).background(cb.surface2).combinedClickable(onClick = onClick, onLongClick = onLongClick)
