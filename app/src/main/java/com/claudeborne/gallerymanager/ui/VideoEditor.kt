@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -134,6 +135,7 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
     var progress by remember { mutableFloatStateOf(0f) }
     var job by remember { mutableStateOf<Job?>(null) }
     var askDiscard by remember { mutableStateOf(false) }
+    var askReset by remember { mutableStateOf(false) }
     val pickMusic = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) edit = edit.copy(music = uri, musicName = musicFileName(context, uri))
     }
@@ -145,6 +147,21 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
     var selected by remember { mutableIntStateOf(-1) }
     var textAt by remember { mutableStateOf<Pt?>(null) }
     var editText by remember { mutableStateOf(false) }
+
+    // every settled change is one step, so dragging a slider is one UNDO; RESET is a step too, so it can be undone
+    val history = remember { mutableStateListOf(VideoEdit()) }
+    var at by remember { mutableIntStateOf(0) }
+    fun flush() {
+        if (edit != history[at]) {
+            while (history.size > at + 1) history.removeAt(history.lastIndex)
+            history.add(edit)
+            at++
+        }
+    }
+    LaunchedEffect(edit) { delay(350); flush() }
+    fun undo() { flush(); if (at > 0) { at--; edit = history[at]; selected = -1 } }
+    fun redo() { if (at < history.lastIndex && edit == history[at]) { at++; edit = history[at]; selected = -1 } }
+    fun resetAll() { flush(); edit = VideoEdit(); selected = -1; flush() }
 
     val player = remember {
         ExoPlayer.Builder(context).build().apply {
@@ -306,6 +323,13 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                 Box(Modifier.fillMaxWidth().height(260.dp).background(Panel), Alignment.Center) { LoadingPane("LOADING VIDEO") }
             } else {
                 Column(Modifier.fillMaxWidth().background(Panel).navigationBarsPadding()) {
+                    val canUndo = at > 0 || edit != history[at]
+                    val canRedo = at < history.lastIndex && edit == history[at]
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), Arrangement.End) {
+                        ActionText("UNDO", if (canUndo) DarkCb.ink else DarkCb.inkDim) { undo() }
+                        ActionText("REDO", if (canRedo) DarkCb.ink else DarkCb.inkDim) { redo() }
+                        ActionText("RESET", if (changed) DarkCb.ink else DarkCb.inkDim) { if (changed) askReset = true }
+                    }
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(fmt(pos), style = monoStyle(Color.White, 1.sp))
                         Text("${fmt(edit.startMs)} – ${fmt(endMs)}  →  ${fmt(edit.outputMs(i))}", style = monoStyle(DarkCb.mint, 1.sp))
@@ -483,6 +507,15 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                 Row(Modifier.fillMaxWidth(), Arrangement.End) {
                     ActionText("KEEP EDITING", DarkCb.inkDim) { askDiscard = false }
                     ActionText("DISCARD", Danger) { onClose() }
+                }
+            }
+        }
+        if (askReset) {
+            CbDialog("RESET ALL EDITS?", { askReset = false }) {
+                Text("The video goes back to how it was. You can still press UNDO to get your edits back.", style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = DarkCb.ink2))
+                Row(Modifier.fillMaxWidth(), Arrangement.End) {
+                    ActionText("CANCEL", DarkCb.inkDim) { askReset = false }
+                    ActionText("RESET", Danger) { askReset = false; resetAll() }
                 }
             }
         }

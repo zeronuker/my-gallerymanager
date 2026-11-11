@@ -28,6 +28,15 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.animate
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateDpAsState
@@ -216,6 +225,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                 Box(Modifier.weight(1f))
                 ActionText("UNDO", if (at > 0) DarkCb.ink else DarkCb.inkDim) { if (at > 0) { at--; live = null; selected = -1 } }
                 ActionText("REDO", if (at < history.lastIndex) DarkCb.ink else DarkCb.inkDim) { if (at < history.lastIndex) { at++; live = null; selected = -1 } }
+                ActionText("RESET", if (state.isEdited) DarkCb.ink else DarkCb.inkDim) { if (state.isEdited) dialog = 3 }
                 Box(Modifier.weight(1f))
                 ActionText("SAVE", if (state.isEdited) DarkCb.mint else DarkCb.inkDim) { if (state.isEdited) startSave() else onClose() }
             }
@@ -228,6 +238,7 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                     EditCanvas(
                         bmp, if (showOriginal) EditState() else state, cropMode = tool == 0 && !showOriginal, aspect,
                         onCrop = { live = state.copy(crop = it) }, onCropDone = { live?.let(::commit) },
+                        onePan = tool == 1 || tool == 2 || tool == 5, // ADJUST, FILTERS and CUTOUT have nothing to draw, so one finger can move a zoomed picture
                         mask = mask, faces = faces,
                         overlay = when {
                             showOriginal -> null
@@ -388,6 +399,13 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
                     ActionText("DISCARD", Danger) { onClose() }
                 }
             }
+            3 -> CbDialog("RESET ALL EDITS?", { dialog = 0 }) {
+                Text("The photo goes back to how it was. You can still press UNDO to get your edits back.", style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = DarkCb.ink2))
+                Row(Modifier.fillMaxWidth(), Arrangement.End) {
+                    ActionText("CANCEL", DarkCb.inkDim) { dialog = 0 }
+                    ActionText("RESET", Danger) { dialog = 0; selected = -1; textAt = null; aspect = Aspect.FREE; commit(EditState()) } // a step of its own, so UNDO brings the edits back
+                }
+            }
         }
         textAt?.let { p ->
             AddTextDialog(
@@ -426,12 +444,50 @@ private fun Choice(title: String, note: String, onClick: () -> Unit) {
 /** The picture, fitted to the space. In crop mode it shows the whole frame with the crop box on top. */
 @Composable
 private fun EditCanvas(
-    bmp: Bitmap, st: EditState, cropMode: Boolean, lock: Aspect, onCrop: (Crop) -> Unit, onCropDone: () -> Unit,
+    bmp: Bitmap, st: EditState, cropMode: Boolean, lock: Aspect, onCrop: (Crop) -> Unit, onCropDone: () -> Unit, onePan: Boolean,
     overlay: (@Composable () -> Unit)? = null, mask: Bitmap? = null, faces: Bitmap? = null,
 ) {
     val shader = remember { EditShader() }
     val density = LocalDensity.current
-    BoxWithConstraints(Modifier.fillMaxSize().padding(8.dp)) {
+    // the view: two fingers pinch and move it in every tool (one finger keeps drawing or dragging handles); it never touches the picture's edits
+    var zoom by remember { mutableFloatStateOf(1f) }
+    var pan by remember { mutableStateOf(Offset.Zero) }
+    var fitTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(fitTick) {
+        if (fitTick > 0) {
+            val z0 = zoom; val p0 = pan
+            animate(0f, 1f, animationSpec = tween(MOTION_MS)) { t, _ -> zoom = z0 + (1f - z0) * t; pan = p0 * (1f - t) }
+        }
+    }
+    BoxWithConstraints(
+        Modifier.fillMaxSize().padding(8.dp).clipToBounds().pointerInput(onePan) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                do {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val down = event.changes.count { it.pressed }
+                    val moving = down >= 2 || (down == 1 && onePan && zoom > 1.01f)
+                    if (moving) {
+                        val dz = if (down >= 2) event.calculateZoom() else 1f
+                        val dp = event.calculatePan()
+                        val centre = if (down >= 2) event.calculateCentroid() else Offset.Zero
+                        if (dz != 1f || dp != Offset.Zero) {
+                            val newZoom = (zoom * dz).coerceIn(1f, 6f)
+                            val k = newZoom / zoom
+                            val half = Offset(size.width / 2f, size.height / 2f)
+                            val cc = if (down >= 2) centre - half else Offset.Zero
+                            // the point under the fingers stays under them while the zoom changes
+                            val next = cc - (cc - pan) * k + dp
+                            val limit = Offset((newZoom - 1f) * size.width / 2f, (newZoom - 1f) * size.height / 2f)
+                            zoom = newZoom
+                            pan = Offset(next.x.coerceIn(-limit.x, limit.x), next.y.coerceIn(-limit.y, limit.y))
+                            event.changes.forEach { it.consume() }
+                        }
+                    }
+                } while (event.changes.any { it.pressed })
+            }
+        },
+    ) {
         val (cw, ch) = frameSize(bmp.width, bmp.height, st.turns)
         val crop = if (cropMode) Crop() else st.crop
         val ratio = crop.w * cw / (crop.h * ch)
@@ -439,7 +495,10 @@ private fun EditCanvas(
         val maxH = constraints.maxHeight.toFloat()
         val w = if (maxW / maxH > ratio) maxH * ratio else maxW
         val h = w / ratio
-        Box(Modifier.size(with(density) { w.toDp() }, with(density) { h.toDp() }).align(Alignment.Center)) {
+        Visible(zoom > 1.01f, Modifier.align(Alignment.BottomStart).padding(4.dp), enter = popEnter, exit = popExit) {
+            Text("FIT", Modifier.background(Color(0x99000000)).clickable { fitTick++ }.padding(horizontal = 10.dp, vertical = 8.dp), style = monoStyle(DarkCb.mint, 1.5.sp))
+        }
+        Box(Modifier.size(with(density) { w.toDp() }, with(density) { h.toDp() }).align(Alignment.Center).graphicsLayer { scaleX = zoom; scaleY = zoom; translationX = pan.x; translationY = pan.y }) {
             Canvas(Modifier.fillMaxSize()) {
                 if (mask != null && st.backdrop == Backdrop.TRANSPARENT) { // chequerboard shows what is see-through
                     val cell = 12.dp.toPx()
