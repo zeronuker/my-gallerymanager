@@ -27,10 +27,10 @@ internal fun FacePanel(
 ) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
         LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
-            item { Chip("HEAL", onClick = onHeal) }
-            item { Chip("CLONE", onClick = onClone) }
-            item { Chip("FACE", true) {} }
-            if (found) FaceFix.entries.forEach { f -> item { Chip(f.label, which == f) { onWhich(f) } } }
+            item { Chip("HEAL", icon = "heal", onClick = onHeal) }
+            item { Chip("CLONE", icon = "clone", onClick = onClone) }
+            item { Chip("FACE", true, icon = "face") {} }
+            if (found) FaceFix.entries.forEach { f -> item { Chip(f.label, which == f, icon = when (f) { FaceFix.SKIN -> "skin"; FaceFix.TEETH -> "teeth"; FaceFix.EYES -> "eyes" }) { onWhich(f) } } }
         }
         when {
             !found && !tried -> WorkingLine("LOOKING FOR FACES…", null)

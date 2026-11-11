@@ -223,9 +223,9 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 CloseButton { close() }
                 Box(Modifier.weight(1f))
-                ActionText("UNDO", if (at > 0) DarkCb.ink else DarkCb.inkDim) { if (at > 0) { at--; live = null; selected = -1 } }
-                ActionText("REDO", if (at < history.lastIndex) DarkCb.ink else DarkCb.inkDim) { if (at < history.lastIndex) { at++; live = null; selected = -1 } }
-                ActionText("RESET", if (state.isEdited) DarkCb.ink else DarkCb.inkDim) { if (state.isEdited) dialog = 3 }
+                SvgIconButton("undo", glide(at > 0, DarkCb.ink, DarkCb.inkDim), "Undo") { if (at > 0) { at--; live = null; selected = -1 } }
+                SvgIconButton("resetAll", glide(state.isEdited, DarkCb.ink, DarkCb.inkDim), "Reset all edits") { if (state.isEdited) dialog = 3 }
+                SvgIconButton("redo", glide(at < history.lastIndex, DarkCb.ink, DarkCb.inkDim), "Redo") { if (at < history.lastIndex) { at++; live = null; selected = -1 } }
                 Box(Modifier.weight(1f))
                 ActionText("SAVE", if (state.isEdited) DarkCb.mint else DarkCb.inkDim) { if (state.isEdited) startSave() else onClose() }
             }
@@ -281,10 +281,14 @@ fun Editor(item: MediaItem, tools: FileTools, onClose: () -> Unit, onSaved: () -
 
             Column(Modifier.fillMaxWidth().background(Panel).navigationBarsPadding()) {
                 Row(Modifier.fillMaxWidth()) {
-                    listOf("CROP", "ADJUST", "FILTERS", "MARKUP", "RETOUCH", "CUTOUT").forEachIndexed { i, label ->
+                    listOf("CROP" to "crop", "ADJUST" to "adjust", "FILTERS" to "filters", "MARKUP" to "markup", "RETOUCH" to "retouch", "CUTOUT" to "cutout").forEachIndexed { i, (label, icon) ->
                         Column(Modifier.weight(1f).clickable { tool = i; selected = -1 }, horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(Modifier.fillMaxWidth().height(2.dp).background(glide(tool == i, DarkCb.mint, Color.Transparent)))
-                            Text(label, Modifier.padding(vertical = 12.dp), style = monoStyle(glide(tool == i, DarkCb.mint, DarkCb.inkDim), 2.2.sp))
+                            Column(Modifier.padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                val c = glide(tool == i, DarkCb.mint, DarkCb.inkDim)
+                                SvgIcon(icon, c, size = 22.dp)
+                                Text(label, style = monoStyle(c, 0.8.sp).copy(fontSize = 9.sp))
+                            }
                         }
                     }
                 }
@@ -608,12 +612,15 @@ private fun CropOverlay(crop: Crop, lock: Float?, frameAspect: Float, onChange: 
 }
 
 @Composable
-internal fun Chip(label: String, selected: Boolean = false, color: Color = DarkCb.inkDim, onClick: () -> Unit) {
-    Text(
-        label,
+internal fun Chip(label: String, selected: Boolean = false, color: Color = DarkCb.inkDim, icon: String? = null, onClick: () -> Unit) {
+    val c = glide(selected, DarkCb.mint, color)
+    Row(
         Modifier.clickable(onClick = onClick).background(glide(selected, DarkCb.surface3, Color.Transparent)).padding(horizontal = 10.dp, vertical = 8.dp),
-        style = monoStyle(glide(selected, DarkCb.mint, color), 1.6.sp),
-    )
+        Arrangement.spacedBy(6.dp), Alignment.CenterVertically,
+    ) {
+        if (icon != null) SvgIcon(icon, c, size = 16.dp)
+        if (label.isNotEmpty()) Text(label, style = monoStyle(c, 1.6.sp)) // an icon-only chip has no label
+    }
 }
 
 @Composable
@@ -637,16 +644,22 @@ private fun CropPanel(
 ) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
         LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) {
-            items(Aspect.entries) { Chip(it.label, aspect == it) { onAspect(it) } }
+            items(Aspect.entries) { Chip(it.label, aspect == it, icon = when (it) { Aspect.FREE -> "free"; Aspect.ORIGINAL -> "orig"; else -> null }) { onAspect(it) } }
         }
         LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) {
-            item { Chip("ROTATE", color = DarkCb.ink, onClick = onRotate) }
-            item { Chip("FLIP H", color = DarkCb.ink, onClick = onFlipH) }
-            item { Chip("FLIP V", color = DarkCb.ink, onClick = onFlipV) }
-            item { Chip("RESET", onClick = onReset) }
+            item { Chip("ROTATE", color = DarkCb.ink, icon = "rotate", onClick = onRotate) }
+            item { Chip("FLIP H", color = DarkCb.ink, icon = "flipH", onClick = onFlipH) }
+            item { Chip("FLIP V", color = DarkCb.ink, icon = "flipV", onClick = onFlipV) }
+            item { Chip("RESET", icon = "reset", onClick = onReset) }
         }
         EditSlider("STRAIGHTEN", st.angle, -45f..45f, "%.1f°".format(st.angle), onAngle, onAngleDone) { onAngle(0f); onAngleDone() }
     }
+}
+
+private fun adjustIcon(a: Adjust) = when (a) {
+    Adjust.EXPOSURE -> "exposure"; Adjust.BRIGHTNESS -> "bright"; Adjust.CONTRAST -> "contrast"; Adjust.HIGHLIGHTS -> "highlights"
+    Adjust.SHADOWS -> "shadows"; Adjust.WHITES -> "whites"; Adjust.BLACKS -> "blacks"; Adjust.SATURATION -> "sat"; Adjust.VIBRANCE -> "vib"
+    Adjust.WARMTH -> "warm"; Adjust.TINT -> "tint"; Adjust.SHARPNESS -> "sharp"; Adjust.CLARITY -> "clarity"; Adjust.VIGNETTE -> "vig"; Adjust.GRAIN -> "grain"
 }
 
 @Composable
@@ -656,19 +669,19 @@ private fun AdjustPanel(
 ) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
         LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) {
-            items(Scope.entries) { s -> Chip(s.label, scope == s) { onScope(s) } }
+            items(Scope.entries) { s -> Chip(s.label, scope == s, icon = when (s) { Scope.ALL -> "all"; Scope.SUBJECT -> "subject"; Scope.BACKGROUND -> "back" }) { onScope(s) } }
         }
         LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) {
             if (scope == Scope.ALL) {
-                item { Chip("AUTO", color = DarkCb.mint, onClick = onAuto) }
-                item { Chip("RESET", onClick = onReset) }
-                item { Chip("LEVELS", color = DarkCb.ink) { onMode(ADV_LEVELS) } }
-                item { Chip("CURVES", color = DarkCb.ink) { onMode(ADV_CURVES) } }
-                item { Chip("COLOUR", color = DarkCb.ink) { onMode(ADV_COLOUR) } }
-                items(Adjust.entries) { a -> Chip(a.label, which == a) { onWhich(a) } }
+                item { Chip("AUTO", color = DarkCb.mint, icon = "auto", onClick = onAuto) }
+                item { Chip("RESET", icon = "reset", onClick = onReset) }
+                item { Chip("LEVELS", color = DarkCb.ink, icon = "levels") { onMode(ADV_LEVELS) } }
+                item { Chip("CURVES", color = DarkCb.ink, icon = "curves") { onMode(ADV_CURVES) } }
+                item { Chip("COLOUR", color = DarkCb.ink, icon = "colour") { onMode(ADV_COLOUR) } }
+                items(Adjust.entries) { a -> Chip(a.label, which == a, icon = adjustIcon(a)) { onWhich(a) } }
             } else {
-                item { Chip("RESET", onClick = onReset) }
-                items(ScopedAdjust) { a -> Chip(a.label, which == a) { onWhich(a) } }
+                item { Chip("RESET", icon = "reset", onClick = onReset) }
+                items(ScopedAdjust) { a -> Chip(a.label, which == a, icon = adjustIcon(a)) { onWhich(a) } }
             }
         }
         if (scope != Scope.ALL && !found) {

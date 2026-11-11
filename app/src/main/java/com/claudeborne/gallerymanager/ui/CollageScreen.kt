@@ -137,8 +137,9 @@ fun CollageScreen(items: List<MediaItem>, onClose: () -> Unit, onSaved: () -> Un
                         selected = i
                     },
                 )
-                Box(Modifier.align(Alignment.BottomStart).padding(6.dp)) {
-                    Chip(if (swap) "TAP A PHOTO TO SWAP" else "SWAP", swap) { swap = !swap }
+                Row(Modifier.align(Alignment.BottomStart).padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Chip("", swap, icon = "swap") { swap = !swap }
+                    Visible(swap, Modifier, expandEnter, shrinkExit) { Text("TAP A PHOTO TO SWAP", Modifier.padding(start = 6.dp), style = monoStyle(DarkCb.mint, 1.5.sp)) }
                 }
             }
 

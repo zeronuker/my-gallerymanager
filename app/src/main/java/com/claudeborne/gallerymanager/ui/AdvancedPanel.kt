@@ -57,10 +57,10 @@ internal fun AdvancedPanel(
 ) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
         LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
-            item { Chip("← BASIC", color = DarkCb.mint) { onMode(0) } }
-            item { Chip("LEVELS", adv == ADV_LEVELS) { onMode(ADV_LEVELS) } }
-            item { Chip("CURVES", adv == ADV_CURVES) { onMode(ADV_CURVES) } }
-            item { Chip("COLOUR", adv == ADV_COLOUR) { onMode(ADV_COLOUR) } }
+            item { Chip("BASIC", color = DarkCb.mint, icon = "back") { onMode(0) } }
+            item { Chip("LEVELS", adv == ADV_LEVELS, icon = "levels") { onMode(ADV_LEVELS) } }
+            item { Chip("CURVES", adv == ADV_CURVES, icon = "curves") { onMode(ADV_CURVES) } }
+            item { Chip("COLOUR", adv == ADV_COLOUR, icon = "colour") { onMode(ADV_COLOUR) } }
         }
         when (adv) {
             ADV_LEVELS -> {
@@ -71,7 +71,7 @@ internal fun AdvancedPanel(
             ADV_CURVES -> Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row {
                     listOf("RGB", "RED", "GREEN", "BLUE").forEachIndexed { i, label -> Chip(label, channel == i) { onChannel(i) } }
-                    Chip("RESET", color = DarkCb.inkDim) { onLive(st.copy(curves = st.curves.with(channel, Curves().master))); onDone() }
+                    Chip("RESET", color = DarkCb.inkDim, icon = "reset") { onLive(st.copy(curves = st.curves.with(channel, Curves().master))); onDone() }
                 }
                 CurveEditor(st.curves.channel(channel), channel, { onLive(st.copy(curves = st.curves.with(channel, it))) }, onDone, Modifier.fillMaxWidth().height(210.dp))
             }

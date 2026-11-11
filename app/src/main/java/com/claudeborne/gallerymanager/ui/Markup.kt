@@ -222,9 +222,9 @@ internal fun MarkupPanel(
 ) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
         LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
-            items(tools) { Chip(it.label, tool == it) { onTool(it) } }
-            if (onEditText != null) item { Chip("EDIT TEXT", color = DarkCb.mint, onClick = onEditText) }
-            if (canDelete) item { Chip("DELETE", color = Danger, onClick = onDelete) }
+            items(tools) { Chip(it.label, tool == it, icon = when (it) { MarkTool.PEN -> "pen"; MarkTool.MARKER -> "marker"; MarkTool.ERASER -> "eraser"; MarkTool.TEXT -> "text"; MarkTool.STICKER -> "sticker"; else -> null }) { onTool(it) } }
+            if (onEditText != null) item { Chip("EDIT TEXT", color = DarkCb.mint, icon = "editText", onClick = onEditText) }
+            if (canDelete) item { Chip("DELETE", color = Danger, icon = "delete", onClick = onDelete) }
         }
         when (tool) {
             MarkTool.PEN, MarkTool.MARKER, MarkTool.TEXT -> LazyRow(

@@ -326,9 +326,9 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                     val canUndo = at > 0 || edit != history[at]
                     val canRedo = at < history.lastIndex && edit == history[at]
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), Arrangement.End) {
-                        ActionText("UNDO", if (canUndo) DarkCb.ink else DarkCb.inkDim) { undo() }
-                        ActionText("REDO", if (canRedo) DarkCb.ink else DarkCb.inkDim) { redo() }
-                        ActionText("RESET", if (changed) DarkCb.ink else DarkCb.inkDim) { if (changed) askReset = true }
+                        SvgIconButton("undo", glide(canUndo, DarkCb.ink, DarkCb.inkDim), "Undo") { undo() }
+                        SvgIconButton("resetAll", glide(changed, DarkCb.ink, DarkCb.inkDim), "Reset all edits") { if (changed) askReset = true }
+                        SvgIconButton("redo", glide(canRedo, DarkCb.ink, DarkCb.inkDim), "Redo") { redo() }
                     }
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(fmt(pos), style = monoStyle(Color.White, 1.sp))
@@ -342,10 +342,14 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                         Modifier.fillMaxWidth().padding(horizontal = 32.dp).height(56.dp), // margin keeps the end handles clear of Android's Back-swipe zone
                     )
                     Row(Modifier.fillMaxWidth().padding(top = 4.dp).horizontalScroll(rememberScrollState())) {
-                        listOf("TRIM", "SPEED", "AUDIO", "ROTATE", "CROP", "LOOK", "MARKUP", "FADE", "FREEZE", "COMPRESS").forEachIndexed { n, label ->
+                        listOf("TRIM" to "trim", "SPEED" to "speed", "AUDIO" to "audio", "ROTATE" to "vrotate", "CROP" to "crop", "LOOK" to "look", "MARKUP" to "markup", "FADE" to "fade", "FREEZE" to "freeze", "COMPRESS" to "compress").forEachIndexed { n, (label, icon) ->
                             Column(Modifier.clickable { tool = n; selected = -1 }.padding(horizontal = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                 Box(Modifier.width(48.dp).height(2.dp).background(glide(tool == n, DarkCb.mint, Color.Transparent)))
-                                Text(label, Modifier.padding(vertical = 10.dp), style = monoStyle(glide(tool == n, DarkCb.mint, DarkCb.inkDim), 0.8.sp).copy(fontSize = 10.sp))
+                                Column(Modifier.padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                val c = glide(tool == n, DarkCb.mint, DarkCb.inkDim)
+                                SvgIcon(icon, c, size = 22.dp)
+                                Text(label, style = monoStyle(c, 0.8.sp).copy(fontSize = 9.sp))
+                            }
                             }
                         }
                     }
@@ -354,10 +358,10 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                             when (tool) {
                                 0 -> {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
-                                        item { Chip("START HERE", color = DarkCb.ink) { edit = edit.copy(startMs = min(player.currentPosition, endMs - MIN_CLIP_MS).coerceAtLeast(0)) } }
-                                        item { Chip("END HERE", color = DarkCb.ink) { val t = max(player.currentPosition, edit.startMs + MIN_CLIP_MS); edit = edit.copy(endMs = if (t >= dur) 0 else t) } }
-                                        item { Chip("RESET TRIM", color = DarkCb.inkDim) { edit = edit.copy(startMs = 0, endMs = 0) } }
-                                        item { Chip(if (edit.exactCut) "EXACT CUT ✓" else "EXACT CUT", edit.exactCut) { edit = edit.copy(exactCut = !edit.exactCut) } }
+                                        item { Chip("START HERE", color = DarkCb.ink, icon = "start") { edit = edit.copy(startMs = min(player.currentPosition, endMs - MIN_CLIP_MS).coerceAtLeast(0)) } }
+                                        item { Chip("END HERE", color = DarkCb.ink, icon = "end") { val t = max(player.currentPosition, edit.startMs + MIN_CLIP_MS); edit = edit.copy(endMs = if (t >= dur) 0 else t) } }
+                                        item { Chip("RESET TRIM", color = DarkCb.inkDim, icon = "reset") { edit = edit.copy(startMs = 0, endMs = 0) } }
+                                        item { Chip("EXACT CUT", edit.exactCut, icon = "scissors") { edit = edit.copy(exactCut = !edit.exactCut) } }
                                     }
                                     Hint(if (edit.exactCut) "EXACT: STARTS AT THE FRAME YOU PICKED. TAKES LONGER." else "FAST: INSTANT AND LOSSLESS, BUT THE START MAY MOVE BACK A FEW SECONDS TO A KEY FRAME.")
                                 }
@@ -370,8 +374,8 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                                 2 -> {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
                                         if (i.hasAudio) {
-                                            item { Chip(if (edit.volume <= 0f) "MUTED ✓" else "MUTE", edit.volume <= 0f) { edit = edit.copy(volume = if (edit.volume <= 0f) 1f else 0f) } }
-                                            item { Chip("RESET", color = DarkCb.inkDim) { edit = edit.copy(volume = 1f) } }
+                                            item { Chip(if (edit.volume <= 0f) "MUTED" else "MUTE", edit.volume <= 0f, icon = "mute") { edit = edit.copy(volume = if (edit.volume <= 0f) 1f else 0f) } }
+                                            item { Chip("RESET", color = DarkCb.inkDim, icon = "reset") { edit = edit.copy(volume = 1f) } }
                                         }
                                     }
                                     if (i.hasAudio) EditSlider("VOLUME", edit.volume, 0f..2f, "${(edit.volume * 100).roundToInt()}%", { edit = edit.copy(volume = it) }, {}) { edit = edit.copy(volume = 1f) }
@@ -385,24 +389,24 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                                 }
                                 3 -> {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
-                                        item { Chip("ROTATE", color = DarkCb.ink) { edit = edit.copy(turns = (edit.turns + 1) % 4) } }
-                                        item { Chip("FLIP", edit.flip, color = DarkCb.ink) { edit = edit.copy(flip = !edit.flip) } }
-                                        item { Chip("RESET", color = DarkCb.inkDim) { edit = edit.copy(turns = 0, flip = false) } }
+                                        item { Chip("ROTATE", color = DarkCb.ink, icon = "rotate") { edit = edit.copy(turns = (edit.turns + 1) % 4) } }
+                                        item { Chip("FLIP", edit.flip, color = DarkCb.ink, icon = "flipH") { edit = edit.copy(flip = !edit.flip) } }
+                                        item { Chip("RESET", color = DarkCb.inkDim, icon = "reset") { edit = edit.copy(turns = 0, flip = false) } }
                                     }
                                     Hint("ROTATE TURNS THE VIDEO A QUARTER TURN EACH TAP. FLIP MIRRORS IT.")
                                 }
                                 4 -> {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
-                                        items(VideoAspect.entries) { a -> Chip(a.label, edit.aspect == a) { edit = edit.copy(aspect = a) } }
+                                        items(VideoAspect.entries) { a -> Chip(a.label, edit.aspect == a, icon = if (a == VideoAspect.ORIGINAL) "orig" else null) { edit = edit.copy(aspect = a) } }
                                     }
                                     Hint("CUTS THE VIDEO DOWN TO THIS SHAPE, FROM THE MIDDLE.")
                                 }
                                 5 -> {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
-                                        listOf("BRIGHTNESS", "CONTRAST", "SATURATION", "WARMTH").forEachIndexed { n, label -> item { Chip(label, lookWhich == n) { lookWhich = n } } }
-                                        if (edit.filter != 0) item { Chip("STRENGTH", lookWhich == 4) { lookWhich = 4 } }
+                                        listOf("BRIGHTNESS" to "bright", "CONTRAST" to "contrast", "SATURATION" to "sat", "WARMTH" to "warm").forEachIndexed { n, (label, icon) -> item { Chip(label, lookWhich == n, icon = icon) { lookWhich = n } } }
+                                        if (edit.filter != 0) item { Chip("STRENGTH", lookWhich == 4, icon = "strength") { lookWhich = 4 } }
                                         item {
-                                            Chip("RESET", color = DarkCb.inkDim) {
+                                            Chip("RESET", color = DarkCb.inkDim, icon = "reset") {
                                                 edit = edit.copy(brightness = 0f, contrast = 0f, saturation = 0f, warmth = 0f, filter = 0, filterAmount = 1f)
                                                 lookWhich = 0
                                             }
@@ -453,11 +457,11 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                                 8 -> {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
                                         item {
-                                            Chip("FREEZE HERE", color = DarkCb.ink) {
+                                            Chip("FREEZE HERE", color = DarkCb.ink, icon = "snow") {
                                                 edit = edit.copy(freezeAtMs = player.currentPosition.coerceIn(edit.startMs, endMs))
                                             }
                                         }
-                                        if (edit.freezeAtMs >= 0) item { Chip("REMOVE", color = Danger) { edit = edit.copy(freezeAtMs = -1) } }
+                                        if (edit.freezeAtMs >= 0) item { Chip("REMOVE", color = Danger, icon = "remove") { edit = edit.copy(freezeAtMs = -1) } }
                                         items(listOf(1000L, 2000L, 3000L, 5000L)) { ms -> Chip("${ms / 1000}S", edit.freezeMs == ms) { edit = edit.copy(freezeMs = ms) } }
                                     }
                                     Hint(

@@ -12,6 +12,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
@@ -21,9 +23,9 @@ private val FadeChoices = listOf("NONE" to 0L, "0.5S" to 500L, "1S" to 1000L, "2
 /** Two rows of choices: how long the video fades in from black at the start, and out to black at the end. */
 @Composable
 internal fun FadeChips(inMs: Long, outMs: Long, onChange: (Long, Long) -> Unit) {
-    Text("FADE IN", Modifier.padding(start = 16.dp), style = monoStyle(DarkCb.inkDim, 1.5.sp))
+    Row(Modifier.padding(start = 16.dp), Arrangement.spacedBy(6.dp), Alignment.CenterVertically) { SvgIcon("fadeIn", DarkCb.inkDim, size = 14.dp); Text("FADE IN", style = monoStyle(DarkCb.inkDim, 1.5.sp)) }
     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) { items(FadeChoices) { (label, ms) -> Chip(label, inMs == ms) { onChange(ms, outMs) } } }
-    Text("FADE OUT", Modifier.padding(start = 16.dp), style = monoStyle(DarkCb.inkDim, 1.5.sp))
+    Row(Modifier.padding(start = 16.dp), Arrangement.spacedBy(6.dp), Alignment.CenterVertically) { SvgIcon("fadeOut", DarkCb.inkDim, size = 14.dp); Text("FADE OUT", style = monoStyle(DarkCb.inkDim, 1.5.sp)) }
     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) { items(FadeChoices) { (label, ms) -> Chip(label, outMs == ms) { onChange(inMs, ms) } } }
 }
 
@@ -31,8 +33,8 @@ internal fun FadeChips(inMs: Long, outMs: Long, onChange: (Long, Long) -> Unit) 
 @Composable
 internal fun MusicControls(name: String, hasMusic: Boolean, volume: Float, onPick: () -> Unit, onClear: () -> Unit, onVolume: (Float) -> Unit) {
     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
-        item { Chip(if (hasMusic) "♪ ${name.take(18)}" else "ADD MUSIC", hasMusic, color = DarkCb.ink, onClick = onPick) }
-        if (hasMusic) item { Chip("REMOVE", color = Danger, onClick = onClear) }
+        item { Chip(if (hasMusic) name.take(18) else "ADD MUSIC", hasMusic, color = DarkCb.ink, icon = "music", onClick = onPick) }
+        if (hasMusic) item { Chip("REMOVE", color = Danger, icon = "remove", onClick = onClear) }
     }
     if (hasMusic) EditSlider("MUSIC VOLUME", volume, 0f..1f, "${(volume * 100).roundToInt()}%", onVolume, {}) { onVolume(0.7f) }
 }

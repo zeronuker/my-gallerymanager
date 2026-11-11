@@ -42,8 +42,8 @@ internal fun CutoutPanel(
             }
             else -> {
                 LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
-                    items(Backdrop.entries) { b -> Chip(b.label, st.backdrop == b) { onPick(b) } }
-                    item { Chip("FIND AGAIN", color = DarkCb.inkDim, onClick = onFind) }
+                    items(Backdrop.entries) { b -> Chip(b.label, st.backdrop == b, icon = when (b) { Backdrop.KEEP -> "image"; Backdrop.BLUR -> "blur"; Backdrop.COLOR -> "colour"; Backdrop.TRANSPARENT -> "checker" }) { onPick(b) } }
+                    item { Chip("FIND AGAIN", color = DarkCb.inkDim, icon = "find", onClick = onFind) }
                 }
                 when (st.backdrop) {
                     Backdrop.BLUR -> EditSlider("BLUR", st.backdropBlur, 0f..1f, "${(st.backdropBlur * 100).roundToInt()}", onBlur, onBlurDone) {}

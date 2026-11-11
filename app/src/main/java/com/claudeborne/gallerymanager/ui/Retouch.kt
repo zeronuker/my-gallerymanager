@@ -167,10 +167,10 @@ internal fun RetouchPanel(
 ) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
         LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
-            items(RetouchTool.entries) { Chip(it.label, tool == it) { onTool(it) } }
-            item { Chip("FACE", color = DarkCb.mint, onClick = onFace) }
-            if (tool == RetouchTool.CLONE) item { Chip("SET SOURCE", color = DarkCb.ink, onClick = onNewSource) }
-            if (canClear) item { Chip("CLEAR ALL", color = Danger, onClick = onClear) }
+            items(RetouchTool.entries) { Chip(it.label, tool == it, icon = when (it) { RetouchTool.HEAL -> "heal"; RetouchTool.CLONE -> "clone" }) { onTool(it) } }
+            item { Chip("FACE", color = DarkCb.mint, icon = "face", onClick = onFace) }
+            if (tool == RetouchTool.CLONE) item { Chip("SET SOURCE", color = DarkCb.ink, icon = "source", onClick = onNewSource) }
+            if (canClear) item { Chip("CLEAR ALL", color = Danger, icon = "delete", onClick = onClear) }
         }
         Text(
             when {
