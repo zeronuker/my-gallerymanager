@@ -370,8 +370,11 @@ private class Zeros(private var left: Long) : InputStream() {
     }
 }
 
-/** Every file under the selected files and folders as (file, path to show): a folder keeps its name and its structure. */
+/**
+ * Every file under the selected files and folders as (file, path to show): a folder keeps its name and its structure. Hidden files and
+ * folders inside a selected folder (a name starting with ".", such as Android's ".trashed-…" photos) are left out; one picked by hand is sent.
+ */
 fun expandForSend(selection: List<File>): List<Pair<File, String>> = selection.flatMap { f ->
-    if (f.isDirectory) f.walkTopDown().filter { it.isFile }.map { it to it.relativeTo(f.parentFile ?: f).path.replace('\\', '/') }.toList()
+    if (f.isDirectory) f.walkTopDown().onEnter { it == f || !it.name.startsWith(".") }.filter { it.isFile && !it.name.startsWith(".") }.map { it to it.relativeTo(f.parentFile ?: f).path.replace('\\', '/') }.toList()
     else listOf(f to f.name)
 }
