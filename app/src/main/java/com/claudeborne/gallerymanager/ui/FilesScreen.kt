@@ -51,6 +51,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -310,9 +312,12 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
         ScreenHeader(cat?.label ?: "FILES", count, onBack, backLabel.uppercase(), fixed = true)
         AnimatedOverlay(busy, expandEnter, shrinkExit) { WorkingLine(it, null, cb.mint) } // copy, move, zip and extract report no percentage, so the bar sweeps
 
-        if (dir != null && root != null && !searching) Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) { Crumbs(root, rootLabel, dir) { go(it) } }
-            IconAction(Icon.PLUS, cb.mint, "New folder") { dialog = FileDialog.NewFolder }
+        // the path row slides away while searching, and the scope row slides in
+        Visible(dir != null && root != null && !searching, enter = expandEnter, exit = shrinkExit) {
+            if (dir != null && root != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { Crumbs(root, rootLabel, dir) { go(it) } }
+                IconAction(Icon.PLUS, cb.mint, "New folder") { dialog = FileDialog.NewFolder }
+            }
         }
         Column(Modifier.onGloballyPositioned { searchArea = it.boundsInParent() }) {
         if (cat == null) {
@@ -325,7 +330,7 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
                 }
             }
         }
-        if (searching && dir != null) ScopeRow(allScope) { allScope = it }
+        Visible(searching && dir != null, enter = expandEnter, exit = shrinkExit) { ScopeRow(allScope) { allScope = it } }
         }
 
         Crossfade(onHome && !showResults, Modifier.weight(1f).fillMaxWidth(), tween(MOTION_MS), label = "home") { home ->
@@ -466,18 +471,24 @@ private fun HomeList(roots: List<Pair<String, File>>, counts: Map<Category, Int>
         Triple(Icon.MAP, "STORAGE MAP", onMap), Triple(Icon.DUPLICATES, "DUPLICATES", onDupes), Triple(Icon.DUAL, "DUAL PANE", onDual),
         Triple(Icon.LOCK, "SAFE FOLDER", onVault), Triple(Icon.TRANSFER, "TRANSFER", onTransfer), Triple(Icon.TRASH, "TRASH", onBin),
     )
+    val seen = remember { HashSet<String>() } // what has already faded in, so scrolling a card back into view does not replay it
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(roots, key = { it.second.path }) { (label, folder) -> StorageCard(label, folder) { onFolder(folder) } }
+        items(roots, key = { it.second.path }) { (label, folder) ->
+            val first = remember { seen.add("storage-${folder.path}") }
+            Box(Modifier.appear(0, first)) { StorageCard(label, folder) { onFolder(folder) } }
+        }
         item { SectionLabel("CATEGORIES") }
-        items(Category.entries.chunked(2)) { pair ->
-            Row(Modifier.padding(horizontal = 16.dp), Arrangement.spacedBy(8.dp)) {
+        itemsIndexed(Category.entries.chunked(2)) { i, pair ->
+            val first = remember { seen.add("category-$i") }
+            Row(Modifier.appear(60 + i * 45, first).padding(horizontal = 16.dp), Arrangement.spacedBy(8.dp)) {
                 pair.forEach { CategoryCard(it, counts[it], Modifier.weight(1f)) { onCategory(it) } }
                 if (pair.size == 1) Spacer(Modifier.weight(1f))
             }
         }
         item { SectionLabel("TOOLS") }
-        items(tools.chunked(2)) { pair ->
-            Row(Modifier.padding(horizontal = 16.dp), Arrangement.spacedBy(8.dp)) {
+        itemsIndexed(tools.chunked(2)) { i, pair ->
+            val first = remember { seen.add("tool-$i") }
+            Row(Modifier.appear(300 + i * 45, first).padding(horizontal = 16.dp), Arrangement.spacedBy(8.dp)) {
                 pair.forEach { (icon, name, open) -> ToolCard(icon, name, Modifier.weight(1f), open) }
                 if (pair.size == 1) Spacer(Modifier.weight(1f))
             }
@@ -656,7 +667,7 @@ private fun FileList(entries: List<Entry>, grid: Boolean, selected: Set<String>,
         Box(Modifier.fillMaxSize(), Alignment.Center) {
             Text(empty, style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
         }
-    } else if (grid) {
+    } else Crossfade(grid, animationSpec = tween(MOTION_FAST_MS), label = "listGrid") { asGrid -> if (asGrid) {
         LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             items(entries, key = { it.file.path }) { e -> Box(Modifier.animateItem()) { GridTile(e, e.file.path in selected, { onTap(e) }, { onLong(e) }) } }
         }
@@ -664,7 +675,7 @@ private fun FileList(entries: List<Entry>, grid: Boolean, selected: Set<String>,
         LazyColumn(Modifier.fillMaxSize()) {
             items(entries, key = { it.file.path }) { e -> Box(Modifier.animateItem()) { ListRow(e, e.file.path in selected, { onTap(e) }, { onLong(e) }, path = if (showPath) e.file.parent else null) } }
         }
-    }
+    } }
 }
 
 private fun subtitle(context: Context, e: Entry): String =
@@ -701,7 +712,12 @@ internal fun GridTile(e: Entry, selected: Boolean, onClick: () -> Unit, onLongCl
             Column(Modifier.align(Alignment.Center).padding(horizontal = 6.dp), Arrangement.spacedBy(4.dp), Alignment.CenterHorizontally) {
                 CbIcon(Icon.FOLDER, cb.mint, size = 46.dp)
                 Text(e.file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = cb.ink))
-                if (e.children >= 0) Text("${e.children} ${if (e.children == 1) "ITEM" else "ITEMS"}", style = monoStyle(cb.inkDim, 0.6.sp).copy(fontSize = 10.sp))
+                // the count is read after the grid is on screen: its line is kept, and the words fade in
+                val countShown by animateFloatAsState(if (e.children >= 0) 1f else 0f, tween(MOTION_FAST_MS), label = "folderCount")
+                Text(
+                    if (e.children >= 0) "${e.children} ${if (e.children == 1) "ITEM" else "ITEMS"}" else " ",
+                    Modifier.graphicsLayer { alpha = countShown }, style = monoStyle(cb.inkDim, 0.6.sp).copy(fontSize = 10.sp),
+                )
             }
         } else {
             Thumb(e)
@@ -743,10 +759,10 @@ internal fun ActionBar(actions: List<BarItem>) {
 
 @Composable
 private fun RowScope.BarAction(label: String, color: Color, onClick: () -> Unit) {
-    Text(
-        label, Modifier.weight(1f).clickable(onClick = onClick).padding(vertical = 10.dp),
-        style = monoStyle(color, 0.6.sp).copy(textAlign = TextAlign.Center),
-    )
+    Box(Modifier.weight(1f).clickable(onClick = onClick).padding(vertical = 10.dp), Alignment.Center) {
+        // ALL and DESELECT ALL swap with a fade
+        Crossfade(label, animationSpec = tween(MOTION_FAST_MS), label = "barLabel") { l -> Text(l, style = monoStyle(color, 0.6.sp).copy(textAlign = TextAlign.Center)) }
+    }
 }
 
 @Composable

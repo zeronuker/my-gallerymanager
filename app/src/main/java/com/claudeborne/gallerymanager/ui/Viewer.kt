@@ -58,6 +58,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.Crossfade
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.layout.onSizeChanged
 import kotlin.math.abs
@@ -509,7 +510,9 @@ private fun VideoControls(player: Player, onSkip: (Long) -> Unit, muted: Boolean
                 IconAction(Icon.FORWARD, Color.White, "Forward 5 seconds") { onSkip(5_000) }
             }
             Box(Modifier.weight(1f), Alignment.CenterEnd) {
-                IconAction(if (muted) Icon.SPEAKER_OFF else Icon.SPEAKER, Color.White, if (muted) "Sound on" else "Sound off") { onMuted(!muted) }
+                Crossfade(muted, animationSpec = tween(MOTION_FAST_MS), label = "speaker") { m ->
+                    IconAction(if (m) Icon.SPEAKER_OFF else Icon.SPEAKER, Color.White, if (m) "Sound on" else "Sound off") { onMuted(!m) }
+                }
             }
         }
     }

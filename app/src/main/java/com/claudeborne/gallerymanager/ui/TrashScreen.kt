@@ -142,7 +142,7 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
                     }
                 }
             }
-            Crossfade(if (!loaded && rows.isEmpty()) 0 else if (rows.isEmpty()) 1 else 2, Modifier.weight(1f).fillMaxWidth(), animationSpec = tween(MOTION_MS), label = "trash") { state ->
+            Crossfade(if (!loaded && rows.isEmpty()) 0 else if (rows.isEmpty()) 1 else if (grid) 3 else 2, Modifier.weight(1f).fillMaxWidth(), animationSpec = tween(MOTION_MS), label = "trash") { state ->
                 if (state == 0) {
                     LoadingPane("LOADING THE TRASH")
                 } else if (state == 1) {
@@ -153,7 +153,7 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
                         if (selected.isNotEmpty()) toggle(row.key)
                         else if (row is BinRow) binDetail = row.key else if (row is MediaRow) mediaView = row.item.id
                     }
-                    if (grid) LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    if (state == 3) LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         items(rows, key = { it.key }) { row ->
                             Box(Modifier.animateItem()) {
                                 when (row) {

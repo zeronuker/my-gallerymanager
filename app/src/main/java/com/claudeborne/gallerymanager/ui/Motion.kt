@@ -104,11 +104,16 @@ fun glide(on: Boolean, onColor: Color, offColor: Color): Color = animateColorAsS
 fun Visible(visible: Boolean, modifier: Modifier = Modifier, enter: EnterTransition, exit: ExitTransition, content: @Composable AnimatedVisibilityScope.() -> Unit) =
     AnimatedVisibility(visible, modifier, enter, exit, content = content)
 
-/** Fades in when it first appears (a new row in a list that has no stable keys). */
+/** Fades in when it first appears (a new row in a list that has no stable keys). [delayMs] staggers a group; [enabled] false skips it. */
 @Composable
-fun Modifier.appear(): Modifier {
-    val a = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { a.animateTo(1f, tween(MOTION_MS)) }
+fun Modifier.appear(delayMs: Int = 0, enabled: Boolean = true): Modifier {
+    val a = remember { Animatable(if (enabled) 0f else 1f) }
+    LaunchedEffect(Unit) {
+        if (enabled) {
+            if (delayMs > 0) kotlinx.coroutines.delay(delayMs.toLong())
+            a.animateTo(1f, tween(MOTION_MS))
+        }
+    }
     return graphicsLayer { alpha = a.value }
 }
 

@@ -50,7 +50,7 @@ button:disabled{opacity:.4;cursor:default;pointer-events:none}
 .dim{color:var(--dim)}.note{font-size:12px;color:var(--dim);line-height:1.5}
 .files{display:flex;flex-direction:column}
 .file{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--line);font-size:14px;animation:rise .25s ease-out}
-.file .ext{flex:none;width:44px;text-align:center;font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--mint);border:1px solid #2a3a66;padding:5px 0}
+.file .ext{transition:background-color .25s,color .25s;flex:none;width:44px;text-align:center;font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--mint);border:1px solid #2a3a66;padding:5px 0}
 .file .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .file .sz{flex:none;font-family:var(--mono);font-size:12px;color:var(--dim)}
 .file a{flex:none;width:34px;height:30px;display:flex;align-items:center;justify-content:center;border:1px solid #3a4a7a;color:var(--mint);text-decoration:none;font-size:16px;transition:background-color .15s,border-color .15s}

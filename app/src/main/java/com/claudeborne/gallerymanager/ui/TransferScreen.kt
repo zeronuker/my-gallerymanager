@@ -435,7 +435,9 @@ private fun ChannelCard(icon: Icon, title: String, small: String, lit: Boolean, 
     ) {
         CbIcon(icon, tint, size = 24.dp)
         Text(title, style = monoStyle(if (lit || selected) cb.ink else cb.inkDim, 1.sp))
-        Text(small, Modifier.height(16.dp), style = monoStyle(tint, 0.4.sp).copy(fontSize = 10.sp))
+        Box(Modifier.height(16.dp), Alignment.Center) {
+            Crossfade(small, animationSpec = tween(MOTION_FAST_MS), label = "cardNote") { s -> Text(s, style = monoStyle(tint, 0.4.sp).copy(fontSize = 10.sp)) }
+        }
     }
 }
 
@@ -573,7 +575,7 @@ private fun PhoneCard(p: LocalSend.Peer, onClick: () -> Unit) {
     val dp = LocalDensity.current.density
     val shape = remember(dp) { GenericShape { size, _ -> addPath(chamfered(size.width, size.height, 0f, 8f * dp)) } }
     Row(
-        Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().clickable(onClick = onClick).doubleChamferFrame(cb).padding(14.dp),
+        Modifier.appear().padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().clickable(onClick = onClick).doubleChamferFrame(cb).padding(14.dp),
         Arrangement.spacedBy(12.dp), Alignment.CenterVertically,
     ) {
         Box(Modifier.size(42.dp).clip(shape).background(cb.surface2), Alignment.Center) {
@@ -592,7 +594,7 @@ private fun PhoneCard(p: LocalSend.Peer, onClick: () -> Unit) {
 private fun WayCard(icon: Icon, title: String, note: String, onClick: () -> Unit) {
     val cb = LocalCb.current
     Row(
-        Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().background(cb.surface1).border(1.dp, cb.line).clickable(onClick = onClick).padding(14.dp),
+        Modifier.appear().padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().background(cb.surface1).border(1.dp, cb.line).clickable(onClick = onClick).padding(14.dp),
         Arrangement.spacedBy(12.dp), Alignment.CenterVertically,
     ) {
         CbIcon(icon, cb.mint, size = 24.dp)

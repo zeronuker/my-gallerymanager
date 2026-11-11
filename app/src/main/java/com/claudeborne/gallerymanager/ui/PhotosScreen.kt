@@ -36,6 +36,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -180,11 +182,9 @@ fun PhotosScreen(
 /** One action in the selection bar; they share the width evenly so six fit on a phone. */
 @Composable
 private fun RowScope.BarAction(label: String, color: Color, onClick: () -> Unit) {
-    Text(
-        label,
-        Modifier.weight(1f).clickable(onClick = onClick).padding(vertical = 10.dp),
-        style = monoStyle(color, 1.2.sp).copy(textAlign = TextAlign.Center),
-    )
+    Box(Modifier.weight(1f).clickable(onClick = onClick).padding(vertical = 10.dp), Alignment.Center) {
+        Crossfade(label, animationSpec = tween(MOTION_FAST_MS), label = "barLabel") { l -> Text(l, style = monoStyle(color, 1.2.sp).copy(textAlign = TextAlign.Center)) }
+    }
 }
 
 private fun share(context: Context, items: List<MediaItem>) = shareMedia(context, items)
