@@ -225,7 +225,7 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
                 Progress(rows) {
                     TransferChannels(
                         shown == Mode.COMPUTER, tick, group, linkBusy, linkError, wifi, shown == Mode.RECEIVE && rows.isEmpty(),
-                        { requestDirect() }, { link.stop(); group = null }, { requestBack() },
+                        { requestDirect() }, { requestBack() },
                     )
                 }
             }
@@ -359,7 +359,7 @@ private fun StatusLine(text: String, color: Color, live: Boolean) {
 @Composable
 private fun TransferChannels(
     computer: Boolean, tick: Int, group: DirectGroup?, linkBusy: Boolean, linkError: String?, wifi: Int, waiting: Boolean,
-    onStartDirect: () -> Unit, onStopDirect: () -> Unit, onEnd: () -> Unit,
+    onStartDirect: () -> Unit, onEnd: () -> Unit,
 ) {
     val cb = LocalCb.current
     val context = LocalContext.current
@@ -412,7 +412,7 @@ private fun TransferChannels(
         Column(Modifier.fillMaxWidth().padding(16.dp), Arrangement.spacedBy(10.dp), Alignment.CenterHorizontally) {
             when (which) {
                 0 -> WifiPanel(computer, wifiUrl, wifi, urls)
-                1 -> DirectPanel(group, directReady, linkBusy, linkError, wifi, computer, onStopDirect)
+                1 -> DirectPanel(group, directReady, linkBusy, linkError, wifi, computer)
                 2 -> UsbPanel(usbUrl, usbLeft, usbFailed, onRetry = { usbSince = SystemClock.elapsedRealtime() }, onSettings = {
                     val tether = Intent().setClassName("com.android.settings", "com.android.settings.TetherSettings")
                     runCatching { context.startActivity(tether) }.onFailure { runCatching { context.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) } }
@@ -492,7 +492,7 @@ private fun AddressFrame(url: String) {
 
 /** The direct link's details: a private network this phone makes. Its code carries the network name and password, so another phone joins by itself. */
 @Composable
-private fun ColumnScope.DirectPanel(group: DirectGroup?, ready: Boolean, busy: Boolean, error: String?, wifi: Int, computer: Boolean, onStop: () -> Unit) {
+private fun ColumnScope.DirectPanel(group: DirectGroup?, ready: Boolean, busy: Boolean, error: String?, wifi: Int, computer: Boolean) {
     val cb = LocalCb.current
     when {
         ready && group != null -> {
@@ -509,7 +509,6 @@ private fun ColumnScope.DirectPanel(group: DirectGroup?, ready: Boolean, busy: B
                 Text("Computer: join ${group.ssid}, password ${group.passphrase}, then open:", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
                 Text(plain, style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = cb.mint, textAlign = TextAlign.Center))
             }
-            ActionText("STOP DIRECT LINK", cb.inkDim, onStop)
         }
         busy -> WorkingLine("STARTING THE DIRECT LINK…", null, cb.inkDim) // no percentage: Android gives none, so the bar sweeps
         error != null -> Text(error, style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = RED, textAlign = TextAlign.Center))
