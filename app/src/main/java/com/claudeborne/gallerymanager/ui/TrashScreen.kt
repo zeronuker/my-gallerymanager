@@ -33,6 +33,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.claudeborne.gallerymanager.data.Settings
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -249,6 +250,7 @@ private fun MediaTrashRow(item: MediaItem, selected: Boolean, onClick: () -> Uni
 private fun TrashViewer(items: List<MediaItem>, startId: Long, onRestore: (MediaItem) -> Unit, onDelete: (MediaItem) -> Unit, onClose: () -> Unit) {
     val pager = rememberPagerState(items.indexOfFirst { it.id == startId }.coerceAtLeast(0)) { items.size }
     val current = items.getOrNull(pager.currentPage)
+    var muted by remember { mutableStateOf(Settings.muted) }
     BackHandler(onBack = onClose)
     LaunchedEffect(items.isEmpty()) { if (items.isEmpty()) onClose() } // the last one was restored or deleted
     Column(Modifier.fillMaxSize().background(Color.Black)) {
@@ -257,13 +259,13 @@ private fun TrashViewer(items: List<MediaItem>, startId: Long, onRestore: (Media
             Box(Modifier.weight(1f))
             current?.let {
                 val left = daysLeft(it)
-                Text("${pager.currentPage + 1} / ${items.size}" + if (left.isEmpty()) "" else " · ${left.uppercase()} LEFT", style = monoStyle(Color.White, 1.sp))
+                if (left.isNotEmpty()) Text("${left.uppercase()} LEFT", style = monoStyle(Color.White, 1.sp))
             }
         }
         Box(Modifier.weight(1f)) {
             HorizontalPager(pager, Modifier.fillMaxSize(), key = { items.getOrNull(it)?.id ?: it }) { page ->
                 val item = items.getOrNull(page) ?: return@HorizontalPager
-                if (item.isVideo) VideoPage(item, active = pager.settledPage == page, chrome = true, onTap = {}) else ZoomableImage(item, onTap = {})
+                if (item.isVideo) VideoPage(item, active = pager.settledPage == page, chrome = true, onTap = {}, muted = muted, onMuted = { muted = it }) else ZoomableImage(item, onTap = {})
             }
         }
         Row(Modifier.fillMaxWidth().background(Color(0xFF0A1020)).padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {

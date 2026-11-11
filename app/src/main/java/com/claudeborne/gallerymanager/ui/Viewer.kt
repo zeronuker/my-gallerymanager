@@ -58,6 +58,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import kotlin.math.abs
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -110,6 +112,7 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
     val pager = rememberPagerState(items.indexOfFirst { it.id == startId }.coerceAtLeast(0)) { items.size }
     var showInfo by remember { mutableStateOf(false) }
     var showMore by remember { mutableStateOf(false) }
+    var muted by remember { mutableStateOf(Settings.muted) } // the sound switch holds for every video opened while the viewer stays open
     var export by remember { mutableStateOf<Pair<MediaItem, Boolean>?>(null) } // the photo to resize/convert, and whether to start with location removal on
     var chrome by remember { mutableStateOf(true) } // tapping the media hides every control for a full-screen view
     val scope = rememberCoroutineScope()
@@ -134,7 +137,7 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
             HorizontalPager(pager, Modifier.fillMaxSize(), key = { items.getOrNull(it)?.id ?: it }) { page ->
                 val item = items.getOrNull(page) ?: return@HorizontalPager
                 val toggleChrome = { chrome = !chrome }
-                if (item.isVideo) VideoPage(item, active = pager.settledPage == page, chrome, toggleChrome) else ZoomableImage(item, toggleChrome)
+                if (item.isVideo) VideoPage(item, active = pager.settledPage == page, chrome, toggleChrome, muted) { muted = it } else ZoomableImage(item, toggleChrome)
             }
 
             NavArrow("‹", Alignment.CenterStart, chrome && pager.currentPage > 0) { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } }
@@ -147,7 +150,6 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
             ) {
                 Text("← BACK", Modifier.clickable(onClick = onClose), style = monoStyle(DarkCb.mint, 2.6.sp))
                 Box(Modifier.weight(1f))
-                Text("${pager.currentPage + 1} / ${items.size}", style = monoStyle(Color.White, 1.sp))
             } }
 
             Visible(chrome && showInfo && current != null, Modifier.align(Alignment.BottomCenter), enter = popEnter, exit = popExit) {
@@ -391,7 +393,7 @@ private fun ZoomBox(onTap: () -> Unit, content: @Composable () -> Unit) {
 
 /** Only the page on screen owns a player; others show the thumbnail. */
 @Composable
-internal fun VideoPage(item: MediaItem, active: Boolean, chrome: Boolean, onTap: () -> Unit) {
+internal fun VideoPage(item: MediaItem, active: Boolean, chrome: Boolean, onTap: () -> Unit, muted: Boolean, onMuted: (Boolean) -> Unit) {
     if (!active) {
         AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         return
@@ -401,12 +403,23 @@ internal fun VideoPage(item: MediaItem, active: Boolean, chrome: Boolean, onTap:
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(PlayerItem.fromUri(item.uri))
             prepare()
-            volume = if (Settings.muted) 0f else 1f
+            volume = if (muted) 0f else 1f
             playWhenReady = Settings.autoplay
         }
     }
     DisposableEffect(player) { onDispose { player.release() } }
+    LaunchedEffect(muted, player) { player.volume = if (muted) 0f else 1f }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { player.pause() }
+    // the skip buttons move 5 seconds each press; a chip over the video says how far, adding up while the presses keep coming
+    var skipped by remember(player) { mutableLongStateOf(0L) } // signed milliseconds moved so far, 0 when no chip shows
+    var skipTick by remember(player) { mutableIntStateOf(0) }
+    fun skip(by: Long) {
+        val end = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+        player.seekTo((player.currentPosition + by).coerceIn(0L, end))
+        skipped = if (skipped != 0L && (skipped < 0) == (by < 0)) skipped + by else by
+        skipTick++
+    }
+    LaunchedEffect(skipTick) { if (skipTick > 0) { delay(900); skipped = 0L } }
     var loading by remember(player) { mutableStateOf(true) } // until the first frames are ready
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -424,14 +437,17 @@ internal fun VideoPage(item: MediaItem, active: Boolean, chrome: Boolean, onTap:
             Visible(loading, Modifier.align(Alignment.Center), enter = fadeIn(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_FAST_MS))) {
                 ProgressBar(null, Modifier.width(160.dp))
             }
+            val chip = skipped.takeIf { it != 0L }
+            AnimatedOverlay(chip?.takeIf { it < 0 }, popEnter, popExit, Modifier.align(Alignment.CenterStart).padding(start = 64.dp)) { SkipLabel(it) }
+            AnimatedOverlay(chip?.takeIf { it > 0 }, popEnter, popExit, Modifier.align(Alignment.CenterEnd).padding(end = 64.dp)) { SkipLabel(it) }
         }
-        AnimatedVisibility(chrome, enter = barEnter, exit = barExit) { VideoControls(player) }
+        AnimatedVisibility(chrome, enter = barEnter, exit = barExit) { VideoControls(player, { skip(it) }, muted, onMuted) }
     }
 }
 
 /** Timeline with elapsed/total time, and the buttons underneath it. */
 @Composable
-private fun VideoControls(player: Player) {
+private fun VideoControls(player: Player, onSkip: (Long) -> Unit, muted: Boolean, onMuted: (Boolean) -> Unit) {
     var playing by remember { mutableStateOf(player.isPlaying) }
     var pos by remember { mutableLongStateOf(0L) }
     var dur by remember { mutableLongStateOf(0L) }
@@ -460,8 +476,10 @@ private fun VideoControls(player: Player) {
             Text(clock(shown), style = monoStyle(Color.White, 1.sp))
             Text(clock(dur), style = monoStyle(DarkCb.inkDim, 1.sp))
         }
-        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
-            SkipButton("−5S") { player.seekTo((player.currentPosition - 5_000).coerceAtLeast(0)) }
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f))
+            Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconAction(Icon.REWIND, Color.White, "Back 5 seconds") { onSkip(-5_000) }
             Box(
                 Modifier.size(56.dp).clip(CircleShape).background(Color.White).clickable {
                     if (playing) player.pause() else {
@@ -481,12 +499,21 @@ private fun VideoControls(player: Player) {
                     }
                 }
             }
-            SkipButton("+15S") { player.seekTo((player.currentPosition + 15_000).coerceAtMost(dur)) }
+                IconAction(Icon.FORWARD, Color.White, "Forward 5 seconds") { onSkip(5_000) }
+            }
+            Box(Modifier.weight(1f), Alignment.CenterEnd) {
+                IconAction(if (muted) Icon.SPEAKER_OFF else Icon.SPEAKER, Color.White, if (muted) "Sound on" else "Sound off") { onMuted(!muted) }
+            }
         }
     }
 }
 
+/** The small label over the video that says how far a skip went: "+5S", "-10S". */
 @Composable
-private fun SkipButton(label: String, onClick: () -> Unit) {
-    Text(label, Modifier.clickable(onClick = onClick).padding(8.dp), style = monoStyle(Color.White, 1.sp).copy(fontSize = 16.sp))
+private fun SkipLabel(ms: Long) {
+    Text(
+        (if (ms < 0) "−" else "+") + "${abs(ms) / 1000}S",
+        Modifier.background(Color(0xB3000000)).padding(horizontal = 12.dp, vertical = 8.dp),
+        style = monoStyle(DarkCb.mint, 1.5.sp).copy(fontSize = 14.sp),
+    )
 }

@@ -13,6 +13,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -82,3 +86,11 @@ fun WaitingLine(text: String, modifier: Modifier = Modifier) {
 
 /** The small gap dialogs leave around each button. */
 internal val DialogButtonGap = Modifier.padding(horizontal = 4.dp)
+
+/** The close button of a full-screen editor: a red cross, big, with a 48dp touch target. */
+@Composable
+fun CloseButton(onClick: () -> Unit) {
+    Box(Modifier.size(48.dp).semantics { contentDescription = "Close" }.clickable(onClick = onClick), Alignment.Center) {
+        CbIcon(Icon.CLOSE, RED, size = 28.dp)
+    }
+}

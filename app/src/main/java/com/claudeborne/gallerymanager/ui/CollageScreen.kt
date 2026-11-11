@@ -118,7 +118,7 @@ fun CollageScreen(items: List<MediaItem>, onClose: () -> Unit, onSaved: () -> Un
     Box(Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) { detectTapGestures { } }) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                ActionText("✕", DarkCb.inkDim) { onClose() }
+                CloseButton { onClose() }
                 Box(Modifier.weight(1f))
                 ActionText("SAVE", DarkCb.mint) { photos?.let { save(it) } }
             }

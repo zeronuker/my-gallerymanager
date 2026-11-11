@@ -224,7 +224,7 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
     Box(Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) { detectTapGestures { } }) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                ActionText("✕", DarkCb.inkDim) { close() }
+                CloseButton { close() }
                 Box(Modifier.weight(1f))
                 ActionText("SAVE FRAME", DarkCb.ink) {
                     val t = player.currentPosition

@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -20,7 +21,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-enum class Icon { SHARE, HEART, EDIT, TRASH, INFO, MORE, SEARCH, FOLDER, CHEVRON, CHECK, PLUS }
+enum class Icon { SHARE, HEART, EDIT, TRASH, INFO, MORE, SEARCH, FOLDER, CHEVRON, CHECK, PLUS, CLOSE, REWIND, FORWARD, SPEAKER, SPEAKER_OFF }
 
 /** Line icons drawn on a 24 x 24 grid, so the app needs no icon library and they match the brand's thin outlines. */
 @Composable
@@ -80,6 +81,25 @@ fun CbIcon(icon: Icon, color: Color, modifier: Modifier = Modifier, filled: Bool
             })
             Icon.CHEVRON -> shape(Path().apply { moveTo(9f * k, 5f * k); lineTo(16f * k, 12f * k); lineTo(9f * k, 19f * k) })
             Icon.PLUS -> { seg(12f, 5f, 12f, 19f); seg(5f, 12f, 19f, 12f) }
+            Icon.CLOSE -> { seg(5f, 5f, 19f, 19f); seg(19f, 5f, 5f, 19f) }
+            Icon.REWIND -> {
+                shape(Path().apply { moveTo(12f * k, 6f * k); lineTo(12f * k, 18f * k); lineTo(3.5f * k, 12f * k); close() }, true)
+                shape(Path().apply { moveTo(20.5f * k, 6f * k); lineTo(20.5f * k, 18f * k); lineTo(12f * k, 12f * k); close() }, true)
+            }
+            Icon.FORWARD -> {
+                shape(Path().apply { moveTo(12f * k, 6f * k); lineTo(12f * k, 18f * k); lineTo(20.5f * k, 12f * k); close() }, true)
+                shape(Path().apply { moveTo(3.5f * k, 6f * k); lineTo(3.5f * k, 18f * k); lineTo(12f * k, 12f * k); close() }, true)
+            }
+            Icon.SPEAKER, Icon.SPEAKER_OFF -> {
+                shape(Path().apply { moveTo(4f * k, 9.5f * k); lineTo(8f * k, 9.5f * k); lineTo(13f * k, 5f * k); lineTo(13f * k, 19f * k); lineTo(8f * k, 14.5f * k); lineTo(4f * k, 14.5f * k); close() })
+                if (icon == Icon.SPEAKER) { // sound waves
+                    drawArc(color, -50f, 100f, false, p(9f, 8f), Size(8f * k, 8f * k), style = line)
+                    drawArc(color, -50f, 100f, false, p(6f, 5f), Size(14f * k, 14f * k), style = line)
+                } else { // crossed out
+                    seg(16.5f, 9f, 21.5f, 15f)
+                    seg(21.5f, 9f, 16.5f, 15f)
+                }
+            }
             Icon.CHECK -> shape(Path().apply { moveTo(5f * k, 12.5f * k); lineTo(10f * k, 17.5f * k); lineTo(19f * k, 7f * k) })
         }
     }
