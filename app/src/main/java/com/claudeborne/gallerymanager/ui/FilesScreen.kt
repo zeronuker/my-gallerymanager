@@ -287,15 +287,16 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
         ScreenHeader(cat?.label ?: "FILES", count, onBack, backLabel.uppercase(), fixed = true)
         AnimatedOverlay(busy, expandEnter, shrinkExit) { WorkingLine(it, null, cb.mint) } // copy, move, zip and extract report no percentage, so the bar sweeps
 
-        if (dir != null && root != null && !searching) Crumbs(root, rootLabel, dir) { go(it) }
+        if (dir != null && root != null && !searching) Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) { Crumbs(root, rootLabel, dir) { go(it) } }
+            IconAction(Icon.PLUS, cb.mint, "New folder") { dialog = FileDialog.NewFolder }
+        }
         if (cat == null) {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                if (dir != null) ActionText("+ FOLDER", cb.mint) { dialog = FileDialog.NewFolder }
                 SearchAction(searching, query, { query = it }) { searching = !searching; if (!searching) query = "" }
                 if (dir != null) {
                     SortMenu(sort, ascending) { s -> if (s == sort) ascending = !ascending else { sort = s; ascending = s == SortBy.NAME || s == SortBy.TYPE } }
-                    ActionText("HIDDEN", if (hidden) cb.mint else cb.inkDim) { hidden = !hidden }
-                    ActionText(if (grid) "LIST" else "GRID", cb.inkDim) { grid = !grid }
+                    ViewMenu(grid, hidden, { grid = it }) { hidden = !hidden }
                 }
             }
         }
@@ -547,6 +548,25 @@ private fun SortMenu(sort: SortBy, ascending: Boolean, onPick: (SortBy) -> Unit)
                     text = { Text(s.name + if (s == sort) " $arrow" else "", style = monoStyle(if (s == sort) cb.mint else cb.ink, 1.5.sp)) },
                     onClick = { open = false; onPick(s) },
                 )
+            }
+        }
+    }
+}
+
+/** How the folder is shown: a list or a grid, and whether hidden files are listed. */
+@Composable
+private fun ViewMenu(grid: Boolean, hidden: Boolean, onGrid: (Boolean) -> Unit, onHidden: () -> Unit) {
+    val cb = LocalCb.current
+    var open by remember { mutableStateOf(false) }
+    Box {
+        ActionText("VIEW · ${if (grid) "GRID" else "LIST"}", cb.mint) { open = true }
+        DropdownMenu(open, { open = false }, containerColor = cb.surface2) {
+            listOf(
+                ("LIST" + if (!grid) " ✓" else "") to { onGrid(false) },
+                ("GRID" + if (grid) " ✓" else "") to { onGrid(true) },
+                ("SHOW HIDDEN FILES" + if (hidden) " ✓" else "") to onHidden,
+            ).forEach { (label, act) ->
+                DropdownMenuItem(text = { Text(label, style = monoStyle(cb.ink, 1.5.sp)) }, onClick = { open = false; act() })
             }
         }
     }

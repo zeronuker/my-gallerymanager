@@ -137,18 +137,14 @@ fun CollageScreen(items: List<MediaItem>, onClose: () -> Unit, onSaved: () -> Un
                         selected = i
                     },
                 )
-                Text(
-                    if (swap) "TAP THE PHOTO TO SWAP WITH" else "TAP A PHOTO, THEN DRAG OR PINCH",
-                    Modifier.align(Alignment.BottomStart).padding(12.dp), style = monoStyle(DarkCb.inkDim, 1.2.sp),
-                )
+                Box(Modifier.align(Alignment.BottomStart).padding(6.dp)) {
+                    Chip(if (swap) "TAP A PHOTO TO SWAP" else "SWAP", swap) { swap = !swap }
+                }
             }
 
             Column(Modifier.fillMaxWidth().background(Panel).navigationBarsPadding()) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), Arrangement.End) {
-                    ActionText("SWAP", glide(swap, DarkCb.mint, DarkCb.ink)) { swap = !swap }
-                }
                 Row(Modifier.fillMaxWidth()) {
-                    listOf("LAYOUT", "RATIO", "STYLE").forEachIndexed { i, label ->
+                    listOf("LAYOUT", "STYLE").forEachIndexed { i, label ->
                         Column(Modifier.weight(1f).clickable { tab = i }, horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(Modifier.fillMaxWidth().height(2.dp).background(glide(tab == i, DarkCb.mint, Color.Transparent)))
                             Text(label, Modifier.padding(vertical = 12.dp), style = monoStyle(glide(tab == i, DarkCb.mint, DarkCb.inkDim), 2.2.sp))
@@ -157,15 +153,15 @@ fun CollageScreen(items: List<MediaItem>, onClose: () -> Unit, onSaved: () -> Un
                 }
                 Box(Modifier.fillMaxWidth().height(150.dp)) {
                     Crossfade(tab, animationSpec = tween(MOTION_FAST_MS), label = "collageTab") { tab -> when (tab) {
-                        0 -> LazyRow(
-                            Modifier.align(Alignment.Center), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            itemsIndexed(layouts) { i, l ->
-                                LayoutThumb(l, i == layoutIdx) { layoutIdx = i; views.indices.forEach { views[it] = CellView() }; selected = -1 }
+                        0 -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
+                            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                itemsIndexed(layouts) { i, l ->
+                                    LayoutThumb(l, i == layoutIdx) { layoutIdx = i; views.indices.forEach { views[it] = CellView() }; selected = -1 }
+                                }
                             }
-                        }
-                        1 -> LazyRow(Modifier.align(Alignment.Center), contentPadding = PaddingValues(horizontal = 6.dp)) {
-                            items(CollageRatio.entries) { r -> Chip(r.label, ratio == r) { ratio = r } }
+                            LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
+                                items(CollageRatio.entries) { r -> Chip(r.label, ratio == r) { ratio = r } }
+                            }
                         }
                         else -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
                             LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {

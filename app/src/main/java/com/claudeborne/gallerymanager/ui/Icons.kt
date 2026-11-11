@@ -20,7 +20,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-enum class Icon { SHARE, HEART, EDIT, TRASH, INFO, MORE, SEARCH, FOLDER, CHEVRON, CHECK }
+enum class Icon { SHARE, HEART, EDIT, TRASH, INFO, MORE, SEARCH, FOLDER, CHEVRON, CHECK, PLUS }
 
 /** Line icons drawn on a 24 x 24 grid, so the app needs no icon library and they match the brand's thin outlines. */
 @Composable
@@ -79,6 +79,7 @@ fun CbIcon(icon: Icon, color: Color, modifier: Modifier = Modifier, filled: Bool
                 lineTo(12f * k, 9f * k); lineTo(10f * k, 6f * k); lineTo(4f * k, 6f * k); close()
             })
             Icon.CHEVRON -> shape(Path().apply { moveTo(9f * k, 5f * k); lineTo(16f * k, 12f * k); lineTo(9f * k, 19f * k) })
+            Icon.PLUS -> { seg(12f, 5f, 12f, 19f); seg(5f, 12f, 19f, 12f) }
             Icon.CHECK -> shape(Path().apply { moveTo(5f * k, 12.5f * k); lineTo(10f * k, 17.5f * k); lineTo(19f * k, 7f * k) })
         }
     }
