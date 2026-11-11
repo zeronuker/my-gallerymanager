@@ -57,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.claudeborne.gallerymanager.data.BIN_DAYS
 import com.claudeborne.gallerymanager.data.BinItem
 import com.claudeborne.gallerymanager.data.Entry
 import com.claudeborne.gallerymanager.data.MediaItem
@@ -157,7 +158,10 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
                         items(rows, key = { it.key }) { row ->
                             Box(Modifier.animateItem()) {
                                 when (row) {
-                                    is BinRow -> GridTile(row.entry, row.key in selected, tapOf(row)) { toggle(row.key) }
+                                    is BinRow -> Box {
+                                        GridTile(row.entry, row.key in selected, tapOf(row)) { toggle(row.key) }
+                                        DaysBadge(binDaysLeft(row.item), Modifier.align(Alignment.TopStart)) // the name already sits along the bottom
+                                    }
                                     is MediaRow -> MediaTrashTile(row.item, row.key in selected, tapOf(row)) { toggle(row.key) }
                                 }
                             }
@@ -236,8 +240,20 @@ internal fun ActionText(label: String, color: Color, onClick: () -> Unit) {
 /** "29 days", or "1 day"; empty when the item has no removal date. */
 private fun daysLeft(item: MediaItem): String {
     if (item.expiresMs <= 0) return ""
-    val days = ((item.expiresMs - System.currentTimeMillis()) / DAY_MS).coerceAtLeast(0)
-    return if (days == 1L) "1 day" else "$days days"
+    return daysText(((item.expiresMs - System.currentTimeMillis()) / DAY_MS).coerceAtLeast(0))
+}
+
+private fun daysText(days: Long) = if (days == 1L) "1 day" else "$days days"
+
+private fun binDaysLeft(item: BinItem) = daysText(((item.deletedMs + BIN_DAYS * DAY_MS - System.currentTimeMillis()) / DAY_MS).coerceAtLeast(0))
+
+/** The small dark label in a tile's bottom left corner saying how long the item has left. */
+@Composable
+private fun DaysBadge(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text.uppercase(), modifier.padding(4.dp).background(Color(0x99000000)).padding(horizontal = 4.dp, vertical = 2.dp),
+        style = TextStyle(fontFamily = JetBrainsMono, fontSize = 10.sp, color = Color.White),
+    )
 }
 
 /** A trashed photo or video as a thumbnail with how long it has left. */
@@ -251,10 +267,7 @@ private fun MediaTrashTile(item: MediaItem, selected: Boolean, onClick: () -> Un
             .border(3.dp, glide(selected, cb.mint, Color.Transparent)),
     ) {
         AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        if (left.isNotEmpty()) Text(
-            left.uppercase(), Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color(0x99000000)).padding(horizontal = 4.dp, vertical = 2.dp),
-            style = TextStyle(fontFamily = JetBrainsMono, fontSize = 10.sp, color = Color.White),
-        )
+        if (left.isNotEmpty()) DaysBadge(left, Modifier.align(Alignment.BottomStart))
         SelectedMark(selected)
     }
 }

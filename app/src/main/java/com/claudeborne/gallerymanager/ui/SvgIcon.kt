@@ -56,6 +56,7 @@ private val ICONS: Map<String, String> = mapOf(
     "undo" to "<path d=\"M3 10h11a5 5 0 0 1 0 10H8\"/><path d=\"M7 6L3 10l4 4\"/>",
     "resetAll" to "<path d=\"M4 12a8 8 0 1 0 2.5-5.8\"/><path d=\"M4 4v5h5\"/><path d=\"M12 8v4l3 2\"/>",
     "redo" to "<path d=\"M21 10H10a5 5 0 0 0 0 10h6\"/><path d=\"M17 6l4 4-4 4\"/>",
+    "camera" to "<path d=\"M4 8h3l2-3h6l2 3h3v11H4z\"/><circle cx=\"12\" cy=\"13.5\" r=\"3.5\"/>",
     "swap" to "<rect x=\"3\" y=\"4\" width=\"7\" height=\"7\"/><rect x=\"14\" y=\"13\" width=\"7\" height=\"7\"/><path d=\"M12 6h6M16 3l3 3-3 3M12 18H6M8 15l-3 3 3 3\"/>",
     // inside the tools
     "rotate" to ROTATE,

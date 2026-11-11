@@ -1,6 +1,5 @@
 package com.claudeborne.gallerymanager.ui
 
-import android.text.format.Formatter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -39,11 +38,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.claudeborne.gallerymanager.data.BIN_DAYS
 import com.claudeborne.gallerymanager.data.BinItem
 import com.claudeborne.gallerymanager.data.Entry
 import com.claudeborne.gallerymanager.data.deleteFromBin
@@ -54,21 +51,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private const val DAY_MS = 86_400_000L
-
 /** One deleted file, big: a preview where there is one (picture, video frame, PDF first page, start of a text file) and its details, with restore and delete forever. */
 @Composable
 internal fun BinDetail(item: BinItem, entry: Entry, onClose: () -> Unit, onRestore: () -> Unit, onDelete: () -> Unit) {
     val cb = LocalCb.current
-    val context = LocalContext.current
     val file = item.file
-    val left = (((item.deletedMs + BIN_DAYS * DAY_MS) - System.currentTimeMillis()) / DAY_MS).coerceAtLeast(0)
-    val facts = listOf(
-        "SIZE" to if (entry.isDir) "Folder" else Formatter.formatShortFileSize(context, entry.size),
-        "FROM" to item.origin.parent.orEmpty(),
-        "DELETED" to dateText(item.deletedMs),
-        "REMOVED FOR GOOD IN" to if (left == 1L) "1 day" else "$left days",
-    )
     Column(Modifier.fillMaxSize().background(cb.surface0).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("← BACK", Modifier.clickable(onClick = onClose), style = monoStyle(cb.mint, 2.6.sp))
@@ -87,14 +74,6 @@ internal fun BinDetail(item: BinItem, entry: Entry, onClose: () -> Unit, onResto
                     }
                 }
                 else -> BigLabel(file.extension.take(5).uppercase().ifEmpty { "FILE" })
-            }
-        }
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-            facts.forEach { (k, v) ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-                    Text(k, Modifier.weight(1f), style = monoStyle(cb.inkDim, 1.2.sp))
-                    Text(v, Modifier.weight(1.4f), maxLines = 2, style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.ink))
-                }
             }
         }
         Row(Modifier.fillMaxWidth().background(cb.surface1).padding(vertical = 8.dp), Arrangement.SpaceEvenly) {

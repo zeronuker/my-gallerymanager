@@ -33,6 +33,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -194,6 +196,8 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
     }
 
     val changed = edit != VideoEdit()
+    val canUndo = at > 0 || edit != history[at]
+    val canRedo = at < history.lastIndex && edit == history[at]
     val selMark = edit.marks.getOrNull(selected)?.takeIf { it.sizeOrNull() != null }
     fun close() { if (saving) return; if (changed) askDiscard = true else onClose() }
     BackHandler { close() }
@@ -226,14 +230,10 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 CloseButton { close() }
                 Box(Modifier.weight(1f))
-                ActionText("SAVE FRAME", DarkCb.ink) {
-                    val t = player.currentPosition
-                    scope.launch {
-                        val ok = saveFrame(context, item, t)
-                        Toast.makeText(context, if (ok) "Frame saved as a photo" else "Couldn't save the frame", Toast.LENGTH_SHORT).show()
-                        if (ok) onLibraryChanged()
-                    }
-                }
+                SvgIconButton("undo", glide(canUndo, DarkCb.ink, DarkCb.inkDim), "Undo") { undo() }
+                SvgIconButton("resetAll", glide(changed, DarkCb.ink, DarkCb.inkDim), "Reset all edits") { if (changed) askReset = true }
+                SvgIconButton("redo", glide(canRedo, DarkCb.ink, DarkCb.inkDim), "Redo") { redo() }
+                Box(Modifier.weight(1f))
                 ActionText("SAVE", if (changed) DarkCb.mint else DarkCb.inkDim) { if (changed) save() }
             }
 
@@ -316,6 +316,16 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                     }
                 }
                 if (!playing) Text("▶", Modifier.align(Alignment.Center), style = TextStyle(fontSize = 48.sp, color = Color(0xCCFFFFFF)))
+                Box(Modifier.align(Alignment.BottomStart).padding(6.dp).background(Color(0x99000000))) {
+                    Chip("", color = DarkCb.ink, icon = "camera") { // saves the frame on screen as a photo
+                        val t = player.currentPosition
+                        scope.launch {
+                            val ok = saveFrame(context, item, t)
+                            Toast.makeText(context, if (ok) "Frame saved as a photo" else "Couldn't save the frame", Toast.LENGTH_SHORT).show()
+                            if (ok) onLibraryChanged()
+                        }
+                    }
+                }
             }
 
             val i = info
@@ -323,13 +333,6 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                 Box(Modifier.fillMaxWidth().height(260.dp).background(Panel), Alignment.Center) { LoadingPane("LOADING VIDEO") }
             } else {
                 Column(Modifier.fillMaxWidth().background(Panel).navigationBarsPadding()) {
-                    val canUndo = at > 0 || edit != history[at]
-                    val canRedo = at < history.lastIndex && edit == history[at]
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), Arrangement.End) {
-                        SvgIconButton("undo", glide(canUndo, DarkCb.ink, DarkCb.inkDim), "Undo") { undo() }
-                        SvgIconButton("resetAll", glide(changed, DarkCb.ink, DarkCb.inkDim), "Reset all edits") { if (changed) askReset = true }
-                        SvgIconButton("redo", glide(canRedo, DarkCb.ink, DarkCb.inkDim), "Redo") { redo() }
-                    }
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(fmt(pos), style = monoStyle(Color.White, 1.sp))
                         Text("${fmt(edit.startMs)} – ${fmt(endMs)}  →  ${fmt(edit.outputMs(i))}", style = monoStyle(DarkCb.mint, 1.sp))
@@ -353,7 +356,11 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                             }
                         }
                     }
-                    Box(Modifier.fillMaxWidth().height(when (tool) { 2 -> 200.dp; 5 -> 200.dp; 6 -> if (selMark != null) 240.dp else 200.dp; 7 -> 190.dp; else -> 130.dp })) {
+                    val panelH by animateDpAsState(
+                        when (tool) { 0 -> if (edit.exactCut) 100.dp else 64.dp; 1, 3, 4, 8 -> 64.dp; 2, 5 -> 200.dp; 6 -> if (selMark != null) 240.dp else 200.dp; 7 -> 130.dp; else -> 130.dp },
+                        tween(MOTION_MS), label = "panel",
+                    )
+                    Box(Modifier.fillMaxWidth().height(panelH)) {
                         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
                             when (tool) {
                                 0 -> {
@@ -363,13 +370,12 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                                         item { Chip("RESET TRIM", color = DarkCb.inkDim, icon = "reset") { edit = edit.copy(startMs = 0, endMs = 0) } }
                                         item { Chip("EXACT CUT", edit.exactCut, icon = "scissors") { edit = edit.copy(exactCut = !edit.exactCut) } }
                                     }
-                                    Hint(if (edit.exactCut) "EXACT: STARTS AT THE FRAME YOU PICKED. TAKES LONGER." else "FAST: INSTANT AND LOSSLESS, BUT THE START MAY MOVE BACK A FEW SECONDS TO A KEY FRAME.")
+                                    Visible(edit.exactCut, Modifier, expandEnter, shrinkExit) { Hint("EXACT: STARTS AT THE FRAME YOU PICKED. TAKES LONGER.") }
                                 }
                                 1 -> {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
                                         items(Speeds) { s -> Chip(if (s == 1f) "1×" else "${s}×".replace(".0×", "×"), edit.speed == s) { edit = edit.copy(speed = s) } }
                                     }
-                                    Hint("SLOW MOTION BELOW 1×, FAST FORWARD ABOVE. SOUND CHANGES SPEED TOO.")
                                 }
                                 2 -> {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
@@ -393,13 +399,11 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                                         item { Chip("FLIP", edit.flip, color = DarkCb.ink, icon = "flipH") { edit = edit.copy(flip = !edit.flip) } }
                                         item { Chip("RESET", color = DarkCb.inkDim, icon = "reset") { edit = edit.copy(turns = 0, flip = false) } }
                                     }
-                                    Hint("ROTATE TURNS THE VIDEO A QUARTER TURN EACH TAP. FLIP MIRRORS IT.")
                                 }
                                 4 -> {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
                                         items(VideoAspect.entries) { a -> Chip(a.label, edit.aspect == a, icon = if (a == VideoAspect.ORIGINAL) "orig" else null) { edit = edit.copy(aspect = a) } }
                                     }
-                                    Hint("CUTS THE VIDEO DOWN TO THIS SHAPE, FROM THE MIDDLE.")
                                 }
                                 5 -> {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
@@ -452,7 +456,6 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                                 )
                                 7 -> {
                                     FadeChips(edit.fadeInMs, edit.fadeOutMs) { a, b -> edit = edit.copy(fadeInMs = a, fadeOutMs = b) }
-                                    Hint("PICTURE AND SOUND FADE FROM AND TO BLACK. SHOWN IN THE SAVED VIDEO, NOT IN THIS PREVIEW.")
                                 }
                                 8 -> {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
@@ -464,10 +467,6 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                                         if (edit.freezeAtMs >= 0) item { Chip("REMOVE", color = Danger, icon = "remove") { edit = edit.copy(freezeAtMs = -1) } }
                                         items(listOf(1000L, 2000L, 3000L, 5000L)) { ms -> Chip("${ms / 1000}S", edit.freezeMs == ms) { edit = edit.copy(freezeMs = ms) } }
                                     }
-                                    Hint(
-                                        if (edit.freezeAtMs >= 0) "THE PICTURE AT ${fmt(edit.freezeAtMs)} IS HELD STILL FOR ${edit.freezeMs / 1000} SECONDS. THE SOUND PAUSES."
-                                        else "PLAY TO A MOMENT, THEN TAP FREEZE HERE TO HOLD THAT PICTURE STILL.",
-                                    )
                                 }
                                 else -> {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 6.dp)) {
@@ -477,7 +476,8 @@ fun VideoEditor(item: MediaItem, onClose: () -> Unit, onSaved: () -> Unit, onLib
                                         items(VideoQuality.entries) { q -> Chip(q.label, edit.quality == q) { edit = edit.copy(quality = q) } }
                                     }
                                     val est = edit.estimatedBytes(i)
-                                    Hint(if (est > 0) "ABOUT ${Formatter.formatShortFileSize(context, est)} (NOW ${Formatter.formatShortFileSize(context, item.size)})" else "NO CHANGE TO THE FILE SIZE YET.")
+                                    val before = Formatter.formatShortFileSize(context, item.size)
+                                    Hint(if (est > 0) "$before → ${Formatter.formatShortFileSize(context, est)}" else before) // the size now, and what it would be
                                 }
                             }
                         }
