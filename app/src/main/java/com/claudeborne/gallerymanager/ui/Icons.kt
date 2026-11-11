@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,7 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-enum class Icon { SHARE, HEART, EDIT, TRASH, INFO, MORE, SEARCH, FOLDER, CHEVRON, CHECK, PLUS, CLOSE, REWIND, FORWARD, SPEAKER, SPEAKER_OFF }
+enum class Icon { SHARE, HEART, EDIT, TRASH, INFO, MORE, SEARCH, FOLDER, CHEVRON, CHECK, PLUS, CLOSE, REWIND, FORWARD, SPEAKER, SPEAKER_OFF, PLUG, REFRESH, COMPUTER, SCAN, KEYBOARD, WIFI, DIRECT, GEAR }
 
 /** Line icons drawn on a 24 x 24 grid, so the app needs no icon library and they match the brand's thin outlines. */
 @Composable
@@ -81,6 +82,51 @@ fun CbIcon(icon: Icon, color: Color, modifier: Modifier = Modifier, filled: Bool
             })
             Icon.CHEVRON -> shape(Path().apply { moveTo(9f * k, 5f * k); lineTo(16f * k, 12f * k); lineTo(9f * k, 19f * k) })
             Icon.PLUS -> { seg(12f, 5f, 12f, 19f); seg(5f, 12f, 19f, 12f) }
+            Icon.PLUG -> {
+                drawRect(color, p(7f, 7f), Size(10f * k, 7f * k), style = line)
+                seg(10f, 7f, 10f, 3.5f); seg(14f, 7f, 14f, 3.5f); seg(12f, 14f, 12f, 20.5f)
+            }
+            Icon.REFRESH -> {
+                drawArc(color, 40f, 290f, false, p(5f, 5f), Size(14f * k, 14f * k), style = line)
+                seg(18.5f, 3.5f, 18.5f, 8.5f); seg(18.5f, 8.5f, 14f, 8.5f)
+            }
+            Icon.COMPUTER -> {
+                drawRect(color, p(3f, 4f), Size(18f * k, 11f * k), style = line)
+                seg(12f, 15f, 12f, 19f); seg(8f, 19f, 16f, 19f)
+            }
+            Icon.SCAN -> {
+                drawRect(color, p(4f, 4f), Size(6f * k, 6f * k), style = line)
+                drawRect(color, p(14f, 4f), Size(6f * k, 6f * k), style = line)
+                drawRect(color, p(4f, 14f), Size(6f * k, 6f * k), style = line)
+                drawRect(color, p(14f, 14f), Size(2.5f * k, 2.5f * k)); drawRect(color, p(18f, 17.5f), Size(2.5f * k, 2.5f * k))
+            }
+            Icon.KEYBOARD -> {
+                drawRoundRect(color, p(2f, 6f), Size(20f * k, 12f * k), CornerRadius(2f * k), style = line)
+                for (x in listOf(6f, 10f, 14f, 18f)) drawCircle(color, 0.9f * k, p(x, 10f))
+                seg(7f, 14f, 17f, 14f)
+            }
+            Icon.WIFI -> {
+                drawArc(color, -135f, 90f, false, p(0f, 6f), Size(24f * k, 24f * k), style = line)
+                drawArc(color, -135f, 90f, false, p(4.5f, 10.5f), Size(15f * k, 15f * k), style = line)
+                drawArc(color, -135f, 90f, false, p(8.5f, 14.5f), Size(7f * k, 7f * k), style = line)
+                drawCircle(color, 1.3f * k, p(12f, 18.5f))
+            }
+            Icon.DIRECT -> {
+                drawCircle(color, 2f * k, p(12f, 12f))
+                for (r in listOf(6f, 10f)) {
+                    drawArc(color, 135f, 90f, false, p(12f - r, 12f - r), Size(2f * r * k, 2f * r * k), style = line)
+                    drawArc(color, -45f, 90f, false, p(12f - r, 12f - r), Size(2f * r * k, 2f * r * k), style = line)
+                }
+            }
+            Icon.GEAR -> {
+                drawCircle(color, 3.2f * k, p(12f, 12f), style = line)
+                drawCircle(color, 7.2f * k, p(12f, 12f), style = line)
+                for (i in 0 until 8) {
+                    val a = Math.toRadians(i * 45.0)
+                    val (c, s) = Math.cos(a).toFloat() to Math.sin(a).toFloat()
+                    seg(12f + 7.2f * c, 12f + 7.2f * s, 12f + 9.8f * c, 12f + 9.8f * s)
+                }
+            }
             Icon.CLOSE -> { seg(5f, 5f, 19f, 19f); seg(19f, 5f, 5f, 19f) }
             Icon.REWIND -> {
                 shape(Path().apply { moveTo(12f * k, 6f * k); lineTo(12f * k, 18f * k); lineTo(3.5f * k, 12f * k); close() }, true)

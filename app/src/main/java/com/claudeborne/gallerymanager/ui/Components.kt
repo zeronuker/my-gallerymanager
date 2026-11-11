@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.contentDescription
@@ -92,5 +94,18 @@ internal val DialogButtonGap = Modifier.padding(horizontal = 4.dp)
 fun CloseButton(onClick: () -> Unit) {
     Box(Modifier.size(48.dp).semantics { contentDescription = "Close" }.clickable(onClick = onClick), Alignment.Center) {
         CbIcon(Icon.CLOSE, RED, size = 28.dp)
+    }
+}
+
+/** A [BrandButton] with an icon before its words. */
+@Composable
+fun IconBrandButton(label: String, icon: Icon, modifier: Modifier = Modifier, primary: Boolean = false, danger: Boolean = false, onClick: () -> Unit) {
+    val cb = LocalCb.current
+    val red = Color(0xFFFF6B6B)
+    val ink = if (primary) cb.surface0 else if (danger) red else cb.ink
+    val framed = if (primary) modifier.background(cb.grad) else modifier.border(1.dp, if (danger) red.copy(alpha = 0.6f) else cb.lineStrong)
+    Row(framed.clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp), Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), Alignment.CenterVertically) {
+        CbIcon(icon, ink, size = 18.dp)
+        Text(label, style = monoStyle(ink, 2.2.sp).copy(fontWeight = if (primary) FontWeight.Bold else FontWeight.Normal))
     }
 }

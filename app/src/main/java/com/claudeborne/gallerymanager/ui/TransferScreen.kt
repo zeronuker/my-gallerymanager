@@ -37,6 +37,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import android.content.Intent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -216,11 +223,10 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
             }
             Mode.RECEIVE, Mode.COMPUTER -> Box(Modifier.fillMaxSize()) {
                 Progress(rows) {
-                    if (shown == Mode.RECEIVE && rows.isEmpty()) WaitingLine("WAITING FOR THE OTHER DEVICE…")
-                    Connection(tick, group, computer = shown == Mode.COMPUTER)
-                    FasterOptions(group, linkBusy, wifi, onStart = { requestDirect() }, onStop = { link.stop(); group = null })
-                    AnimatedOverlay(linkError, expandEnter, shrinkExit) { Text(it, Modifier.padding(horizontal = 16.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = RED)) }
-                    ActionText("STOP", cb.inkDim) { requestBack() }
+                    TransferChannels(
+                        shown == Mode.COMPUTER, tick, group, linkBusy, linkError, wifi, shown == Mode.RECEIVE && rows.isEmpty(),
+                        { requestDirect() }, { link.stop(); group = null }, { requestBack() },
+                    )
                 }
             }
             Mode.PHONE -> Box(Modifier.fillMaxSize()) {
@@ -232,21 +238,22 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
                     val peers = remember(tick) { LocalSend.peers.values.filter { now - it.seen < 120_000 }.sortedBy { it.alias } }
                     Text("PHONES NEARBY", Modifier.padding(start = 16.dp, top = 8.dp), style = monoStyle(cb.mint, 2.4.sp))
                     if (peers.isEmpty()) Text("None found. The other phone must be on Receive.", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim))
-                    peers.forEach { p -> HomeRow(p.alias, "${p.deviceType.uppercase()} · ${p.host}") { sendToPeer(p) } }
+                    peers.forEach { p -> PhoneCard(p) { sendToPeer(p) } }
                     val out = rows.filter { !it.incoming }
                     val moved = out.sumOf { it.done }
                     val sendingLine = if (moved > 0) "SENDING… ${Formatter.formatShortFileSize(context, moved).uppercase()} OF ${Formatter.formatShortFileSize(context, out.sumOf { it.size }).uppercase()}" else status.ifEmpty { "SENDING…" }
-                    ActionText(if (sending) sendingLine else "SEARCH AGAIN", cb.mint) { if (!sending) TransferHub.rediscover() }
+                    if (sending) Text(sendingLine, Modifier.padding(horizontal = 16.dp, vertical = 10.dp), style = monoStyle(cb.mint, 1.sp))
+                    else IconBrandButton("SEARCH AGAIN", Icon.REFRESH, Modifier.padding(horizontal = 16.dp).fillMaxWidth()) { TransferHub.rediscover() }
                     Text("OTHER WAYS", Modifier.padding(start = 16.dp, top = 8.dp), style = monoStyle(cb.mint, 2.4.sp))
-                    HomeRow("TO A COMPUTER", "OPENS A WEB PAGE") { mode = Mode.COMPUTER }
+                    WayCard(Icon.COMPUTER, "TO A COMPUTER", "Opens a web page") { mode = Mode.COMPUTER }
                     Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            BrandButton("SCAN CODE", Modifier.weight(1f), primary = true) {
+                            IconBrandButton("SCAN CODE", Icon.SCAN, Modifier.weight(1f), primary = true) {
                                 GmsBarcodeScanning.getClient(context, GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()).startScan()
                                     .addOnSuccessListener { address = it.rawValue.orEmpty(); beginSend(address) }
                                     .addOnFailureListener { toast("The scanner is not available. Use ENTER CODE.") }
                             }
-                            BrandButton("ENTER CODE", Modifier.weight(1f), onClick = { typing = !typing })
+                            IconBrandButton("ENTER CODE", Icon.KEYBOARD, Modifier.weight(1f)) { typing = !typing }
                         }
                         Visible(typing, enter = expandEnter, exit = shrinkExit) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -284,11 +291,11 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
     received?.let { o -> ResultDialog(o.text, o.ok) { LocalSend.clearResult(); onClose(true) } }
     sendResult?.let { r -> ResultDialog(r.message, r.ok) { sendResult = null; if (r.reached) onClose(true) } }
     if (confirmStop) {
-        CbDialog("STOP?", { confirmStop = false }) {
-            Text("This cancels the transfer that is running.", style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2))
+        CbDialog("END CONNECTION?", { confirmStop = false }) {
+            Text("This ends the connection and cancels the transfer that is running.", style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2))
             Row(Modifier.fillMaxWidth(), Arrangement.End) {
                 ActionText("KEEP GOING", cb.inkDim) { confirmStop = false }
-                ActionText("STOP", RED) { confirmStop = false; back() }
+                ActionText("END", RED) { confirmStop = false; back() }
             }
         }
     }
@@ -322,48 +329,6 @@ private fun parseAddress(text: String): Target? {
     return Target(host, if (uri.port > 0) uri.port else TransferHub.DEFAULT_PORT, uri.getQueryParameter("ssid"), uri.getQueryParameter("pw"))
 }
 
-/**
- * The address (and its QR code) the other device uses to reach this phone. With a direct link the code also carries the network name and
- * password, so another phone joins the network by itself; a computer joins it by hand with the name and password shown.
- */
-@Composable
-private fun Connection(tick: Int, group: DirectGroup?, computer: Boolean) {
-    val cb = LocalCb.current
-    val urls = remember(tick, group) { if (TransferHub.running) TransferHub.addresses() else emptyList() }
-    val state = if (group != null && TransferHub.running) 0 else if (urls.isEmpty()) 1 else 2
-    Crossfade(state, animationSpec = tween(MOTION_MS), label = "connection") { _ ->
-    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        if (group != null && TransferHub.running) {
-            val plain = "http://${group.host}:${TransferHub.port}/?t=${TransferHub.token}"
-            val full = plain + "&ssid=" + Uri.encode(group.ssid) + "&pw=" + Uri.encode(group.passphrase)
-            Text("DIRECT LINK READY", style = monoStyle(cb.mint, 1.sp))
-            Text("Phone: scan this code.", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
-            Image(remember(full) { qrBitmap(full) }, "QR code", Modifier.size(200.dp).background(androidx.compose.ui.graphics.Color.White), filterQuality = FilterQuality.None)
-            Text("Computer: join ${group.ssid}, password ${group.passphrase}, then open:", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
-            Text(plain, style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = cb.mint, textAlign = TextAlign.Center))
-            return@Column
-        }
-        if (urls.isEmpty()) {
-            if (TransferHub.running) Text("NO WI-FI CONNECTION", style = monoStyle(cb.inkDim, 2.sp))
-            else WorkingLine("STARTING…", null, cb.inkDim)
-            return@Column
-        }
-        val ip = urls[0].second.substringAfter("://").substringBefore(':') // a phone can type just this
-        Text(
-            if (computer) "Open this address on the computer,\nthen click a file to download it." else "Phone: scan the code or type $ip.\nComputer: open this address in a browser.",
-            style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center),
-        )
-        Text("Visible as ${LocalSend.alias}", style = monoStyle(cb.inkDim, 0.6.sp))
-        Text(urls[0].first, style = monoStyle(cb.inkDim, 1.sp))
-        Text(urls[0].second, style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = cb.mint, textAlign = TextAlign.Center))
-        val qr = remember(urls[0].second) { qrBitmap(urls[0].second) }
-        Image(qr, "QR code", Modifier.size(200.dp).background(androidx.compose.ui.graphics.Color.White), filterQuality = FilterQuality.None)
-        // other networks this phone is on: a USB cable (tethering) or a hotspot give a faster way in than the router
-        urls.drop(1).forEach { (label, url) -> Text("$label  $url", style = monoStyle(cb.inkDim, 0.6.sp), textAlign = TextAlign.Center) }
-    }
-    }
-}
-
 private fun qrBitmap(text: String): ImageBitmap {
     val m = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0)
     val pixels = IntArray(m.width * m.height) { i -> if (m.get(i % m.width, i / m.width)) 0xFF000000.toInt() else 0xFFFFFFFF.toInt() }
@@ -373,42 +338,220 @@ private fun qrBitmap(text: String): ImageBitmap {
 @Composable
 private fun ChoiceButton(label: String, enabled: Boolean, primary: Boolean, onClick: () -> Unit) = WideBrandButton(label, primary, enabled, onClick)
 
-/** Offline transfer: the ways that need no router (the direct link, and a USB cable). Folded away until asked for. */
+
+private const val USB_WAIT_S = 30
+
+/** A status line: the breathing dot while waiting ([live]), a still dot in [color] otherwise. */
 @Composable
-private fun FasterOptions(group: DirectGroup?, linkBusy: Boolean, wifi: Int, onStart: () -> Unit, onStop: () -> Unit) {
+private fun StatusLine(text: String, color: Color, live: Boolean) {
+    if (live) { WaitingLine(text); return }
+    Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), Arrangement.spacedBy(10.dp), Alignment.CenterVertically) {
+        Box(Modifier.size(7.dp).background(color, CircleShape))
+        Text(text, style = monoStyle(color, 1.sp))
+    }
+}
+
+/**
+ * How this phone can be reached, as three cards: Wi-Fi, the direct link and a USB cable. A card with a mint frame is in use right now
+ * (more than one can be); the tapped card shows its own details below: the address and QR code, the direct link's network, or the steps
+ * for USB tethering with a countdown. END CONNECTION leaves the page, which stops everything.
+ */
+@Composable
+private fun TransferChannels(
+    computer: Boolean, tick: Int, group: DirectGroup?, linkBusy: Boolean, linkError: String?, wifi: Int, waiting: Boolean,
+    onStartDirect: () -> Unit, onStopDirect: () -> Unit, onEnd: () -> Unit,
+) {
     val cb = LocalCb.current
-    var open by rememberSaveable(wifi != 0) { mutableStateOf(wifi != 0) } // not on Wi-Fi: this is the way in, so it opens by itself
+    val context = LocalContext.current
+    val urls = remember(tick, group) { if (TransferHub.running) TransferHub.addresses() else emptyList() }
+    val wifiUrl = urls.firstOrNull { it.first == "WI-FI" }?.second
+    val usbUrl = urls.firstOrNull { it.first == "USB CABLE" }?.second
+    var selected by rememberSaveable { mutableIntStateOf(-1) } // 0 Wi-Fi, 1 direct link, 2 USB; none until a network turns up or a card is tapped
+    LaunchedEffect(wifiUrl != null) { if (selected == -1 && wifiUrl != null) selected = 0 }
+    var usbSince by rememberSaveable { mutableLongStateOf(0L) } // when the wait for the USB network began
+    val now = remember(tick) { SystemClock.elapsedRealtime() }
+    val usbLeft = if (usbSince == 0L) USB_WAIT_S else (USB_WAIT_S - (now - usbSince) / 1000).toInt().coerceIn(0, USB_WAIT_S)
+    val usbFailed = usbUrl == null && usbSince != 0L && usbLeft == 0
+    val usbWaiting = usbUrl == null && usbSince != 0L && usbLeft > 0
+    val directReady = group != null && TransferHub.running
+
+    val status: Triple<String, Color, Boolean>? = when {
+        selected == 2 && usbUrl != null -> Triple("CONNECTION ESTABLISHED", cb.mint, false)
+        selected == 2 && usbFailed -> Triple("FAILED TO CONNECT", Warn, false)
+        selected == 2 && usbWaiting -> Triple("WAITING FOR USB…", cb.mint, true)
+        waiting -> Triple("WAITING FOR THE OTHER DEVICE…", cb.mint, true)
+        else -> null
+    }
+    AnimatedContent(status, transitionSpec = { fadeIn(tween(MOTION_FAST_MS)) togetherWith fadeOut(tween(MOTION_FAST_MS)) }, label = "status") { st ->
+        if (st != null) StatusLine(st.first, st.second, st.third) else Box(Modifier.height(1.dp))
+    }
+
+    Text("TRANSFER OVER", Modifier.padding(start = 16.dp, top = 4.dp, bottom = 6.dp), style = monoStyle(cb.mint, 2.4.sp))
+    Row(Modifier.padding(horizontal = 16.dp), Arrangement.spacedBy(8.dp)) {
+        ChannelCard(
+            Icon.WIFI, "WI-FI", if (wifiUrl != null) "● IN USE" else if (wifi == 2) "OFF" else "NO NETWORK",
+            lit = wifiUrl != null, bad = false, selected = selected == 0, Modifier.weight(1f),
+        ) { selected = 0 }
+        ChannelCard(
+            Icon.DIRECT, "DIRECT", if (directReady) "● IN USE" else if (linkBusy) "STARTING…" else "",
+            lit = directReady, bad = linkError != null && !linkBusy, selected = selected == 1, Modifier.weight(1f),
+        ) {
+            selected = 1
+            if (wifi != 2 && group == null && !linkBusy) onStartDirect()
+        }
+        ChannelCard(
+            Icon.PLUG, "USB",
+            if (usbUrl != null) "● IN USE" else if (usbFailed) "FAILED" else if (usbWaiting) "%d:%02d".format(usbLeft / 60, usbLeft % 60) else "",
+            lit = usbUrl != null, bad = usbFailed, selected = selected == 2, Modifier.weight(1f),
+        ) {
+            selected = 2
+            if (usbSince == 0L) usbSince = SystemClock.elapsedRealtime()
+        }
+    }
+    Crossfade(selected, animationSpec = tween(MOTION_FAST_MS), label = "channel") { which ->
+        Column(Modifier.fillMaxWidth().padding(16.dp), Arrangement.spacedBy(10.dp), Alignment.CenterHorizontally) {
+            when (which) {
+                0 -> WifiPanel(computer, wifiUrl, wifi, urls)
+                1 -> DirectPanel(group, directReady, linkBusy, linkError, wifi, onStopDirect)
+                2 -> UsbPanel(usbUrl, usbLeft, usbFailed, onRetry = { usbSince = SystemClock.elapsedRealtime() }, onSettings = {
+                    val tether = Intent().setClassName("com.android.settings", "com.android.settings.TetherSettings")
+                    runCatching { context.startActivity(tether) }.onFailure { runCatching { context.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) } }
+                })
+                else -> Text("Choose how to connect.", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim))
+            }
+        }
+    }
+    IconBrandButton("END CONNECTION", Icon.PLUG, Modifier.padding(horizontal = 16.dp).fillMaxWidth(), danger = true, onClick = onEnd)
+}
+
+@Composable
+private fun ChannelCard(icon: Icon, title: String, small: String, lit: Boolean, bad: Boolean, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val cb = LocalCb.current
+    val edge by animateColorAsState(if (bad) Warn else if (lit) cb.mint else cb.line, tween(MOTION_FAST_MS), label = "cardEdge")
+    val tint = if (bad) Warn else if (lit) cb.mint else cb.inkDim
+    Column(
+        modifier.background(if (selected) cb.surface2 else cb.surface1).border(if (lit || bad) 1.5.dp else 1.dp, edge).clickable(onClick = onClick).padding(vertical = 10.dp, horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        CbIcon(icon, tint, size = 24.dp)
+        Text(title, style = monoStyle(if (lit || selected) cb.ink else cb.inkDim, 1.sp))
+        Text(small, Modifier.height(16.dp), style = monoStyle(tint, 0.4.sp).copy(fontSize = 10.sp))
+    }
+}
+
+/** The Wi-Fi details: how to reach this phone over the network it is on. */
+@Composable
+private fun ColumnScope.WifiPanel(computer: Boolean, url: String?, wifi: Int, urls: List<Pair<String, String>>) {
+    val cb = LocalCb.current
+    if (url == null) {
+        if (!TransferHub.running) WorkingLine("STARTING…", null, cb.inkDim)
+        else Text(if (wifi == 2) "Wi-Fi is off." else "NO WI-FI CONNECTION", style = monoStyle(cb.inkDim, 2.sp))
+        return
+    }
+    val ip = url.substringAfter("://").substringBefore(':') // a phone can type just this
     Text(
-        if (open) "▾ OFFLINE TRANSFER" else "▸ OFFLINE TRANSFER",
-        Modifier.fillMaxWidth().clickable { open = !open }.padding(horizontal = 16.dp, vertical = 12.dp), style = monoStyle(cb.mint, 1.sp),
+        if (computer) "Open this address on the computer,\nthen click a file to download it." else "Phone: scan the code or type $ip.\nComputer: open this address in a browser.",
+        style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center),
     )
-    Visible(open, enter = expandEnter, exit = shrinkExit) {
-        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (wifi != 0) Text(if (wifi == 2) "Wi-Fi is off." else "Not connected to Wi-Fi.", style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim))
-            OptionCard("DIRECT LINK", "A private network from this phone.") {
-                Crossfade(if (wifi == 2) 3 else if (group != null) 0 else if (linkBusy) 1 else 2, animationSpec = tween(MOTION_FAST_MS), label = "direct") { s ->
-                    when (s) {
-                        0 -> ActionText("STOP DIRECT LINK", cb.inkDim, onStop)
-                        1 -> WorkingLine("STARTING THE DIRECT LINK…", null, cb.inkDim) // no percentage: Android gives none, so the bar sweeps
-                        3 -> Text("Turn on Wi-Fi to use it. No router needed.", style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.mint))
-                        else -> ActionText("START DIRECT LINK", cb.mint, onStart)
+    Text("Visible as ${LocalSend.alias}", style = monoStyle(cb.inkDim, 0.6.sp))
+    Column(Modifier.fillMaxWidth().doubleChamferFrame(cb).padding(16.dp), Arrangement.spacedBy(10.dp), Alignment.CenterHorizontally) {
+        Image(remember(url) { qrBitmap(url) }, "QR code", Modifier.size(200.dp).background(Color.White), filterQuality = FilterQuality.None)
+        Text(url, style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = cb.mint, textAlign = TextAlign.Center))
+    }
+    // other networks this phone is on (a hotspot, ethernet): a faster way in than the router
+    urls.filter { it.first !in setOf("WI-FI", "USB CABLE", "DIRECT LINK") }.forEach { (label, u) -> Text("$label  $u", style = monoStyle(cb.inkDim, 0.6.sp), textAlign = TextAlign.Center) }
+}
+
+/** The direct link's details: a private network this phone makes. Its code carries the network name and password, so another phone joins by itself. */
+@Composable
+private fun ColumnScope.DirectPanel(group: DirectGroup?, ready: Boolean, busy: Boolean, error: String?, wifi: Int, onStop: () -> Unit) {
+    val cb = LocalCb.current
+    when {
+        ready && group != null -> {
+            val plain = "http://${group.host}:${TransferHub.port}/?t=${TransferHub.token}"
+            val full = plain + "&ssid=" + Uri.encode(group.ssid) + "&pw=" + Uri.encode(group.passphrase)
+            Text("Phone: scan this code.", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
+            Column(Modifier.fillMaxWidth().doubleChamferFrame(cb).padding(16.dp), Arrangement.spacedBy(10.dp), Alignment.CenterHorizontally) {
+                Image(remember(full) { qrBitmap(full) }, "QR code", Modifier.size(200.dp).background(Color.White), filterQuality = FilterQuality.None)
+            }
+            Text("Computer: join ${group.ssid}, password ${group.passphrase}, then open:", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim, textAlign = TextAlign.Center))
+            Text(plain, style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = cb.mint, textAlign = TextAlign.Center))
+            ActionText("STOP DIRECT LINK", cb.inkDim, onStop)
+        }
+        busy -> WorkingLine("STARTING THE DIRECT LINK…", null, cb.inkDim) // no percentage: Android gives none, so the bar sweeps
+        error != null -> Text(error, style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = RED, textAlign = TextAlign.Center))
+        wifi == 2 -> Text("Turn on Wi-Fi to use it. No router needed.", style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.mint))
+        else -> WorkingLine("STARTING THE DIRECT LINK…", null, cb.inkDim)
+    }
+}
+
+/** The USB details: the steps while waiting (with the countdown bar), the address once the cable network is up, or what to try when it never came. */
+@Composable
+private fun ColumnScope.UsbPanel(url: String?, left: Int, failed: Boolean, onRetry: () -> Unit, onSettings: () -> Unit) {
+    val cb = LocalCb.current
+    val note = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim)
+    when {
+        url != null -> {
+            Text("On the computer, open this address in a browser:", style = note.copy(textAlign = TextAlign.Center))
+            Text(url, style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = cb.mint, textAlign = TextAlign.Center))
+        }
+        failed -> {
+            Text("No USB network found after $USB_WAIT_S seconds. Check the cable, and that USB tethering is on.", style = note.copy(color = Warn, textAlign = TextAlign.Center))
+            IconBrandButton("TRY AGAIN", Icon.REFRESH, Modifier.fillMaxWidth(), onClick = onRetry)
+            IconBrandButton("OPEN ANDROID SETTINGS", Icon.GEAR, Modifier.fillMaxWidth(), onClick = onSettings)
+        }
+        else -> {
+            Column(Modifier.fillMaxWidth(), Arrangement.spacedBy(4.dp)) {
+                listOf("Plug the cable into the computer.", "Turn on USB tethering in Android settings.", "The address appears here. Open it on the computer.").forEachIndexed { i, step ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("${i + 1}", style = monoStyle(cb.mint, 0.sp))
+                        Text(step, style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.ink))
                     }
                 }
             }
-            OptionCard("USB CABLE", "Plug in, then turn on USB tethering in Settings.") {}
+            ProgressBar((USB_WAIT_S - left) / USB_WAIT_S.toFloat(), color = cb.mint, track = cb.line)
+            IconBrandButton("OPEN ANDROID SETTINGS", Icon.GEAR, Modifier.fillMaxWidth(), onClick = onSettings)
         }
     }
 }
 
+/** A phone found on the network, as a contact card: its first letter, its name, and what and where it is. */
 @Composable
-private fun OptionCard(title: String, note: String, action: @Composable ColumnScope.() -> Unit) {
+private fun PhoneCard(p: LocalSend.Peer, onClick: () -> Unit) {
     val cb = LocalCb.current
-    Column(Modifier.fillMaxWidth().background(cb.surface1).border(1.dp, cb.line).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(title, style = monoStyle(cb.ink, 1.5.sp))
-        Text(note, style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim))
-        action()
+    val dp = LocalDensity.current.density
+    val shape = remember(dp) { GenericShape { size, _ -> addPath(chamfered(size.width, size.height, 0f, 8f * dp)) } }
+    Row(
+        Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().clickable(onClick = onClick).doubleChamferFrame(cb).padding(14.dp),
+        Arrangement.spacedBy(12.dp), Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(42.dp).clip(shape).background(cb.surface2), Alignment.Center) {
+            Text(p.alias.take(1).uppercase(), style = TextStyle(fontFamily = Tourney, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = cb.mint))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(p.alias, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = cb.ink))
+            Text("${p.deviceType.uppercase()} · ${p.host}", maxLines = 1, style = monoStyle(cb.inkDim, 1.sp))
+        }
+        CbIcon(Icon.CHEVRON, cb.mint, size = 20.dp)
     }
 }
+
+/** A way to send that is not a phone on the network: an icon, a name and a short note. */
+@Composable
+private fun WayCard(icon: Icon, title: String, note: String, onClick: () -> Unit) {
+    val cb = LocalCb.current
+    Row(
+        Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().background(cb.surface1).border(1.dp, cb.line).clickable(onClick = onClick).padding(14.dp),
+        Arrangement.spacedBy(12.dp), Alignment.CenterVertically,
+    ) {
+        CbIcon(icon, cb.mint, size = 24.dp)
+        Column {
+            Text(title, style = monoStyle(cb.ink, 1.5.sp))
+            Text(note, style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim))
+        }
+    }
+}
+
 
 /** One row per file moving in or out, newest first. */
 @Composable
