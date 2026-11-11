@@ -79,13 +79,34 @@ class ChunkedInput(private val source: InputStream) : InputStream(), Body {
     }
 }
 
-/** Writes the one response to a request: call [send] or [sendStream] exactly once. */
+/** Writes what it is given as HTTP chunks; closing it ends the body and leaves [out] open for the next request. */
+class ChunkedOutput(private val out: OutputStream) : OutputStream() {
+    private var closed = false
+    override fun write(b: Int) = write(byteArrayOf(b.toByte()), 0, 1)
+    override fun write(b: ByteArray, off: Int, len: Int) {
+        if (len == 0) return
+        out.write((Integer.toHexString(len) + "\r\n").toByteArray())
+        out.write(b, off, len)
+        out.write("\r\n".toByteArray())
+    }
+    override fun flush() = out.flush()
+    override fun close() {
+        if (closed) return
+        closed = true
+        out.write("0\r\n\r\n".toByteArray())
+        out.flush()
+    }
+}
+
+/** Writes the one response to a request: call [send], [sendStream] or [sendChunked] exactly once. */
 class HttpResponse(private val out: OutputStream) {
     var sent = false
         private set
 
+    /** A [length] of -1 means the length is not known, so the body goes out in chunks. */
     private fun head(code: Int, type: String, length: Long, extra: Map<String, String>) {
-        val sb = StringBuilder("HTTP/1.1 $code ${STATUS[code] ?: "OK"}\r\nContent-Type: $type\r\nContent-Length: $length\r\nCache-Control: no-store\r\n")
+        val framing = if (length >= 0) "Content-Length: $length" else "Transfer-Encoding: chunked"
+        val sb = StringBuilder("HTTP/1.1 $code ${STATUS[code] ?: "OK"}\r\nContent-Type: $type\r\n$framing\r\nCache-Control: no-store\r\n")
         extra.forEach { (k, v) -> sb.append(k).append(": ").append(v).append("\r\n") }
         out.write(sb.append("\r\n").toString().toByteArray())
         sent = true
@@ -94,6 +115,12 @@ class HttpResponse(private val out: OutputStream) {
     fun send(code: Int, type: String, bytes: ByteArray, extra: Map<String, String> = emptyMap()) {
         head(code, type, bytes.size.toLong(), extra)
         out.write(bytes)
+    }
+
+    /** For a body whose length is not known up front (a zip made as it goes): [body] writes it into the stream it is given. */
+    fun sendChunked(code: Int, type: String, extra: Map<String, String>, body: (OutputStream) -> Unit) {
+        head(code, type, -1, extra)
+        ChunkedOutput(out).use(body)
     }
 
     /** Copies exactly [length] bytes of [input]; [onBytes] is told about each chunk so the caller can show progress. */

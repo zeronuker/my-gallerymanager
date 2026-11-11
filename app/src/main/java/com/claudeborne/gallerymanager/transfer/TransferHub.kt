@@ -15,6 +15,10 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.zip.ZipOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.Deflater
+import java.io.BufferedOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.net.Inet4Address
@@ -127,6 +131,7 @@ object TransferHub {
             req.method == "GET" && req.path == "/api/info" -> res.send(200, "application/json", JSONObject().put("name", Build.MODEL).toString().toByteArray())
             req.method == "GET" && req.path == "/api/offers" -> res.send(200, "application/json", offersJson().toByteArray())
             req.method == "GET" && req.path.startsWith("/api/file/") -> download(req, res)
+            req.method == "GET" && req.path == "/api/zip" -> zipAll(res)
             req.method == "GET" && req.path == "/api/speed/down" -> { // the web page's speed test: a stream of zeros
                 val size = (req.query["mb"]?.toLongOrNull() ?: 64).coerceIn(1, 1024) shl 20
                 res.sendStream(200, "application/octet-stream", size, emptyMap(), Zeros(size)) { n -> bytes.addAndGet(n.toLong()) }
@@ -179,6 +184,44 @@ object TransferHub {
             item.error = e.message ?: "failed"
             part.delete()
             throw e
+        }
+    }
+
+    /** Everything this phone offers as one zip, made while it is sent: no compression (photos and videos do not shrink), folders kept as they were. */
+    private fun zipAll(res: HttpResponse) {
+        val names = HashSet<String>()
+        res.sendChunked(200, "application/zip", mapOf("Content-Disposition" to "attachment; filename=\"altus-cirrus-files.zip\"")) { out ->
+            ZipOutputStream(BufferedOutputStream(out, BUFFER)).use { zip ->
+                zip.setLevel(Deflater.NO_COMPRESSION)
+                offers.forEach { o ->
+                    var name = o.rel
+                    var n = 1
+                    while (!names.add(name)) { // two offers with one path: the second gets " (1)"
+                        val dot = o.rel.lastIndexOf('.').takeIf { it > o.rel.lastIndexOf('/') } ?: -1
+                        name = if (dot < 0) "${o.rel} ($n)" else o.rel.substring(0, dot) + " ($n)" + o.rel.substring(dot)
+                        n++
+                    }
+                    val item = Item(false, o.rel, o.file.length()).also { items.add(it) }
+                    try {
+                        zip.putNextEntry(ZipEntry(name).apply { time = o.file.lastModified() })
+                        o.file.inputStream().use { input ->
+                            val buf = ByteArray(BUFFER)
+                            while (true) {
+                                val read = input.read(buf)
+                                if (read < 0) break
+                                zip.write(buf, 0, read)
+                                item.done += read
+                                bytes.addAndGet(read.toLong())
+                            }
+                        }
+                        zip.closeEntry()
+                        item.finished = true
+                    } catch (e: IOException) {
+                        item.error = e.message ?: "failed"
+                        throw e
+                    }
+                }
+            }
         }
     }
 
