@@ -52,6 +52,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -106,6 +108,16 @@ private fun typeLabel(t: FileType) = when (t) {
     FileType.OTHER -> "OTHER"
 }
 
+/** The last scan of each folder, kept while the app runs, so opening the map again shows it at once. */
+private class CachedScan(val result: ScanResult, val at: Long)
+private val scanCache = HashMap<String, CachedScan>()
+private const val STALE_MS = 10 * 60 * 1000L // an older scan is shown first and then redone in the background
+
+private fun ago(ms: Long): String {
+    val min = ms / 60_000
+    return when { min < 1 -> "JUST NOW"; min == 1L -> "1 MIN AGO"; min < 60 -> "$min MIN AGO"; else -> "${min / 60} H AGO" }
+}
+
 /**
  * What uses the space in [start]: a treemap one folder level at a time (tap a folder to zoom in), a legend of the file types, and a list of
  * the largest files. [onChanged] fires after something was deleted so the library follows.
@@ -118,20 +130,35 @@ internal fun StorageMapScreen(
     val cb = LocalCb.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var scan by remember { mutableStateOf<ScanResult?>(null) }
+    var scan by remember { mutableStateOf(scanCache[start.path]?.result) }
+    var scannedAt by remember { mutableLongStateOf(scanCache[start.path]?.at ?: 0L) }
+    var scanning by remember { mutableStateOf(false) }
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) } // moves on so "3 MIN AGO" stays true
     var progress by remember { mutableIntStateOf(0) }
-    var reload by remember { mutableIntStateOf(0) }
+    var reload by remember { mutableIntStateOf(0) } // raised by RESCAN, and after something was deleted
     var zoom by rememberSaveable { mutableStateOf(emptyList<String>()) } // folders below the start, deepest last
     var largest by rememberSaveable { mutableStateOf(false) }
     var picked by remember { mutableStateOf<MapNode?>(null) }
     var erase by remember { mutableStateOf<MapNode?>(null) }
 
+    LaunchedEffect(Unit) { while (true) { delay(30_000); nowMs = System.currentTimeMillis() } }
     LaunchedEffect(start, reload) {
-        scan = null
+        val cached = scanCache[start.path]
+        if (cached != null && reload == 0) { // reopened: show the last scan at once, and redo it only when it is old
+            scan = cached.result
+            scannedAt = cached.at
+            if (System.currentTimeMillis() - cached.at < STALE_MS) return@LaunchedEffect
+        }
+        scanning = true
         progress = 0
-        val result = scanTree(start) { progress = it }
+        val result = scanTree(start) { progress = it } // any map already on screen stays until the new one is ready
+        val at = System.currentTimeMillis()
+        scanCache[start.path] = CachedScan(result, at)
         zoom = zoomChain(result.root, zoom).drop(1).map { it.file.path } // a folder that is gone drops out of the zoom
         scan = result
+        scannedAt = at
+        nowMs = at
+        scanning = false
     }
     val result = scan
     val chain = result?.let { zoomChain(it.root, zoom) }.orEmpty()
@@ -164,6 +191,18 @@ internal fun StorageMapScreen(
             ActionText("LARGEST", if (largest) cb.mint else cb.inkDim) { largest = true; picked = null }
             ActionText("BROWSE HERE", cb.inkDim) { onBrowse(current.file) }
         }
+        // when the map was made, and a way to make it again; while it is being redone the old map stays and a bar sweeps
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (scanning) "RESCANNING… $progress FILES" else "SCANNED ${ago(nowMs - scannedAt)}", Modifier.weight(1f), style = monoStyle(cb.inkDim, 1.sp))
+            Row(
+                Modifier.clickable(enabled = !scanning) { reload++ }.padding(horizontal = 16.dp, vertical = 10.dp),
+                Arrangement.spacedBy(6.dp), Alignment.CenterVertically,
+            ) {
+                CbIcon(Icon.REFRESH, glide(!scanning, cb.mint, cb.inkDim), size = 16.dp)
+                Text("RESCAN", style = monoStyle(glide(!scanning, cb.mint, cb.inkDim), 2.2.sp))
+            }
+        }
+        Visible(scanning, Modifier.padding(horizontal = 16.dp), expandEnter, shrinkExit) { ProgressBar(null) }
         if (!largest) Legend(result)
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
