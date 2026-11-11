@@ -51,6 +51,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.claudeborne.gallerymanager.data.categoryCounts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -160,7 +161,6 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
     var refresh by remember { mutableIntStateOf(0) }
     var dialog by remember { mutableStateOf<FileDialog?>(null) }
     var entries by remember { mutableStateOf<List<Entry>>(emptyList()) }
-    var binCount by remember { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf<String?>(null) }
 
     val dir = path?.let { File(it) }
@@ -174,7 +174,7 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
     SideEffect { onDeep(deep) }
 
     LaunchedEffect(refresh, inBin) {
-        withContext(Dispatchers.IO) { purgeExpiredBin(context); binCount = listBin(context).size }
+        withContext(Dispatchers.IO) { purgeExpiredBin(context) }
     }
     LaunchedEffect(path, sort, ascending, hidden, refresh, category, searching, query, allScope) {
         when {
@@ -267,6 +267,8 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
 
     val browse: @Composable () -> Unit = {
     val onHome = dir == null && cat == null
+    var counts by remember { mutableStateOf<Map<Category, Int>>(emptyMap()) }
+    LaunchedEffect(onHome, library, refresh) { if (onHome) counts = categoryCounts(context) } // the cards show their counts a moment after they appear
     val rootLabel = roots.firstOrNull { it.second.path == root?.path }?.first.orEmpty()
     // back goes up one folder; from a storage root or a category it goes to the home screen
     val backLabel = when {
@@ -304,7 +306,7 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
 
         Crossfade(onHome && !showResults, Modifier.weight(1f).fillMaxWidth(), tween(MOTION_MS), label = "home") { home ->
             if (home) {
-                HomeList(roots, binCount + trash.size, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true }, onMap = { mapRoot = roots.first().second.path }, onDupes = { inDupes = true }, onTransfer = { transfer = emptyList() }, onVault = { vault = emptyList() }, onDual = { dualPath = roots.first().second.path })
+                HomeList(roots, counts, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true }, onMap = { mapRoot = roots.first().second.path }, onDupes = { inDupes = true }, onTransfer = { transfer = emptyList() }, onVault = { vault = emptyList() }, onDual = { dualPath = roots.first().second.path })
             } else {
                 FileList(
                     entries, grid && cat == null && !showResults, selected, showPath = showResults || cat != null,
@@ -433,23 +435,26 @@ private fun PermissionGate(context: Context) {
     }
 }
 
-/** The home screen: a card for each storage volume, the file categories as small cards, then the tools in two columns. */
+/** The home screen: a card for each storage volume, the file categories as icon cards with their counts, then the tools as icon cards. */
 @Composable
-private fun HomeList(roots: List<Pair<String, File>>, binCount: Int, onFolder: (File) -> Unit, onCategory: (Category) -> Unit, onBin: () -> Unit, onMap: () -> Unit, onDupes: () -> Unit, onTransfer: () -> Unit, onVault: () -> Unit, onDual: () -> Unit) {
-    val tools = listOf("STORAGE MAP" to onMap, "DUPLICATES" to onDupes, "DUAL PANE" to onDual, "SAFE FOLDER" to onVault, "TRANSFER" to onTransfer, "TRASH · $binCount" to onBin)
+private fun HomeList(roots: List<Pair<String, File>>, counts: Map<Category, Int>, onFolder: (File) -> Unit, onCategory: (Category) -> Unit, onBin: () -> Unit, onMap: () -> Unit, onDupes: () -> Unit, onTransfer: () -> Unit, onVault: () -> Unit, onDual: () -> Unit) {
+    val tools = listOf(
+        Triple(Icon.MAP, "STORAGE MAP", onMap), Triple(Icon.DUPLICATES, "DUPLICATES", onDupes), Triple(Icon.DUAL, "DUAL PANE", onDual),
+        Triple(Icon.LOCK, "SAFE FOLDER", onVault), Triple(Icon.TRANSFER, "TRANSFER", onTransfer), Triple(Icon.TRASH, "TRASH", onBin),
+    )
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(roots, key = { it.second.path }) { (label, folder) -> StorageCard(label, folder) { onFolder(folder) } }
         item { SectionLabel("CATEGORIES") }
         items(Category.entries.chunked(2)) { pair ->
             Row(Modifier.padding(horizontal = 16.dp), Arrangement.spacedBy(8.dp)) {
-                pair.forEach { MiniCard(it.label, Modifier.weight(1f)) { onCategory(it) } }
+                pair.forEach { CategoryCard(it, counts[it], Modifier.weight(1f)) { onCategory(it) } }
                 if (pair.size == 1) Spacer(Modifier.weight(1f))
             }
         }
         item { SectionLabel("TOOLS") }
         items(tools.chunked(2)) { pair ->
-            Row(Modifier.padding(horizontal = 16.dp), Arrangement.spacedBy(16.dp)) {
-                pair.forEach { (name, open) -> ToolRow(name, Modifier.weight(1f), open) }
+            Row(Modifier.padding(horizontal = 16.dp), Arrangement.spacedBy(8.dp)) {
+                pair.forEach { (icon, name, open) -> ToolCard(icon, name, Modifier.weight(1f), open) }
                 if (pair.size == 1) Spacer(Modifier.weight(1f))
             }
         }
@@ -483,24 +488,44 @@ private fun StorageCard(label: String, folder: File, onClick: () -> Unit) {
     }
 }
 
+/** A category: its icon, its name and how many files it lists (a dots mark until the count is known). */
 @Composable
-private fun MiniCard(title: String, modifier: Modifier, onClick: () -> Unit) {
+private fun CategoryCard(cat: Category, count: Int?, modifier: Modifier, onClick: () -> Unit) {
     val cb = LocalCb.current
-    Box(modifier.background(cb.surface1).border(1.dp, cb.line).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 16.dp)) {
-        Text(title, maxLines = 1, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = cb.ink))
+    Row(
+        modifier.background(cb.surface1).border(1.dp, cb.line).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 14.dp),
+        Arrangement.spacedBy(12.dp), Alignment.CenterVertically,
+    ) {
+        CbIcon(cat.icon, cb.mint, size = 26.dp)
+        Column {
+            Text(cat.label, maxLines = 1, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = cb.ink))
+            AnimatedContent(count, transitionSpec = { fadeIn(tween(MOTION_FAST_MS)) togetherWith fadeOut(tween(MOTION_FAST_MS)) }, label = "count") { n ->
+                Text(if (n == null) "…" else "$n ${if (n == 1) "FILE" else "FILES"}", style = monoStyle(cb.inkDim, 0.6.sp))
+            }
+        }
     }
 }
 
+/** A tool: a big icon above its name. */
 @Composable
-private fun ToolRow(title: String, modifier: Modifier, onClick: () -> Unit) {
+private fun ToolCard(icon: Icon, title: String, modifier: Modifier, onClick: () -> Unit) {
     val cb = LocalCb.current
-    Box(modifier.clickable(onClick = onClick).padding(vertical = 12.dp)) {
-        Text(title, maxLines = 1, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = cb.ink))
+    Column(
+        modifier.background(cb.surface1).border(1.dp, cb.line).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 18.dp),
+        Arrangement.spacedBy(10.dp), Alignment.CenterHorizontally,
+    ) {
+        CbIcon(icon, cb.mint, size = 32.dp)
+        Text(title, maxLines = 1, style = monoStyle(cb.ink, 1.5.sp))
     }
 }
 
 /** The category's name as the screen title. */
-private val Category.label get() = if (this == Category.LARGE) "LARGE FILES" else name
+private val Category.label get() = when (this) { Category.LARGE -> "LARGE FILES"; Category.APKS -> "APKs"; else -> name }
+
+private val Category.icon get() = when (this) {
+    Category.IMAGES -> Icon.IMAGE; Category.VIDEOS -> Icon.VIDEO; Category.AUDIO -> Icon.AUDIO; Category.DOCUMENTS -> Icon.DOCUMENT
+    Category.APKS -> Icon.APK; Category.ARCHIVES -> Icon.ARCHIVE; Category.LARGE -> Icon.LARGE; Category.OTHERS -> Icon.OTHERS
+}
 
 @Composable
 private fun SectionLabel(text: String) {

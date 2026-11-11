@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.Alignment
@@ -22,7 +23,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-enum class Icon { SHARE, HEART, EDIT, TRASH, INFO, MORE, SEARCH, FOLDER, CHEVRON, CHECK, PLUS, CLOSE, REWIND, FORWARD, SPEAKER, SPEAKER_OFF, PLUG, REFRESH, COMPUTER, SCAN, KEYBOARD, WIFI, DIRECT, GEAR }
+enum class Icon { SHARE, HEART, EDIT, TRASH, INFO, MORE, SEARCH, FOLDER, CHEVRON, CHECK, PLUS, CLOSE, REWIND, FORWARD, SPEAKER, SPEAKER_OFF, PLUG, REFRESH, COMPUTER, SCAN, KEYBOARD, WIFI, DIRECT, GEAR, IMAGE, VIDEO, AUDIO, DOCUMENT, APK, ARCHIVE, LARGE, OTHERS, MAP, DUPLICATES, DUAL, LOCK, TRANSFER }
 
 /** Line icons drawn on a 24 x 24 grid, so the app needs no icon library and they match the brand's thin outlines. */
 @Composable
@@ -33,6 +34,12 @@ fun CbIcon(icon: Icon, color: Color, modifier: Modifier = Modifier, filled: Bool
         fun p(x: Float, y: Float) = Offset(x * k, y * k)
         fun DrawScope.seg(x1: Float, y1: Float, x2: Float, y2: Float) = drawLine(color, p(x1, y1), p(x2, y2), 1.8f * k, StrokeCap.Round)
         fun DrawScope.shape(path: Path, fill: Boolean = false) = drawPath(path, color, style = if (fill) Fill else line)
+        fun poly(close: Boolean, vararg xy: Float) = Path().apply {
+            moveTo(xy[0] * k, xy[1] * k)
+            for (i in 2 until xy.size step 2) lineTo(xy[i] * k, xy[i + 1] * k)
+            if (close) close()
+        }
+        fun DrawScope.round(x: Float, y: Float, w: Float, h: Float, r: Float) = drawRoundRect(color, p(x, y), Size(w * k, h * k), CornerRadius(r * k), style = line)
 
         when (icon) {
             Icon.SHARE -> {
@@ -82,6 +89,68 @@ fun CbIcon(icon: Icon, color: Color, modifier: Modifier = Modifier, filled: Bool
             })
             Icon.CHEVRON -> shape(Path().apply { moveTo(9f * k, 5f * k); lineTo(16f * k, 12f * k); lineTo(9f * k, 19f * k) })
             Icon.PLUS -> { seg(12f, 5f, 12f, 19f); seg(5f, 12f, 19f, 12f) }
+            Icon.IMAGE -> {
+                round(3f, 4f, 18f, 16f, 2f)
+                drawCircle(color, 1.6f * k, p(8.5f, 9.5f), style = line)
+                shape(poly(false, 3f, 17f, 9f, 12f, 13f, 16f, 16f, 13f, 21f, 18f))
+            }
+            Icon.VIDEO -> { // a camcorder
+                round(3f, 7f, 13f, 10f, 2f)
+                shape(poly(true, 16f, 10f, 21f, 7f, 21f, 17f, 16f, 14f))
+            }
+            Icon.AUDIO -> { // headphones
+                drawArc(color, 180f, 180f, false, p(4f, 4f), Size(16f * k, 16f * k), style = line)
+                seg(4f, 12f, 4f, 15f); seg(20f, 12f, 20f, 15f)
+                round(3f, 14f, 4f, 6f, 1f); round(17f, 14f, 4f, 6f, 1f)
+            }
+            Icon.DOCUMENT -> {
+                shape(poly(true, 6f, 3f, 14f, 3f, 19f, 8f, 19f, 21f, 6f, 21f))
+                shape(poly(false, 14f, 3f, 14f, 8f, 19f, 8f))
+                seg(9f, 13f, 16f, 13f); seg(9f, 16f, 16f, 16f); seg(9f, 19f, 13f, 19f)
+            }
+            Icon.APK -> { // an Android head
+                shape(Path().apply { arcTo(Rect(5f * k, 7f * k, 19f * k, 21f * k), 180f, 180f, false); close() })
+                round(5f, 15f, 14f, 5f, 1f)
+                seg(8f, 5f, 9.5f, 7.5f); seg(16f, 5f, 14.5f, 7.5f)
+                drawCircle(color, 0.7f * k, p(9.5f, 11f)); drawCircle(color, 0.7f * k, p(14.5f, 11f))
+            }
+            Icon.ARCHIVE -> {
+                round(3f, 4f, 18f, 5f, 1f)
+                shape(poly(true, 5f, 9f, 19f, 9f, 19f, 20f, 5f, 20f))
+                seg(10f, 13f, 14f, 13f)
+            }
+            Icon.LARGE -> { // four corners pulling apart from a square
+                shape(poly(false, 4f, 9f, 4f, 4f, 9f, 4f)); shape(poly(false, 20f, 9f, 20f, 4f, 15f, 4f))
+                shape(poly(false, 4f, 15f, 4f, 20f, 9f, 20f)); shape(poly(false, 20f, 15f, 20f, 20f, 15f, 20f))
+                drawRect(color, p(9f, 9f), Size(6f * k, 6f * k), style = line)
+            }
+            Icon.OTHERS -> {
+                round(4f, 4f, 6f, 6f, 1f); round(14f, 4f, 6f, 6f, 1f); round(4f, 14f, 6f, 6f, 1f); round(14f, 14f, 6f, 6f, 1f)
+            }
+            Icon.MAP -> { // a donut cut into slices
+                drawCircle(color, 9f * k, p(12f, 12f), style = line)
+                drawCircle(color, 4.5f * k, p(12f, 12f), style = line)
+                seg(12f, 3f, 12f, 7.5f); seg(20.2f, 15.5f, 16.2f, 13.7f)
+            }
+            Icon.DUPLICATES -> { // two overlapping pages
+                round(8f, 8f, 12f, 13f, 2f)
+                shape(Path().apply {
+                    moveTo(16f * k, 8f * k); lineTo(16f * k, 5f * k)
+                    arcTo(Rect(12f * k, 3f * k, 16f * k, 7f * k), 0f, -90f, false); lineTo(6f * k, 3f * k)
+                    arcTo(Rect(4f * k, 3f * k, 8f * k, 7f * k), 270f, -90f, false); lineTo(4f * k, 16f * k)
+                    arcTo(Rect(4f * k, 14f * k, 8f * k, 18f * k), 180f, -90f, false); lineTo(8f * k, 18f * k)
+                })
+            }
+            Icon.DUAL -> { round(3f, 5f, 8f, 14f, 1f); round(13f, 5f, 8f, 14f, 1f) }
+            Icon.LOCK -> {
+                round(5f, 11f, 14f, 10f, 2f)
+                shape(Path().apply { moveTo(8f * k, 11f * k); lineTo(8f * k, 8f * k); arcTo(Rect(8f * k, 4f * k, 16f * k, 12f * k), 180f, 180f, false); lineTo(16f * k, 11f * k) })
+                drawCircle(color, 1.2f * k, p(12f, 16f), style = line)
+            }
+            Icon.TRANSFER -> { // two phones and an arrow between them
+                round(2f, 6f, 6f, 12f, 1.5f); round(16f, 6f, 6f, 12f, 1.5f)
+                seg(10f, 12f, 14f, 12f); shape(poly(false, 12f, 10f, 14f, 12f, 12f, 14f))
+            }
             Icon.PLUG -> {
                 drawRect(color, p(7f, 7f), Size(10f * k, 7f * k), style = line)
                 seg(10f, 7f, 10f, 3.5f); seg(14f, 7f, 14f, 3.5f); seg(12f, 14f, 12f, 20.5f)

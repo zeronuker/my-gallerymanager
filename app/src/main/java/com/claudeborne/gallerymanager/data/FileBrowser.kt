@@ -106,17 +106,38 @@ suspend fun searchFiles(roots: List<File>, query: String, showHidden: Boolean, l
 }
 
 /** The files in [category], newest first (largest first for [Category.LARGE]). */
-suspend fun categoryFiles(context: Context, category: Category): List<Entry> = withContext(Dispatchers.IO) {
+private fun categoryArgs(category: Category): Bundle {
     val where = when (category) {
         Category.LARGE -> "${F.SIZE} >= $LARGE_FILE_BYTES"
         // IFNULL: a file with no mime type must count as "not matched", not as unknown
         Category.OTHERS -> "${F.SIZE} > 0 AND ${F.DISPLAY_NAME} NOT LIKE '.%' AND " + TYPE_CLAUSES.values.joinToString(" AND ") { "NOT IFNULL(($it), 0)" }
         else -> TYPE_CLAUSES.getValue(category)
     }
-    val args = Bundle().apply {
+    return Bundle().apply {
         putString(ContentResolver.QUERY_ARG_SQL_SELECTION, where)
         putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_EXCLUDE)
     }
+}
+
+/** How many files each category lists, by the same rules as [categoryFiles]. */
+suspend fun categoryCounts(context: Context): Map<Category, Int> = withContext(Dispatchers.IO) {
+    val columns = arrayOf(MediaStore.MediaColumns.DATA, MediaStore.MediaColumns.SIZE)
+    Category.entries.associateWith { c ->
+        var n = 0
+        context.contentResolver.query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), columns, categoryArgs(c), null)?.use { cur ->
+            while (cur.moveToNext()) {
+                val path = cur.getString(0) ?: continue
+                if (c == Category.OTHERS && File(path).isDirectory) continue // the media library keeps a row for every folder
+                if (c == Category.LARGE && cur.getLong(1) <= 0) continue
+                n++
+            }
+        }
+        n
+    }
+}
+
+suspend fun categoryFiles(context: Context, category: Category): List<Entry> = withContext(Dispatchers.IO) {
+    val args = categoryArgs(category)
     val entries = mutableListOf<Entry>()
     // path, size and date all come from the media library's own row, so no file is touched on disk (that is what makes a big library slow)
     val columns = arrayOf(MediaStore.MediaColumns.DATA, MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATE_MODIFIED)
