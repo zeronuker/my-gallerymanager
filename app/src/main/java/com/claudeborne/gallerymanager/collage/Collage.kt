@@ -84,8 +84,9 @@ fun layoutsFor(n: Int): List<CollageLayout> {
 /** Pulls [v] back so the photo still covers its [cell]. */
 fun clampView(cell: RectF, bmp: Bitmap, v: CellView): CellView {
     val fill = max(cell.width() / bmp.width, cell.height() / bmp.height) * v.scale
-    val slackX = (bmp.width * fill - cell.width()) / 2f / cell.width()
-    val slackY = (bmp.height * fill - cell.height()) / 2f / cell.height()
+    // float rounding can leave the slack a hair below zero, which would make coerceIn throw
+    val slackX = ((bmp.width * fill - cell.width()) / 2f / cell.width()).coerceAtLeast(0f)
+    val slackY = ((bmp.height * fill - cell.height()) / 2f / cell.height()).coerceAtLeast(0f)
     return v.copy(ox = v.ox.coerceIn(-slackX, slackX), oy = v.oy.coerceIn(-slackY, slackY))
 }
 
@@ -117,8 +118,8 @@ fun drawCollage(canvas: Canvas, spec: CollageSpec, photos: List<Bitmap>, order: 
         val v = views[i]
         val fill = max(rect.width() / bmp.width, rect.height() / bmp.height) * v.scale
         // the photo can be moved around but never far enough to leave the cell uncovered
-        val slackX = (bmp.width * fill - rect.width()) / 2f
-        val slackY = (bmp.height * fill - rect.height()) / 2f
+        val slackX = ((bmp.width * fill - rect.width()) / 2f).coerceAtLeast(0f)
+        val slackY = ((bmp.height * fill - rect.height()) / 2f).coerceAtLeast(0f)
         val tx = (v.ox * rect.width()).coerceIn(-slackX, slackX)
         val ty = (v.oy * rect.height()).coerceIn(-slackY, slackY)
         val m = Matrix().apply {
