@@ -58,6 +58,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.layout.onSizeChanged
 import kotlin.math.abs
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.DisposableEffect
@@ -132,32 +134,36 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
         if (it.resultCode == Activity.RESULT_OK) onChanged()
     }
 
-    Column(Modifier.fillMaxSize().background(Color.Black)) {
-        Box(Modifier.weight(1f)) {
-            HorizontalPager(pager, Modifier.fillMaxSize(), key = { items.getOrNull(it)?.id ?: it }) { page ->
-                val item = items.getOrNull(page) ?: return@HorizontalPager
-                val toggleChrome = { chrome = !chrome }
-                if (item.isVideo) VideoPage(item, active = pager.settledPage == page, chrome, toggleChrome, muted) { muted = it } else ZoomableImage(item, toggleChrome)
-            }
+    // the picture fills the whole screen and the bars float over it, so showing or hiding them never moves or resizes the picture
+    var barPx by remember { mutableIntStateOf(0) }
+    val barHeight = with(LocalDensity.current) { barPx.toDp() }
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        HorizontalPager(pager, Modifier.fillMaxSize(), key = { items.getOrNull(it)?.id ?: it }) { page ->
+            val item = items.getOrNull(page) ?: return@HorizontalPager
+            // a tap while Info or More is open closes that panel and nothing else; otherwise it shows or hides the controls
+            val onTap = { if (showInfo || showMore) { showInfo = false; showMore = false } else chrome = !chrome }
+            if (item.isVideo) VideoPage(item, active = pager.settledPage == page, chrome, onTap, muted, { muted = it }, bottomPad = barHeight) else ZoomableImage(item, onTap)
+        }
 
-            NavArrow("‹", Alignment.CenterStart, chrome && pager.currentPage > 0) { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } }
-            NavArrow("›", Alignment.CenterEnd, chrome && pager.currentPage < items.size - 1) { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } }
+        NavArrow("‹", Alignment.CenterStart, chrome && pager.currentPage > 0) { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } }
+        NavArrow("›", Alignment.CenterEnd, chrome && pager.currentPage < items.size - 1) { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } }
 
-            Visible(chrome, enter = topBarEnter, exit = topBarExit) { Row(
-                Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xB3000000), Color.Transparent)))
-                    .statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("← BACK", Modifier.clickable(onClick = onClose), style = monoStyle(DarkCb.mint, 2.6.sp))
-                Box(Modifier.weight(1f))
-            } }
+        Visible(chrome, Modifier.align(Alignment.TopCenter), enter = topBarEnter, exit = topBarExit) { Row(
+            Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xB3000000), Color.Transparent)))
+                .statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("← BACK", Modifier.clickable(onClick = onClose), style = monoStyle(DarkCb.mint, 2.6.sp))
+            Box(Modifier.weight(1f))
+        } }
 
-            Visible(chrome && showInfo && current != null, Modifier.align(Alignment.BottomCenter), enter = popEnter, exit = popExit) {
+        Column(Modifier.align(Alignment.BottomCenter)) {
+            Visible(chrome && showInfo && current != null, enter = popEnter, exit = popExit) {
                 current?.let { InfoPanel(it, Modifier) }
             }
 
-            Visible(chrome && showMore && current != null, Modifier.align(Alignment.BottomCenter), enter = popEnter, exit = popExit) {
-              if (current != null) MorePanel(
+            Visible(chrome && showMore && current != null, enter = popEnter, exit = popExit) {
+                if (current != null) MorePanel(
                     actions = buildList {
                         if (current.id != EXTERNAL_ID) {
                             add("RENAME" to { tools.rename(current) })
@@ -177,33 +183,33 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
                     modifier = Modifier,
                 ) { showMore = false }
             }
-        }
 
-        AnimatedVisibility(chrome, enter = barEnter, exit = barExit) { Row(
-            Modifier.fillMaxWidth().background(Color(0xFF0A1020)).navigationBarsPadding().padding(vertical = 14.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-        ) {
-            IconAction(Icon.SHARE, DarkCb.mint, "Share", enabled = current != null) {
-                current?.let { shareMedia(context, listOf(it)) }
-            }
-            if (current != null && current.id != EXTERNAL_ID) {
-                val favorite = current.id in favorites.ids
-                IconAction(Icon.HEART, DarkCb.mint, if (favorite) "Remove from favorites" else "Add to favorites", filled = favorite) { favorites.toggle(current.id) }
-            }
-            // editing is for library photos and videos
-            if (current != null && current.id != EXTERNAL_ID) IconAction(Icon.EDIT, DarkCb.mint, "Edit") { onEdit(current) }
-            if (current?.id != EXTERNAL_ID) {
-                IconAction(Icon.TRASH, TrashRed, "Move to trash", enabled = current != null) {
-                    current?.let {
-                        val request = MediaStore.createTrashRequest(context.contentResolver, listOf(it.uri), true)
-                        trashLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+            AnimatedVisibility(chrome, enter = barEnter, exit = barExit) { Row(
+                Modifier.fillMaxWidth().onSizeChanged { barPx = it.height }.background(Color(0xF20A1020)).navigationBarsPadding().padding(vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                IconAction(Icon.SHARE, DarkCb.mint, "Share", enabled = current != null) {
+                    current?.let { shareMedia(context, listOf(it)) }
+                }
+                if (current != null && current.id != EXTERNAL_ID) {
+                    val favorite = current.id in favorites.ids
+                    IconAction(Icon.HEART, DarkCb.mint, if (favorite) "Remove from favorites" else "Add to favorites", filled = favorite) { favorites.toggle(current.id) }
+                }
+                // editing is for library photos and videos
+                if (current != null && current.id != EXTERNAL_ID) IconAction(Icon.EDIT, DarkCb.mint, "Edit") { onEdit(current) }
+                if (current?.id != EXTERNAL_ID) {
+                    IconAction(Icon.TRASH, TrashRed, "Move to trash", enabled = current != null) {
+                        current?.let {
+                            val request = MediaStore.createTrashRequest(context.contentResolver, listOf(it.uri), true)
+                            trashLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+                        }
                     }
                 }
-            }
-            IconAction(Icon.INFO, DarkCb.mint, "Info", enabled = current != null) { showInfo = !showInfo; showMore = false }
-            // file tools: rename, move and copy for everything; resize, set as and print for photos
-            IconAction(Icon.MORE, DarkCb.mint, "More", enabled = current != null) { showMore = !showMore; showInfo = false }
-        } }
+                IconAction(Icon.INFO, DarkCb.mint, "Info", enabled = current != null) { showInfo = !showInfo; showMore = false }
+                // file tools: rename, move and copy for everything; resize, set as and print for photos
+                IconAction(Icon.MORE, DarkCb.mint, "More", enabled = current != null) { showMore = !showMore; showInfo = false }
+            } }
+        }
     }
 }
 
@@ -393,7 +399,7 @@ private fun ZoomBox(onTap: () -> Unit, content: @Composable () -> Unit) {
 
 /** Only the page on screen owns a player; others show the thumbnail. */
 @Composable
-internal fun VideoPage(item: MediaItem, active: Boolean, chrome: Boolean, onTap: () -> Unit, muted: Boolean, onMuted: (Boolean) -> Unit) {
+internal fun VideoPage(item: MediaItem, active: Boolean, chrome: Boolean, onTap: () -> Unit, muted: Boolean, onMuted: (Boolean) -> Unit, bottomPad: Dp = 0.dp) {
     if (!active) {
         AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         return
@@ -428,8 +434,8 @@ internal fun VideoPage(item: MediaItem, active: Boolean, chrome: Boolean, onTap:
         player.addListener(listener)
         onDispose { player.removeListener(listener) }
     }
-    Column(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize()) {
             ZoomBox(onTap) {
                 // texture_view (set in the layout) so the video follows the zoom transform; a SurfaceView would not
                 AndroidView({ (LayoutInflater.from(it).inflate(R.layout.player_texture, null) as PlayerView).also { v -> v.player = player } }, Modifier.fillMaxSize())
@@ -441,7 +447,7 @@ internal fun VideoPage(item: MediaItem, active: Boolean, chrome: Boolean, onTap:
             AnimatedOverlay(chip?.takeIf { it < 0 }, popEnter, popExit, Modifier.align(Alignment.CenterStart).padding(start = 64.dp)) { SkipLabel(it) }
             AnimatedOverlay(chip?.takeIf { it > 0 }, popEnter, popExit, Modifier.align(Alignment.CenterEnd).padding(end = 64.dp)) { SkipLabel(it) }
         }
-        AnimatedVisibility(chrome, enter = barEnter, exit = barExit) { VideoControls(player, { skip(it) }, muted, onMuted) }
+        Visible(chrome, Modifier.align(Alignment.BottomCenter).padding(bottom = bottomPad), barEnter, barExit) { VideoControls(player, { skip(it) }, muted, onMuted) }
     }
 }
 
@@ -465,7 +471,7 @@ private fun VideoControls(player: Player, onSkip: (Long) -> Unit, muted: Boolean
         }
     }
     val shown = drag?.let { (it * dur).toLong() } ?: pos
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xCC000000)))).padding(horizontal = 16.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Slider(
             value = drag ?: if (dur > 0) pos.toFloat() / dur else 0f,
             onValueChange = { drag = it },
