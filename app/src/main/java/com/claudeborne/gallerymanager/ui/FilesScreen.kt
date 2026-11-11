@@ -294,7 +294,8 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
             IconAction(Icon.PLUS, cb.mint, "New folder") { dialog = FileDialog.NewFolder }
         }
         if (cat == null) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            // on the home screen nothing sits at the right, so the field keeps the same 16dp margin as the cards; in a folder SORT and VIEW supply it
+            Row(Modifier.fillMaxWidth().padding(end = if (dir == null) 16.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
                 SearchAction(searching, query, { query = it }, Modifier.weight(1f)) { searching = !searching; if (!searching) query = "" }
                 if (dir != null) {
                     SortMenu(sort, ascending) { s -> if (s == sort) ascending = !ascending else { sort = s; ascending = s == SortBy.NAME || s == SortBy.TYPE } }
@@ -554,7 +555,7 @@ private fun SearchAction(searching: Boolean, query: String, onQuery: (String) ->
             AnimatedVisibility(!searching, enter = fadeIn(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_FAST_MS))) { Text("SEARCH", Modifier.padding(start = 6.dp), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.2.sp, color = cb.inkDim)) }
         }
         AnimatedVisibility(searching, Modifier.weight(1f), enter = fadeIn(tween(MOTION_FAST_MS)) + expandHorizontally(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_FAST_MS)) + shrinkHorizontally(tween(MOTION_FAST_MS))) {
-            Box(Modifier.fillMaxWidth().padding(end = 4.dp)) { CbTextField(query, onQuery) }
+            Box(Modifier.fillMaxWidth()) { CbTextField(query, onQuery) }
         }
     }
 }
