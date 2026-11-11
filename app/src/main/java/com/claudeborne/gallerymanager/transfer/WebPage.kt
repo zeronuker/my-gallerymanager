@@ -56,6 +56,29 @@ button:disabled{opacity:.4;cursor:default;pointer-events:none}
 .file a{flex:none;width:34px;height:30px;display:flex;align-items:center;justify-content:center;border:1px solid #3a4a7a;color:var(--mint);text-decoration:none;font-size:16px;transition:background-color .15s,border-color .15s}
 .file a:hover{background:#17224a;border-color:var(--mint)}
 .file.got .ext{background:var(--mint);color:#0a1020}
+.mk{flex:none;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center}
+.mk svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;animation:pop .25s ease-out}
+.mk.ok{color:var(--mint)}.mk.fail{color:#ff6b6b}.mk.warn{color:#e0a030}.mk.run{color:var(--blue)}.mk.wait{color:var(--dim)}
+.mk.run svg{animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
+.grp{border-top:1px solid var(--line);padding:6px 0;animation:rise .25s ease-out}
+.gh{display:flex;align-items:center;gap:12px;padding:6px 0;cursor:pointer;user-select:none}
+.gh .fi{flex:none;width:24px;height:24px;fill:none;stroke:var(--mint);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.gh .nm{flex:1;min-width:0;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gh small{display:block;font-family:var(--mono);font-size:11px;font-weight:400;letter-spacing:.06em;color:var(--dim);transition:color .25s}
+.gh .chev{flex:none;width:20px;height:20px;fill:none;stroke:var(--dim);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;transform:rotate(180deg);transition:transform .25s}
+.grp.shut .chev{transform:none}
+.grp.bad small{color:#e0a030}.grp.bad>.bar i{background:#e0a030}
+.gb{display:grid;grid-template-rows:1fr;transition:grid-template-rows .25s ease}
+.gb>div{overflow:hidden;min-height:0;padding-left:34px}
+.grp.shut .gb{grid-template-rows:0fr}
+.grp .file{border-top:0;padding:6px 0}
+.fr{display:flex;align-items:flex-start;gap:10px;margin:5px 0;font-size:14px;animation:rise .25s ease-out}
+.mid{flex:1;min-width:0}.mid .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fr .nm{word-break:break-all;white-space:normal}
+.st{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--dim);margin-top:3px}
+.st.bad{color:#ff6b6b}
 [hidden]{display:none!important}
 </style></head><body><main>
 <header><div class="brand"><div class="logo">C</div><div class="wm"><b>CLAUDEBORNE</b><span>ALTUS CIRRUS &middot; TRANSFER</span></div></div>
@@ -85,25 +108,56 @@ button:disabled{opacity:.4;cursor:default;pointer-events:none}
 const T="__TOKEN__";
 const fmt=n=>n>1e9?(n/1e9).toFixed(1)+' GB':n>1e6?(n/1e6).toFixed(1)+' MB':Math.ceil(n/1e3)+' KB';
 const API='/api/localsend/v2/';
+const SV={ok:'<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>',fail:'<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',warn:'<circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><path d="M12 16.5v.5"/>',wait:'<circle cx="12" cy="12" r="9" stroke-dasharray="2 3"/>',run:'<path d="M12 4a8 8 0 1 1-8 8"/>'};
+function mk(el,st){if(el.dataset.s===st)return;el.dataset.s=st;el.className='mk '+st;el.innerHTML=st?'<svg viewBox="0 0 24 24">'+SV[st]+'</svg>':''}
+// a folder: its name, how many files are through, one bar for all of them, and the files inside it (tap the header to fold them away)
+function grp(parent,title,verb,top){
+  const e=document.createElement('div');e.className='grp';
+  e.innerHTML='<div class="gh"><svg class="fi" viewBox="0 0 24 24"><path d="M3 7v12h18V9h-9l-2-3H4z"/></svg><div class="nm"><span></span><small></small></div><span class="mk"></span><svg class="chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></div><div class="bar"><i></i></div><div class="gb"><div></div></div>';
+  if(top)parent.prepend(e);else parent.append(e);
+  const q=s=>e.querySelector(s),g={body:q('.gb>div'),rows:[]};
+  q('.nm span').textContent=title;q('.gh').onclick=()=>e.classList.toggle('shut');
+  g.sync=()=>{const n=g.rows.length;let ok=0,bad=0,go=false,any=false,pw=0,w=0;
+    for(const r of g.rows){if(r.st=='ok')ok++;else if(r.st=='fail')bad++;if(r.st)any=true;if(r.st&&r.st!='wait')go=true;pw+=(r.st=='ok'?1:r.p)*r.w;w+=r.w}
+    const done=ok+bad==n;
+    mk(q('.gh .mk'),!any?'':done?(bad?(ok?'warn':'fail'):'ok'):go?'run':'wait');
+    q('small').textContent=ok+' OF '+n+' '+verb+(bad?' · '+bad+' FAILED':'');
+    e.classList.toggle('bad',bad>0);
+    q('.bar i').style.width=((w?pw/w:(done?1:0))*100)+'%'};
+  return g}
+// one file's state: wait (not started), run, ok or fail; p is how far it got (0 to 1)
+function setR(r,st,p,text){
+  r.st=st;if(p!=null)r.p=p;mk(r.mkEl,st);r.i.style.width=(r.p*100)+'%';
+  if(r.dl)r.barBox.hidden=st!='run';
+  if(text!=null){r.txt.textContent=text;r.txt.classList.toggle('bad',st=='fail')}
+  if(r.g)r.g.sync()}
+function frow(parent,name,shown,size,g,top){
+  const d=document.createElement('div');d.className='fr';
+  d.innerHTML='<span class="mk"></span><div class="mid"><span class="nm"></span><div class="bar sweep"><i></i></div><div class="st"></div></div>';
+  if(top)parent.prepend(d);else parent.append(d);
+  d.querySelector('.nm').textContent=shown;
+  const r={name,mkEl:d.firstChild,i:d.querySelector('i'),barBox:d.querySelector('.bar'),txt:d.querySelector('.st'),st:'',p:0,w:size,g};
+  if(g)g.rows.push(r);
+  setR(r,'wait',0,'WAITING FOR THE PHONE TO ACCEPT '+fmt(size));return r}
 function put(file,id,session,token,row){return new Promise(done=>{
   const x=new XMLHttpRequest();
   x.open('POST',API+'upload?sessionId='+session+'&fileId='+id+'&token='+token);
-  x.upload.onprogress=e=>{row.bar.style.width=(e.loaded*100/e.total)+'%'};
-  x.onload=()=>{row.bar.style.width='100%';row.txt.textContent=row.name+(x.status==200?' ✓':' ✗ '+x.status);done()};
-  x.onerror=()=>{row.txt.textContent=row.name+' ✗ failed';done()};
+  setR(row,'run',0,'SENDING');
+  x.upload.onprogress=e=>setR(row,'run',e.loaded/e.total,fmt(e.loaded)+' OF '+fmt(e.total));
+  x.onload=()=>{setR(row,x.status==200?'ok':'fail',1,x.status==200?'DONE '+fmt(file.size):'FAILED · '+x.status);done()};
+  x.onerror=()=>{setR(row,'fail',null,'FAILED · NO ANSWER');done()};
   x.send(file);
 })}
 let last=Promise.resolve();
 function run(files){const list=[...files];last=last.then(()=>batch(list))}
 async function batch(q){
-  const box=document.getElementById('up'),rows=q.map(f=>{
-    const r=document.createElement('div');r.className='row';
-    r.innerHTML='<span></span> <span class="dim">'+fmt(f.size)+'</span><div class="bar sweep"><i></i></div>';
-    box.prepend(r);
-    const row={name:f.webkitRelativePath||f.name,txt:r.children[0],bar:r.querySelector('i'),box:r.querySelector('.bar')};
-    row.txt.textContent=row.name+' · waiting for the phone to accept';return row});
+  const box=document.getElementById('up'),groups={},rows=q.map(f=>{
+    const name=f.webkitRelativePath||f.name,top=name.indexOf('/')>0?name.split('/')[0]:'';
+    if(!top)return frow(box,name,name,f.size,null,true);
+    const g=groups[top]||(groups[top]=grp(box,top,'SENT',true));
+    return frow(g.body,name,name.slice(top.length+1),f.size,g,false)});
   const files={};q.forEach((f,i)=>{files[i]={id:String(i),fileName:rows[i].name,size:f.size,fileType:f.type||'application/octet-stream'}});
-  const fail=m=>rows.forEach(r=>{r.box.classList.remove('sweep');r.txt.textContent=r.name+' ✗ '+m});
+  const fail=m=>rows.forEach(r=>{r.barBox.classList.remove('sweep');setR(r,'fail',0,'FAILED · '+m.toUpperCase())});
   let res;
   try{res=await fetch(API+'prepare-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({info:{alias:'Computer (browser)',version:'2.0',deviceType:'desktop',fingerprint:'browser'},files:files})})}catch(e){return fail('the phone did not answer')}
   if(res.status==403)return fail('declined');
@@ -111,7 +165,7 @@ async function batch(q){
   if(res.status==409)return fail('the phone is busy');
   if(res.status!=200)return fail('failed');
   const a=await res.json(),ids=q.map((_,i)=>i);
-  rows.forEach(r=>{r.box.classList.remove('sweep');r.txt.textContent=r.name});
+  rows.forEach(r=>{r.barBox.classList.remove('sweep');setR(r,'wait',0,'WAITING '+fmt(r.w))});
   async function worker(){while(ids.length){const i=ids.shift();await put(q[i],i,a.sessionId,a.files[i],rows[i])}}
   await Promise.all([worker(),worker(),worker(),worker()]);
 }
@@ -122,23 +176,39 @@ document.getElementById('folder').onclick=()=>pickdir.click();
 drop.ondragover=e=>{e.preventDefault();drop.classList.add('over')};drop.ondragleave=()=>drop.classList.remove('over');
 drop.ondrop=e=>{e.preventDefault();drop.classList.remove('over');run(e.dataTransfer.files)};
 
-let list=[],busy=false;
+let list=[],busy=false,orows={};
 const box=document.getElementById('offers'),allBtn=document.getElementById('all'),zipBtn=document.getElementById('zip');
 const ext=n=>{const i=n.lastIndexOf('.');return i>0&&i>n.lastIndexOf('/')?n.slice(i+1,i+5).toUpperCase():'FILE'};
 const url=id=>'/api/file/'+id+'?t='+T;
 async function offers(){
   box.style.opacity=.4; // dims while the list is fetched
   list=await (await fetch('/api/offers?t='+T)).json();box.style.opacity=1;
-  box.innerHTML=list.length?'':'<div class="dim">Nothing offered</div>';
-  for(const o of list){const d=document.createElement('div');d.className='file';d.id='f'+o.id;
-    d.innerHTML='<span class="ext"></span><span class="nm"></span><span class="sz"></span><a download title="Download">&darr;</a>';
-    d.children[0].textContent=ext(o.name);d.children[1].textContent=o.name;d.children[1].title=o.name;
-    d.children[2].textContent=fmt(o.size);d.children[3].href=url(o.id);d.children[3].onclick=()=>d.classList.add('got');box.append(d);}
+  box.innerHTML=list.length?'':'<div class="dim">Nothing offered</div>';orows={};
+  const groups={};
+  for(const o of list){const top=o.name.indexOf('/')>0?o.name.split('/')[0]:'',d=document.createElement('div');d.className='file';d.id='f'+o.id;
+    d.innerHTML='<span class="mk"></span><span class="ext"></span><div class="mid"><span class="nm"></span><div class="bar" hidden><i></i></div></div><span class="sz"></span><a download title="Download">&darr;</a>';
+    const r={name:o.name,mkEl:d.children[0],i:d.querySelector('i'),barBox:d.querySelector('.bar'),st:'',p:0,w:o.size,g:null,dl:true};
+    d.children[1].textContent=ext(o.name);const n=d.querySelector('.nm');n.textContent=top?o.name.slice(top.length+1):o.name;n.title=o.name;
+    d.children[3].textContent=fmt(o.size);const a=d.children[4];a.href=url(o.id);a.onclick=()=>{d.classList.add('got');if(!r.st)setR(r,'wait',0)};
+    if(top){const g=groups[top]||(groups[top]=grp(box,top,'RECEIVED',false));r.g=g;g.rows.push(r);g.body.append(d)}else box.append(d);
+    orows[o.name]=r;}
+  for(const k in groups)groups[k].sync();
+  poll();
   const total=list.reduce((s,o)=>s+o.size,0);
   document.getElementById('count').textContent=list.length?list.length+(list.length==1?' FILE · ':' FILES · ')+fmt(total):'';
   allBtn.disabled=zipBtn.disabled=!list.length;
   document.getElementById('hint').hidden=!list.length;
 }
+// what the phone has sent of each file so far (it counts the bytes it has handed over), so the list can show moving, done and failed
+async function poll(){
+  if(document.hidden)return;
+  let s;try{s=await (await fetch('/api/status?t='+T)).json()}catch(e){return}
+  const m={};s.forEach(x=>{m[x.name]=x}); // a file fetched twice: the last one counts
+  for(const k in orows){const x=m[k],r=orows[k];if(!x)continue;
+    setR(r,x.error?'fail':x.finished?'ok':x.done>0?'run':'wait',x.finished?1:x.size?x.done/x.size:0);
+    r.mkEl.title=x.error||''}
+}
+setInterval(poll,800);
 // RECEIVE ALL: starts each download in turn; the browser saves them to its Downloads folder
 allBtn.onclick=async()=>{
   if(!list.length||busy)return;busy=true;allBtn.disabled=true;
@@ -146,7 +216,7 @@ allBtn.onclick=async()=>{
   for(let i=0;i<list.length;i++){
     txt.textContent='RECEIVING '+(i+1)+' OF '+list.length;bar.style.width=(i*100/list.length)+'%';
     const a=document.createElement('a');a.href=url(list[i].id);a.download='';a.hidden=true;document.body.append(a);a.click();a.remove();
-    const row=document.getElementById('f'+list[i].id);if(row)row.classList.add('got');
+    const row=document.getElementById('f'+list[i].id);if(row)row.classList.add('got');const rr=orows[list[i].name];if(rr&&!rr.st)setR(rr,'wait',0);
     await new Promise(r=>setTimeout(r,600));
   }
   bar.style.width='100%';txt.textContent='ALL '+list.length+' DOWNLOADS STARTED. SEE YOUR BROWSER\'S DOWNLOADS.';

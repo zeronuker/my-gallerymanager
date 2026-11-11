@@ -130,6 +130,7 @@ object TransferHub {
             req.method == "GET" && req.path == "/" -> res.send(200, "text/html; charset=utf-8", WebPage.html(Build.MODEL, token).toByteArray())
             req.method == "GET" && req.path == "/api/info" -> res.send(200, "application/json", JSONObject().put("name", Build.MODEL).toString().toByteArray())
             req.method == "GET" && req.path == "/api/offers" -> res.send(200, "application/json", offersJson().toByteArray())
+            req.method == "GET" && req.path == "/api/status" -> res.send(200, "application/json", statusJson().toByteArray())
             req.method == "GET" && req.path.startsWith("/api/file/") -> download(req, res)
             req.method == "GET" && req.path == "/api/zip" -> zipAll(res)
             req.method == "GET" && req.path == "/api/speed/down" -> { // the web page's speed test: a stream of zeros
@@ -145,6 +146,11 @@ object TransferHub {
             else -> res.send(404, "text/plain", "not found".toByteArray())
         }
     }
+
+    /** How far each file this phone is sending has got: the web page draws its marks and bars from this. */
+    private fun statusJson() = JSONArray().apply {
+        items.filter { !it.incoming }.forEach { put(JSONObject().put("name", it.name).put("size", it.size).put("done", it.done).put("finished", it.finished).put("error", it.error ?: JSONObject.NULL)) }
+    }.toString()
 
     private fun offersJson() = JSONArray().apply {
         offers.forEach { put(JSONObject().put("id", it.id).put("name", it.rel).put("size", it.file.length())) }
@@ -193,7 +199,8 @@ object TransferHub {
         res.sendChunked(200, "application/zip", mapOf("Content-Disposition" to "attachment; filename=\"altus-cirrus-files.zip\"")) { out ->
             ZipOutputStream(BufferedOutputStream(out, BUFFER)).use { zip ->
                 zip.setLevel(Deflater.NO_COMPRESSION)
-                offers.forEach { o ->
+                val queued = offers.map { o -> Item(false, o.rel, o.file.length()).also { items.add(it) } } // all listed at once, so the app shows what is still waiting
+                try { offers.forEachIndexed { index, o ->
                     var name = o.rel
                     var n = 1
                     while (!names.add(name)) { // two offers with one path: the second gets " (1)"
@@ -201,7 +208,7 @@ object TransferHub {
                         name = if (dot < 0) "${o.rel} ($n)" else o.rel.substring(0, dot) + " ($n)" + o.rel.substring(dot)
                         n++
                     }
-                    val item = Item(false, o.rel, o.file.length()).also { items.add(it) }
+                    val item = queued[index]
                     try {
                         zip.putNextEntry(ZipEntry(name).apply { time = o.file.lastModified() })
                         o.file.inputStream().use { input ->
@@ -220,7 +227,7 @@ object TransferHub {
                         item.error = e.message ?: "failed"
                         throw e
                     }
-                }
+                } } finally { queued.forEach { if (!it.finished && it.error == null) it.error = "stopped" } } // the computer gave up: the rest will not come
             }
         }
     }

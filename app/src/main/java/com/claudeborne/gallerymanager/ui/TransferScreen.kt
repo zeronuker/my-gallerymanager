@@ -36,6 +36,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.draw.rotate
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicTextField
@@ -606,24 +614,100 @@ private fun WayCard(icon: Icon, title: String, note: String, onClick: () -> Unit
 }
 
 
-/** One row per file moving in or out, newest first. */
+/** Where a file (or a whole folder) is: not started, moving, done, or failed. [warn] is a folder that finished with some files failed. */
+private enum class Mark(val icon: String) { WAITING("waiting"), MOVING("spinner"), OK("ok"), FAILED("fail"), WARN("warn") }
+
+private fun TransferHub.Item.mark() = when {
+    error != null -> Mark.FAILED
+    finished -> Mark.OK
+    done > 0 -> Mark.MOVING
+    else -> Mark.WAITING
+}
+
+/** The state icon: it crossfades when the state changes, and the moving one turns. */
+@Composable
+private fun MarkIcon(mark: Mark, modifier: Modifier = Modifier) {
+    val cb = LocalCb.current
+    val turn by rememberInfiniteTransition(label = "turn").animateFloat(0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing)), label = "turn")
+    Crossfade(mark, modifier.size(22.dp), tween(MOTION_FAST_MS), label = "mark") { m ->
+        val color = when (m) { Mark.OK -> cb.mint; Mark.FAILED -> RED; Mark.WARN -> Warn; Mark.MOVING -> cb.blue; Mark.WAITING -> cb.inkDim }
+        SvgIcon(m.icon, color, if (m == Mark.MOVING) Modifier.rotate(turn) else Modifier, 22.dp)
+    }
+}
+
+/** Files moving in or out, newest first. A folder is one group with its files inside, each with its own bar and mark. */
 @Composable
 private fun Progress(rows: List<TransferHub.Item>, header: @Composable () -> Unit) {
     val cb = LocalCb.current
     val context = LocalContext.current
+    // a file whose path has a folder part goes into that folder's group (per direction); anything else stands alone
+    val groups = remember(rows) {
+        val byFolder = LinkedHashMap<String, MutableList<TransferHub.Item>>()
+        rows.forEach { byFolder.getOrPut(if ('/' in it.name) "${it.incoming}|${it.name.substringBefore('/')}" else "file|${System.identityHashCode(it)}") { mutableListOf() }.add(it) }
+        byFolder.entries.map { it.key to it.value.reversed() } // newest folder first, but its files in the order they go
+    }
+    val closed = remember { mutableStateMapOf<String, Boolean>() } // folders the user folded shut
+    fun size(n: Long) = Formatter.formatShortFileSize(context, n).uppercase()
     LazyColumn(Modifier.fillMaxSize()) {
         item { header() }
-        items(rows.size) { i ->
-            val it = rows[i]
-            Column(Modifier.appear().fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-                Text("${if (it.incoming) "↓" else "↑"} ${it.name}", maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = cb.ink))
-                // the bar is redrawn twice a second; it glides between updates
-                ProgressBar(if (it.size > 0) (it.done.toFloat() / it.size).coerceIn(0f, 1f) else 1f, color = if (it.error != null) RED else cb.mint, track = cb.line)
-                Text(
-                    it.error?.let { e -> "FAILED · $e" } ?: "${Formatter.formatShortFileSize(context, it.done).uppercase()} OF ${Formatter.formatShortFileSize(context, it.size).uppercase()}${if (it.finished) " · DONE" else ""}",
-                    style = monoStyle(if (it.error != null) RED else cb.inkDim, 0.6.sp),
-                )
+        groups.forEach { (key, files) ->
+            if (!key.startsWith("file|")) {
+                val incoming = files[0].incoming
+                val total = files.size
+                val ok = files.count { it.finished && it.error == null }
+                val failed = files.count { it.error != null }
+                val bytes = files.sumOf { it.size }
+                val settled = ok + failed == total
+                val open = closed[key] != true
+                val folderMark = when { settled && failed > 0 -> if (ok == 0) Mark.FAILED else Mark.WARN; settled -> Mark.OK; files.any { it.done > 0 || it.finished } -> Mark.MOVING; else -> Mark.WAITING }
+                item(key) {
+                    Column(Modifier.animateItem().appear().fillMaxWidth().clickable { closed[key] = open }.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            SvgIcon("folder", cb.mint, size = 24.dp)
+                            Column(Modifier.weight(1f)) {
+                                Text(files[0].name.substringBefore('/'), maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = cb.ink))
+                                Text(
+                                    "$ok OF $total ${if (incoming) "RECEIVED" else "SENT"}${if (failed > 0) " · $failed FAILED" else ""}",
+                                    style = monoStyle(if (failed > 0) Warn else cb.inkDim, 0.6.sp),
+                                )
+                            }
+                            MarkIcon(folderMark)
+                            val turn by animateFloatAsState(if (open) 180f else 0f, tween(MOTION_FAST_MS), label = "chevron")
+                            SvgIcon("chevronDown", cb.inkDim, Modifier.rotate(turn), 20.dp)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        ProgressBar(if (bytes > 0) (files.sumOf { it.done }.toFloat() / bytes).coerceIn(0f, 1f) else if (settled) 1f else 0f, color = if (failed > 0) Warn else cb.mint, track = cb.line)
+                    }
+                }
+                if (open) items(files.size, key = { "$key/${files[it].name}" }) { i ->
+                    FileRow(files[i], files[i].name.substringAfter('/'), Modifier.animateItem().appear().padding(start = 50.dp, end = 16.dp, top = 4.dp, bottom = 4.dp), ::size)
+                }
+            } else item(key) {
+                FileRow(files[0], files[0].name, Modifier.animateItem().appear().padding(horizontal = 16.dp, vertical = 6.dp), ::size)
             }
+        }
+    }
+}
+
+/** One file: its mark, name, bar and byte count. */
+@Composable
+private fun FileRow(it: TransferHub.Item, name: String, modifier: Modifier, size: (Long) -> String) {
+    val cb = LocalCb.current
+    val mark = it.mark()
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        MarkIcon(mark)
+        Column(Modifier.weight(1f)) {
+            Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = cb.ink))
+            // the bar is redrawn twice a second; it glides between updates
+            ProgressBar(if (it.size > 0) (it.done.toFloat() / it.size).coerceIn(0f, 1f) else if (mark == Mark.OK) 1f else 0f, color = if (it.error != null) RED else cb.mint, track = cb.line)
+            Text(
+                when {
+                    it.error != null -> "FAILED · ${it.error}"
+                    mark == Mark.WAITING -> "WAITING"
+                    else -> "${size(it.done)} OF ${size(it.size)}${if (it.finished) " · DONE" else ""}"
+                },
+                style = monoStyle(if (it.error != null) RED else cb.inkDim, 0.6.sp),
+            )
         }
     }
 }
