@@ -3,6 +3,7 @@ package com.claudeborne.gallerymanager.data
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -14,7 +15,7 @@ import androidx.compose.runtime.setValue
 object Settings {
     private lateinit var prefs: SharedPreferences
 
-    var theme by mutableIntStateOf(0) // 0 follow the phone, 1 dark, 2 light
+    var theme by mutableIntStateOf(1) // 1 dark, 2 light
     var gridCols by mutableIntStateOf(4)
     var splash by mutableStateOf(true)
     var autoplay by mutableStateOf(true)
@@ -29,14 +30,17 @@ object Settings {
     var shelfEdge by mutableIntStateOf(1) // the Settings shelf sits on the 0 left or 1 right edge
     var shelfTap by mutableStateOf(false) // a tap on the shelf opens Settings too, not only a swipe
     var shelfAutoHide by mutableStateOf(false) // the bar fades out after a few seconds and comes back when touched near
-    var shelfThickness by mutableIntStateOf(4) // dp, 2..12
-    var shelfHeight by mutableIntStateOf(72) // dp, 30..200
-    var shelfInset by mutableIntStateOf(0) // dp from the chosen edge, 0..60
-    var shelfY by mutableIntStateOf(38) // percent of the screen height down to the bar's middle, 10..90
+    var shelfThickness by mutableFloatStateOf(4f) // dp, 2..12
+    var shelfHeight by mutableFloatStateOf(72f) // dp, 30..200
+    var shelfInset by mutableFloatStateOf(0f) // dp from the chosen edge, 0..60
+    var shelfY by mutableFloatStateOf(38f) // percent of the screen height down to the bar's middle, 10..90
+
+    // these were whole numbers before they became smooth, so a saved value may be either kind
+    private fun number(key: String, default: Float) = (prefs.all[key] as? Number)?.toFloat() ?: default
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
-        theme = prefs.getInt("theme", theme)
+        theme = if (prefs.getInt("theme", 1) == 2) 2 else 1 // the old "follow the phone" (0) becomes dark
         gridCols = prefs.getInt("gridCols", gridCols).coerceIn(2, 6)
         splash = prefs.getBoolean("splash", splash)
         autoplay = prefs.getBoolean("autoplay", autoplay)
@@ -51,10 +55,10 @@ object Settings {
         shelfEdge = prefs.getInt("shelfEdge", shelfEdge)
         shelfTap = prefs.getBoolean("shelfTap", shelfTap)
         shelfAutoHide = prefs.getBoolean("shelfAutoHide", shelfAutoHide)
-        shelfThickness = prefs.getInt("shelfThickness", shelfThickness).coerceIn(2, 12)
-        shelfHeight = prefs.getInt("shelfHeight", shelfHeight).coerceIn(30, 200)
-        shelfInset = prefs.getInt("shelfInset", shelfInset).coerceIn(0, 60)
-        shelfY = prefs.getInt("shelfY", shelfY).coerceIn(10, 90)
+        shelfThickness = number("shelfThickness", shelfThickness).coerceIn(2f, 12f)
+        shelfHeight = number("shelfHeight", shelfHeight).coerceIn(30f, 200f)
+        shelfInset = number("shelfInset", shelfInset).coerceIn(0f, 60f)
+        shelfY = number("shelfY", shelfY).coerceIn(10f, 90f)
     }
 
     /** Applies [change] and saves everything. */
@@ -66,7 +70,7 @@ object Settings {
             .putInt("editQuality", editQuality).putInt("exportQuality", exportQuality).putString("collageFolder", collageFolder)
             .putBoolean("stripOnShare", stripOnShare).putBoolean("lock", lock).putInt("lockAfter", lockAfter)
             .putInt("shelfEdge", shelfEdge).putBoolean("shelfTap", shelfTap).putBoolean("shelfAutoHide", shelfAutoHide)
-            .putInt("shelfThickness", shelfThickness).putInt("shelfHeight", shelfHeight).putInt("shelfInset", shelfInset).putInt("shelfY", shelfY)
+            .putFloat("shelfThickness", shelfThickness).putFloat("shelfHeight", shelfHeight).putFloat("shelfInset", shelfInset).putFloat("shelfY", shelfY)
             .apply()
     }
 }

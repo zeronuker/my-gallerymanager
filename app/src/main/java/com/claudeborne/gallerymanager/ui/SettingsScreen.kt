@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.sp
 import com.claudeborne.gallerymanager.data.Settings
 import com.claudeborne.gallerymanager.data.Updater
 import java.io.File
+import java.util.Locale
+import kotlin.math.roundToInt
 
 private val Licences = listOf(
     "Real-ESRGAN (upscaling model), BSD-3-Clause, by Xintao Wang et al.; Qualcomm AI Hub export",
@@ -58,43 +60,36 @@ private fun folderSize(f: File): Long = if (f.isFile) f.length() else f.listFile
 internal fun SettingsScreen(favorites: Favorites, onBack: () -> Unit, openPicker: (PickerRequest) -> Unit) {
     val cb = LocalCb.current
     val context = LocalContext.current
-    val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty() }
+    // the build number is the one the updater compares, so it shows whether this is the newest build
+    val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).let { "v${it.versionName} · BUILD ${it.longVersionCode}" } }.getOrNull().orEmpty() }
     var cacheBytes by remember { mutableStateOf(folderSize(context.cacheDir)) }
     var dialog by remember { mutableIntStateOf(0) } // 1 collage folder, 2 clear favorites
     var showLicences by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("SETTINGS", "v$version", onBack, "BACK")
+        ScreenHeader("SETTINGS", version, onBack, "BACK")
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Section("LOOK") {
-                Choice("THEME", listOf("PHONE", "DARK", "LIGHT"), Settings.theme) { Settings.update { theme = it } }
-                Choice("GRID COLUMNS", (2..6).map { "$it" }, Settings.gridCols - 2) { Settings.update { gridCols = it + 2 } }
-                Toggle("SPLASH SCREEN", "Play the logo animation when the app starts.", Settings.splash) { Settings.update { splash = it } }
+                Setting("THEME", listOf("DARK", "LIGHT"), Settings.theme - 1) { Settings.update { theme = it + 1 } }
+                Setting("GRID COLUMNS", (2..6).map { "$it" }, Settings.gridCols - 2) { Settings.update { gridCols = it + 2 } }
+                Toggle("START ANIMATION", Settings.splash) { Settings.update { splash = it } }
             }
-            Section("SHELF") {
-                Choice("EDGE", listOf("LEFT", "RIGHT"), Settings.shelfEdge) { Settings.update { shelfEdge = it } }
-                Text(
-                    "The small bar on that edge opens Settings when you swipe it toward the middle of the screen.",
-                    style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim),
-                )
-                Toggle("TAP TO OPEN", "Tapping the bar opens Settings too.", Settings.shelfTap) { Settings.update { shelfTap = it } }
-                Toggle("AUTO HIDE", "The bar fades out after 3 seconds and comes back when you touch near the edge. Swiping it still works while it is hidden.", Settings.shelfAutoHide) { Settings.update { shelfAutoHide = it } }
+            Section("SETTINGS SHELF") {
+                Setting("EDGE", listOf("LEFT", "RIGHT"), Settings.shelfEdge) { Settings.update { shelfEdge = it } }
+                Toggle("TAP TO OPEN", Settings.shelfTap) { Settings.update { shelfTap = it } }
+                Toggle("AUTO HIDE", Settings.shelfAutoHide) { Settings.update { shelfAutoHide = it } }
                 // the real bar shows over this screen while these are changed; tap a number to put it back
-                EditSlider("THICKNESS", Settings.shelfThickness.toFloat(), 2f..12f, "${Settings.shelfThickness} dp", { Settings.update { shelfThickness = it.toInt() } }, {}) { Settings.update { shelfThickness = 4 } }
-                EditSlider("HEIGHT", Settings.shelfHeight.toFloat(), 30f..200f, "${Settings.shelfHeight} dp", { Settings.update { shelfHeight = it.toInt() } }, {}) { Settings.update { shelfHeight = 72 } }
-                EditSlider("VERTICAL POSITION", Settings.shelfY.toFloat(), 10f..90f, "${Settings.shelfY}%", { Settings.update { shelfY = it.toInt() } }, {}) { Settings.update { shelfY = 38 } }
-                EditSlider("DISTANCE FROM EDGE", Settings.shelfInset.toFloat(), 0f..60f, "${Settings.shelfInset} dp", { Settings.update { shelfInset = it.toInt() } }, {}) { Settings.update { shelfInset = 0 } }
+                ShelfSlider("THICKNESS", Settings.shelfThickness, 2f..12f, " dp", 4f) { Settings.update { shelfThickness = it } }
+                ShelfSlider("HEIGHT", Settings.shelfHeight, 30f..200f, " dp", 72f) { Settings.update { shelfHeight = it } }
+                ShelfSlider("VERTICAL POSITION", Settings.shelfY, 10f..90f, "%", 38f) { Settings.update { shelfY = it } }
+                ShelfSlider("DISTANCE FROM EDGE", Settings.shelfInset, 0f..60f, " dp", 0f) { Settings.update { shelfInset = it } }
             }
             Section("VIEWER") {
-                Toggle("AUTOPLAY VIDEOS", "Start a video as soon as you open it.", Settings.autoplay) { Settings.update { autoplay = it } }
-                Toggle("START MUTED", "Videos open with the sound off.", Settings.muted) { Settings.update { muted = it } }
+                Toggle("AUTOPLAY VIDEOS", Settings.autoplay) { Settings.update { autoplay = it } }
+                Toggle("START MUTED", Settings.muted) { Settings.update { muted = it } }
             }
             Section("EDITING") {
-                Choice("WHEN YOU SAVE", listOf("ASK", "COPY", "REPLACE"), Settings.saveMode) { Settings.update { saveMode = it } }
-                Text(
-                    "Replace only works for JPG and PNG photos; others are saved as a copy.",
-                    style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim),
-                )
+                Setting("WHEN YOU SAVE", listOf("ASK", "COPY", "REPLACE"), Settings.saveMode) { Settings.update { saveMode = it } }
                 EditSlider("EDIT QUALITY", Settings.editQuality.toFloat(), 50f..100f, "${Settings.editQuality}", { Settings.update { editQuality = it.toInt() } }, {}) { Settings.update { editQuality = 95 } }
                 EditSlider("EXPORT QUALITY", Settings.exportQuality.toFloat(), 50f..100f, "${Settings.exportQuality}", { Settings.update { exportQuality = it.toInt() } }, {}) { Settings.update { exportQuality = 90 } }
                 Row(
@@ -116,8 +111,8 @@ internal fun SettingsScreen(favorites: Favorites, onBack: () -> Unit, openPicker
                 }
             }
             Section("PRIVACY") {
-                Toggle("REMOVE LOCATION WHEN SHARING", "Photos are sent as copies without GPS data. Videos are sent as they are.", Settings.stripOnShare) { Settings.update { stripOnShare = it } }
-                Toggle("APP LOCK", "Ask for your fingerprint, face or phone PIN to open the app. Also hides it from screenshots and recent apps.", Settings.lock) { on ->
+                Toggle("REMOVE LOCATION WHEN SHARING", Settings.stripOnShare) { Settings.update { stripOnShare = it } }
+                Toggle("APP LOCK", Settings.lock) { on ->
                     when {
                         !on -> Settings.update { lock = false }
                         !canLock(context) -> Toast.makeText(context, "Set a screen lock or fingerprint on your phone first", Toast.LENGTH_LONG).show()
@@ -125,7 +120,7 @@ internal fun SettingsScreen(favorites: Favorites, onBack: () -> Unit, openPicker
                     }
                 }
                 AnimatedVisibility(Settings.lock, enter = expandEnter, exit = shrinkExit) {
-                    Choice("LOCK AFTER", listOf("AT ONCE", "1 MIN", "5 MIN"), Settings.lockAfter) { Settings.update { lockAfter = it } }
+                    Setting("LOCK AFTER", listOf("AT ONCE", "1 MIN", "5 MIN"), Settings.lockAfter) { Settings.update { lockAfter = it } }
                 }
             }
             Section("DATA") {
@@ -152,7 +147,7 @@ internal fun SettingsScreen(favorites: Favorites, onBack: () -> Unit, openPicker
             Section("ABOUT") {
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
                     Text("Altus Cirrus", style = TextStyle(fontFamily = Inter, fontSize = 15.sp, color = cb.ink))
-                    Text("v$version", style = monoStyle(cb.inkDim, 1.sp))
+                    Text(version, style = monoStyle(cb.inkDim, 1.sp))
                 }
                 val update = Updater.state
                 Row(
@@ -173,7 +168,6 @@ internal fun SettingsScreen(favorites: Favorites, onBack: () -> Unit, openPicker
                     Crossfade(status, animationSpec = tween(MOTION_MS), label = "updateStatus") { Text(it, style = monoStyle(if (it == "FAILED") Warn else cb.inkDim, 1.sp)) }
                 }
                 AnimatedVisibility(update is Updater.State.Checking, enter = expandEnter, exit = shrinkExit) { ProgressBar(null, color = cb.mint, track = cb.line) }
-                Text("Everything stays on your phone. Nothing is uploaded, except that the app asks GitHub for new versions.", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim))
                 Text(if (showLicences) "HIDE LICENCES" else "LICENCES", Modifier.clickable { showLicences = !showLicences }.padding(vertical = 6.dp), style = monoStyle(cb.mint, 1.5.sp))
                 AnimatedVisibility(showLicences, enter = expandEnter, exit = shrinkExit) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { Licences.forEach { Text(it, style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.ink2)) } }
@@ -203,13 +197,10 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun Toggle(label: String, note: String, on: Boolean, onChange: (Boolean) -> Unit) {
+private fun Toggle(label: String, on: Boolean, onChange: (Boolean) -> Unit) {
     val cb = LocalCb.current
     Row(Modifier.fillMaxWidth().clickable { onChange(!on) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(label, style = monoStyle(cb.ink, 1.5.sp))
-            Text(note, style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim))
-        }
+        Text(label, Modifier.weight(1f).padding(end = 12.dp), style = monoStyle(cb.ink, 1.5.sp))
         // the switch: a track with a round knob that slides to the right when on
         val knob by animateDpAsState(if (on) 22.dp else 2.dp, tween(MOTION_FAST_MS), label = "knob")
         Box(Modifier.width(44.dp).height(24.dp).clip(CircleShape).background(glide(on, cb.mint, cb.surface3))) {
@@ -218,11 +209,18 @@ private fun Toggle(label: String, note: String, on: Boolean, onChange: (Boolean)
     }
 }
 
+/** A setting with its options on the same row, aligned right. */
 @Composable
-private fun Choice(label: String, options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+private fun Setting(label: String, options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
     val cb = LocalCb.current
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, style = monoStyle(cb.inkDim, 1.5.sp))
-        Row { options.forEachIndexed { i, o -> Chip(o, selected == i) { onSelect(i) } } }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f).padding(end = 8.dp), style = monoStyle(cb.inkDim, 1.5.sp))
+        options.forEachIndexed { i, o -> Chip(o, selected == i) { onSelect(i) } }
     }
+}
+
+/** A smooth slider in 0.1 steps; tap the number to put it back to [default]. */
+@Composable
+private fun ShelfSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, unit: String, default: Float, onChange: (Float) -> Unit) {
+    EditSlider(label, value, range, String.format(Locale.US, "%.1f", value) + unit, { onChange((it * 10).roundToInt() / 10f) }, {}) { onChange(default) }
 }

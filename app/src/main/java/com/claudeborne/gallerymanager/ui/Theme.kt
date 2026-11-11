@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import android.app.Activity
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -118,7 +117,7 @@ private fun animatedCb(t: CbColors): CbColors {
 
 @Composable
 fun ClaudeBorneTheme(content: @Composable () -> Unit) {
-    val dark = when (Settings.theme) { 1 -> true; 2 -> false; else -> isSystemInDarkTheme() }
+    val dark = Settings.theme == 1
     val cb = animatedCb(if (dark) DarkCb else LightCb) // colours glide when the theme changes
     val view = LocalView.current
     SideEffect { // icons in the bars must contrast with the chosen theme, not the phone's

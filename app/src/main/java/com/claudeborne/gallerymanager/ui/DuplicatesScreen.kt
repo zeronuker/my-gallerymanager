@@ -10,8 +10,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -19,7 +26,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -35,6 +44,11 @@ import com.claudeborne.gallerymanager.data.moveToBin
 import kotlinx.coroutines.launch
 import java.io.File
 
+@Composable
+private fun GroupHeader(text: String) {
+    Text(text, Modifier.padding(start = 16.dp, top = 14.dp, bottom = 2.dp), style = monoStyle(LocalCb.current.mint, 1.sp))
+}
+
 /**
  * Files with identical content. Tap a copy to select it (at least one copy of each file always stays), long-press to open it,
  * or use SELECT EXTRAS to keep only the oldest copy of everything. Deleting moves the copies to the trash.
@@ -48,6 +62,9 @@ internal fun DuplicatesScreen(roots: List<File>, backEnabled: Boolean, onClose: 
     var status by remember { mutableStateOf("SCANNING…") }
     var selected by remember { mutableStateOf(emptySet<String>()) }
     var erase by remember { mutableStateOf<List<File>?>(null) }
+    var grid by rememberSaveable { mutableStateOf(false) } // rows or thumbnails
+    val listState = rememberLazyListState()
+    val gridState = rememberLazyGridState()
 
     LaunchedEffect(Unit) { groups = findDuplicates(roots) { status = it } }
     BackHandler(enabled = backEnabled) { if (selected.isNotEmpty()) selected = emptySet() else onClose() }
@@ -75,28 +92,47 @@ internal fun DuplicatesScreen(roots: List<File>, backEnabled: Boolean, onClose: 
             Box(Modifier.weight(1f).fillMaxWidth(), Alignment.Center) { LoadingPane(status) } // the scan reports a message, not a percentage, so the bar sweeps
             return@Column
         }
-        Text(
-            "Identical files of ${size(DUP_MIN_BYTES)} or more. Tap to select, long-press to open.",
-            Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim),
-        )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Identical files of ${size(DUP_MIN_BYTES)} or more. Tap to select, long-press to open.",
+                Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 4.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim),
+            )
+            if (list.isNotEmpty()) ViewMenu(grid, { grid = it })
+        }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (list.isEmpty()) {
                 Text("NO DUPLICATES FOUND", Modifier.align(Alignment.Center), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
             } else {
-                LazyColumn(Modifier.fillMaxSize()) {
-                    list.forEach { g ->
-                        item(key = "h:" + g.files[0].path) {
-                            Text(
-                                "${g.files.size} COPIES · ${size(g.size)} EACH · ${size(g.wasted)} WASTED",
-                                Modifier.padding(start = 16.dp, top = 14.dp, bottom = 2.dp), style = monoStyle(cb.mint, 1.sp),
-                            )
-                        }
-                        items(g.files, key = { it.path }) { f ->
-                            val oldest = f === g.files[0]
-                            ListRow(
-                                Entry(f, false, g.size, f.lastModified(), 0), f.path in selected, onClick = { toggle(g, f) }, onLongClick = { onOpen(f) },
-                                note = (if (oldest) "OLDEST · " else "") + "${size(g.size)} · ${dateText(f.lastModified())}", path = f.parent,
-                            )
+                val total = list.sumOf { it.files.size + 1 } // each group is a header and its copies
+                fun header(g: DupGroup) = "${g.files.size} COPIES · ${size(g.size)} EACH · ${size(g.wasted)} WASTED"
+                Crossfade(grid, Modifier.fillMaxSize(), animationSpec = tween(MOTION_FAST_MS), label = "dupView") { asGrid ->
+                    Box(Modifier.fillMaxSize()) {
+                        if (asGrid) {
+                            LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize(), gridState, horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                list.forEach { g ->
+                                    item(key = "h:" + g.files[0].path, span = { GridItemSpan(maxLineSpan) }) { GroupHeader(header(g)) }
+                                    gridItems(g.files, key = { it.path }) { f ->
+                                        Box(Modifier.animateItem()) { GridTile(Entry(f, false, g.size, f.lastModified(), 0), f.path in selected, { toggle(g, f) }, { onOpen(f) }) }
+                                    }
+                                }
+                            }
+                            DragScrollBar(total, gridState.firstVisibleItemIndex, gridState.layoutInfo.visibleItemsInfo.size, { gridState.scrollToItem(it) }, Modifier.align(Alignment.TopEnd))
+                        } else {
+                            LazyColumn(Modifier.fillMaxSize(), listState) {
+                                list.forEach { g ->
+                                    item(key = "h:" + g.files[0].path) { GroupHeader(header(g)) }
+                                    items(g.files, key = { it.path }) { f ->
+                                        val oldest = f === g.files[0]
+                                        Box(Modifier.animateItem()) {
+                                            ListRow(
+                                                Entry(f, false, g.size, f.lastModified(), 0), f.path in selected, onClick = { toggle(g, f) }, onLongClick = { onOpen(f) },
+                                                note = (if (oldest) "OLDEST · " else "") + "${size(g.size)} · ${dateText(f.lastModified())}", path = f.parent,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            DragScrollBar(total, listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size, { listState.scrollToItem(it) }, Modifier.align(Alignment.TopEnd))
                         }
                     }
                 }

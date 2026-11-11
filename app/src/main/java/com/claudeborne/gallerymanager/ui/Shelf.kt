@@ -81,7 +81,7 @@ fun Shelf(open: Boolean, moving: Boolean, onDrag: (Float) -> Unit, onRelease: (B
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val widthPx = with(LocalDensity.current) { maxWidth.toPx() }
-        val touchH = ((Settings.shelfHeight * 1.25f).toInt() + 24).coerceAtLeast(100).dp
+        val touchH = (Settings.shelfHeight * 1.25f + 24).coerceAtLeast(100f).dp
         // closed: a wide strip at the edge so a thumb can find it; open: a little narrower, so Settings' own controls stay usable. Both reach the edge.
         val touchW = inset + (if (open) thickness + 28 else thickness * 2 + 24).dp
         val top = (maxHeight * (Settings.shelfY / 100f) - touchH / 2).coerceIn(0.dp, maxOf(0.dp, maxHeight - touchH))
