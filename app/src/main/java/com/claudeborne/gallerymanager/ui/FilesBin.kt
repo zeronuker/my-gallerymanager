@@ -98,8 +98,8 @@ internal fun BinDetail(item: BinItem, entry: Entry, onClose: () -> Unit, onResto
             }
         }
         Row(Modifier.fillMaxWidth().background(cb.surface1).padding(vertical = 8.dp), Arrangement.SpaceEvenly) {
-            ActionText("RESTORE", cb.mint, onRestore)
-            ActionText("DELETE FOREVER", RED, onDelete)
+            SvgIconButton("restore", cb.mint, "Restore", onClick = onRestore)
+            SvgIconButton("deleteForever", RED, "Delete forever", onClick = onDelete) // asks first: the trash screen shows its confirm dialog
         }
     }
 }

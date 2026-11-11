@@ -290,6 +290,16 @@ private fun TrashViewer(items: List<MediaItem>, startId: Long, onRestore: (Media
     val current = items.getOrNull(pager.currentPage)
     var muted by remember { mutableStateOf(Settings.muted) }
     LaunchedEffect(Settings.muted) { muted = Settings.muted }
+    var confirmDelete by remember { mutableStateOf(false) }
+    if (confirmDelete) {
+        CbDialog("DELETE FOR GOOD", { confirmDelete = false }) {
+            Text("Erase this item for good? This cannot be undone.", style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = DarkCb.ink2))
+            Row(Modifier.fillMaxWidth(), Arrangement.End) {
+                ActionText("CANCEL", DarkCb.inkDim) { confirmDelete = false }
+                ActionText("DELETE", RED) { confirmDelete = false; current?.let(onDelete) }
+            }
+        }
+    }
     BackHandler(onBack = onClose)
     LaunchedEffect(items.isEmpty()) { if (items.isEmpty()) onClose() } // the last one was restored or deleted
     Column(Modifier.fillMaxSize().background(Color.Black)) {
@@ -308,8 +318,8 @@ private fun TrashViewer(items: List<MediaItem>, startId: Long, onRestore: (Media
             }
         }
         Row(Modifier.fillMaxWidth().background(Color(0xFF0A1020)).padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-            ActionText("RESTORE", DarkCb.mint) { current?.let(onRestore) }
-            ActionText("DELETE FOREVER", Color(0xFFFF6B6B)) { current?.let(onDelete) }
+            SvgIconButton("restore", DarkCb.mint, "Restore") { current?.let(onRestore) }
+            SvgIconButton("deleteForever", Color(0xFFFF6B6B), "Delete forever") { confirmDelete = true }
         }
     }
 }

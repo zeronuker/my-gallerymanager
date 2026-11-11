@@ -147,8 +147,6 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
             if (item.isVideo) VideoPage(item, active = pager.settledPage == page, chrome, onTap, muted, { muted = it }, bottomPad = barHeight) else ZoomableImage(item, onTap)
         }
 
-        NavArrow("‹", Alignment.CenterStart, chrome && pager.currentPage > 0) { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } }
-        NavArrow("›", Alignment.CenterEnd, chrome && pager.currentPage < items.size - 1) { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } }
 
         Visible(chrome, Modifier.align(Alignment.TopCenter), enter = topBarEnter, exit = topBarExit) { Row(
             Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xB3000000), Color.Transparent)))
@@ -219,19 +217,6 @@ internal fun monoStyle(color: Color, spacing: androidx.compose.ui.unit.TextUnit)
     TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = spacing, color = color)
 
 private fun clock(ms: Long) = "%d:%02d".format(ms / 60000, ms / 1000 % 60)
-
-/** Round previous/next button floating over the side of the media. */
-@Composable
-private fun BoxScope.NavArrow(glyph: String, at: Alignment, visible: Boolean, onClick: () -> Unit) {
-    AnimatedVisibility(visible, Modifier.align(at), enter = fadeIn(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_FAST_MS))) {
-        Box(
-            Modifier.padding(8.dp).size(44.dp).clip(CircleShape).background(Color(0x80000000)).clickable(onClick = onClick),
-            Alignment.Center,
-        ) {
-            Text(glyph, style = TextStyle(fontFamily = JetBrainsMono, fontSize = 28.sp, color = DarkCb.mint))
-        }
-    }
-}
 
 /** Menu of file tools; tapping a row closes it with [onDone] and runs that action. */
 @Composable
