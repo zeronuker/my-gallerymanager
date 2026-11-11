@@ -100,7 +100,7 @@ fun Shelf(open: Boolean, moving: Boolean, onDrag: (Float) -> Unit, onRelease: (B
                 onDragStopped = {
                     dragging = false
                     val toward = if (right) -moved[0] else moved[0]
-                    onRelease(if (open) toward < -closeThreshold else toward > threshold)
+                    onRelease(if (open) kotlin.math.abs(toward) > closeThreshold else toward > threshold) // open: a swipe either way closes
                 },
             )
             .then(if (tap || open) Modifier.clickable(remember { MutableInteractionSource() }, null) { onToggle() } else Modifier)

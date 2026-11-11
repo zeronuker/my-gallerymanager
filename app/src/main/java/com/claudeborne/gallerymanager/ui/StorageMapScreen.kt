@@ -221,7 +221,6 @@ internal fun StorageMapScreen(
             }
             }
         }
-        if (view == 0) TypeTable(result)
     }
 
     erase?.let { n ->
@@ -238,31 +237,6 @@ internal fun StorageMapScreen(
                         onChanged()
                     }
                 }
-            }
-        }
-    }
-}
-
-/** The biggest extensions under the map: colour, name, size and share of everything scanned, two to a line. */
-@Composable
-private fun TypeTable(result: ScanResult) {
-    val cb = LocalCb.current
-    val context = LocalContext.current
-    val top = remember(result) { result.extBytes.entries.sortedByDescending { it.value }.take(10) }
-    val total = result.root.size.coerceAtLeast(1)
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        top.chunked(2).forEach { pair ->
-            Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(10.dp)) {
-                pair.forEach { e ->
-                    Row(Modifier.weight(1f), Arrangement.spacedBy(6.dp), Alignment.CenterVertically) {
-                        Box(Modifier.size(10.dp).background(extColor(e.key)))
-                        Text(
-                            "${extLabel(e.key)} ${Formatter.formatShortFileSize(context, e.value).uppercase()} · ${e.value * 100 / total}%",
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, style = monoStyle(cb.inkDim, 0.6.sp),
-                        )
-                    }
-                }
-                if (pair.size == 1) Box(Modifier.weight(1f))
             }
         }
     }
@@ -403,7 +377,7 @@ private fun layoutNested(node: MapNode, w: Float, h: Float, dp: Float): List<Pla
     fun add(n: MapNode, r: TileRect, inside: List<MapNode>, depth: Int) {
         val placed = Placed(n, r, inside)
         out += placed
-        if (!n.isDir || n.aggregate || depth >= 3 || r.w < 90 * dp || r.h < 70 * dp) return
+        if (!n.isDir || n.aggregate || depth >= MAX_DEPTH || r.w < 90 * dp || r.h < 70 * dp) return
         val inner = layoutTiles(n, r.w - 6, r.h - HEADER_DP * dp - 5, dp)
         if (inner.isEmpty()) return
         placed.panel = true
@@ -431,3 +405,4 @@ private fun layoutTiles(node: MapNode, w: Float, h: Float, dp: Float): List<Pair
 }
 
 private const val MAX_TILES = 3000
+private const val MAX_DEPTH = 10 // folder levels drawn inside one another; a folder tile under 90 x 70 dp stops sooner
