@@ -37,6 +37,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import android.content.Intent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.shape.CircleShape
@@ -154,7 +162,6 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
     }
     val rows = remember(tick, mode) { TransferHub.items.toList().asReversed() }
     var sendResult by remember { mutableStateOf<SendResult?>(null) } // how the send ended, until the user taps OK
-    var typing by rememberSaveable { mutableStateOf(false) } // the code field is shown after ENTER CODE
     var confirmStop by remember { mutableStateOf(false) }
     val moving = sending || rows.any { !it.finished && it.error == null } // a transfer is under way, so leaving needs a confirm
 
@@ -246,22 +253,15 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
                     else IconBrandButton("SEARCH AGAIN", Icon.REFRESH, Modifier.padding(horizontal = 16.dp).fillMaxWidth()) { TransferHub.rediscover() }
                     Text("OTHER WAYS", Modifier.padding(start = 16.dp, top = 8.dp), style = monoStyle(cb.mint, 2.4.sp))
                     WayCard(Icon.COMPUTER, "TO A COMPUTER", "Opens a web page") { mode = Mode.COMPUTER }
-                    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            IconBrandButton("SCAN CODE", Icon.SCAN, Modifier.weight(1f), primary = true) {
-                                GmsBarcodeScanning.getClient(context, GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()).startScan()
-                                    .addOnSuccessListener { address = it.rawValue.orEmpty(); beginSend(address) }
-                                    .addOnFailureListener { toast("The scanner is not available. Use ENTER CODE.") }
-                            }
-                            IconBrandButton("ENTER CODE", Icon.KEYBOARD, Modifier.weight(1f)) { typing = !typing }
-                        }
-                        Visible(typing, enter = expandEnter, exit = shrinkExit) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                CbTextField(address, { address = it }) // the keyboard opens only because the user asked for this field
-                                BrandButton(if (sending) "SENDING…" else "SEND", Modifier.fillMaxWidth(), primary = true, enabled = !sending) { beginSend(address) }
-                            }
-                        }
-                    }
+                    CodeCard(
+                        address, { address = it }, sending,
+                        onScan = {
+                            GmsBarcodeScanning.getClient(context, GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()).startScan()
+                                .addOnSuccessListener { address = it.rawValue.orEmpty(); beginSend(address) }
+                                .addOnFailureListener { toast("The scanner is not available. Type the address instead.") }
+                        },
+                        onSend = { beginSend(address) },
+                    )
                 }
             }
         } }
@@ -537,6 +537,32 @@ private fun ColumnScope.UsbPanel(url: String?, left: Int, failed: Boolean, onRet
             ProgressBar((USB_WAIT_S - left) / USB_WAIT_S.toFloat(), color = cb.mint, track = cb.line)
             IconBrandButton("OPEN ANDROID SETTINGS", Icon.GEAR, Modifier.fillMaxWidth(), onClick = onSettings)
         }
+    }
+}
+
+/** Sending to a code: the address typed or scanned from the other phone. The field is always there; the keyboard opens only when it is tapped. */
+@Composable
+private fun CodeCard(address: String, onAddress: (String) -> Unit, sending: Boolean, onScan: () -> Unit, onSend: () -> Unit) {
+    val cb = LocalCb.current
+    val ready = address.isNotBlank() && !sending
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().doubleChamferFrame(cb).padding(14.dp), Arrangement.spacedBy(10.dp)) {
+        Text("BY CODE", style = monoStyle(cb.mint, 2.4.sp))
+        Text("Type the address shown on the other phone, or scan its code.", style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim))
+        Row(Modifier.fillMaxWidth().background(cb.surface2).border(1.dp, cb.line), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 14.dp)) {
+                if (address.isEmpty()) Text("192.168.1.5", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 14.sp, color = cb.inkDim))
+                BasicTextField(
+                    address, onAddress, Modifier.fillMaxWidth(), singleLine = true,
+                    textStyle = TextStyle(fontFamily = JetBrainsMono, fontSize = 14.sp, color = cb.ink), cursorBrush = SolidColor(cb.mint),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { if (ready) onSend() }),
+                )
+            }
+            Box(Modifier.width(1.dp).height(48.dp).background(cb.line))
+            Box(Modifier.size(48.dp).semantics { contentDescription = "Scan code" }.clickable(onClick = onScan), Alignment.Center) {
+                CbIcon(Icon.SCAN, cb.mint, size = 22.dp)
+            }
+        }
+        BrandButton(if (sending) "SENDING…" else "SEND", Modifier.fillMaxWidth(), primary = true, enabled = ready, onClick = onSend)
     }
 }
 
