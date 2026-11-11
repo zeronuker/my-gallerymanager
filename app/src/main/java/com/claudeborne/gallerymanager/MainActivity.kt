@@ -21,6 +21,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import com.claudeborne.gallerymanager.data.Settings
+import com.claudeborne.gallerymanager.data.Updater
+import com.claudeborne.gallerymanager.ui.UpdateDialog
 import com.claudeborne.gallerymanager.ui.AppLockState
 import com.claudeborne.gallerymanager.ui.ClaudeBorneTheme
 import com.claudeborne.gallerymanager.ui.LockOverlay
@@ -44,7 +46,10 @@ class MainActivity : FragmentActivity() {
                     Box(if (AppLockState.locked) Modifier.fillMaxSize().clearAndSetSemantics { } else Modifier.fillMaxSize()) { GalleryRoot(viewUri) }
                     AnimatedVisibility(splash, enter = EnterTransition.None, exit = fadeOut(tween(MOTION_MS))) { SplashScreen { splash = false } }
                     LockOverlay()
+                    UpdateDialog()
                 }
+                // look for a newer build once per app start (not again after a rotation)
+                LaunchedEffect(Unit) { if (Updater.state is Updater.State.Idle) Updater.check(this@MainActivity, manual = false) }
             }
         }
     }

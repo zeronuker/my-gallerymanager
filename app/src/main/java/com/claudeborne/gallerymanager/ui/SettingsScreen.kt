@@ -38,6 +38,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.claudeborne.gallerymanager.data.Settings
+import com.claudeborne.gallerymanager.data.Updater
 import java.io.File
 
 private val Licences = listOf(
@@ -153,7 +154,26 @@ internal fun SettingsScreen(favorites: Favorites, onBack: () -> Unit, openPicker
                     Text("Altus Cirrus", style = TextStyle(fontFamily = Inter, fontSize = 15.sp, color = cb.ink))
                     Text("v$version", style = monoStyle(cb.inkDim, 1.sp))
                 }
-                Text("Everything stays on your phone. Nothing is uploaded.", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim))
+                val update = Updater.state
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        // a found update whose dialog was closed is reopened; anything else checks again
+                        if (update is Updater.State.Available || update is Updater.State.Ready) Updater.showDialog = true else Updater.check(context, manual = true)
+                    }.padding(vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("CHECK FOR UPDATES", style = monoStyle(cb.mint, 1.5.sp))
+                    val status = when (update) {
+                        is Updater.State.Checking -> "CHECKING…"
+                        is Updater.State.UpToDate -> "UP TO DATE"
+                        is Updater.State.Available, is Updater.State.Downloading, is Updater.State.Ready -> "NEW BUILD"
+                        is Updater.State.Failed -> "FAILED"
+                        else -> ""
+                    }
+                    Crossfade(status, animationSpec = tween(MOTION_MS), label = "updateStatus") { Text(it, style = monoStyle(if (it == "FAILED") Warn else cb.inkDim, 1.sp)) }
+                }
+                AnimatedVisibility(update is Updater.State.Checking, enter = expandEnter, exit = shrinkExit) { ProgressBar(null, color = cb.mint, track = cb.line) }
+                Text("Everything stays on your phone. Nothing is uploaded, except that the app asks GitHub for new versions.", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.inkDim))
                 Text(if (showLicences) "HIDE LICENCES" else "LICENCES", Modifier.clickable { showLicences = !showLicences }.padding(vertical = 6.dp), style = monoStyle(cb.mint, 1.5.sp))
                 AnimatedVisibility(showLicences, enter = expandEnter, exit = shrinkExit) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { Licences.forEach { Text(it, style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.ink2)) } }

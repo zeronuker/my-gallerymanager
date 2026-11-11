@@ -1,9 +1,11 @@
 name: Build APK
 
+# Every push to main builds a signed release APK and publishes it as a GitHub Release.
+# The app checks the newest release at start and offers it as an update (see data/Updater.kt).
 on:
-  workflow_dispatch:      # manual run: debug APK as a downloadable artifact
   push:
-    tags: ['v*']          # tag push: signed release APK attached to a GitHub Release
+    branches: [main]
+  workflow_dispatch:      # run again without a new commit
 
 permissions:
   contents: write
@@ -11,8 +13,6 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-latest
-    env:
-      IS_RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,8 +25,12 @@ jobs:
         with:
           gradle-version: 8.9
 
+      # versionCode must rise with every build or Android refuses the update; the run number only ever goes up.
+      # The +100 keeps it above the 11 that is committed for local builds.
+      - name: Version code
+        run: echo "VERSION_CODE=$((GITHUB_RUN_NUMBER + 100))" >> "$GITHUB_ENV"
+
       - name: Decode keystore
-        if: env.IS_RELEASE == 'true'
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
         run: echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
@@ -37,17 +41,17 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: gradle ${{ env.IS_RELEASE == 'true' && 'assembleRelease' || 'assembleDebug' }} --no-daemon
+        run: gradle assembleRelease -PversionCode=$VERSION_CODE --no-daemon
 
-      - name: Upload debug APK
-        if: env.IS_RELEASE != 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: gallerymanager-debug
-          path: app/build/outputs/apk/debug/*.apk
+      # the file name carries the version code: the app reads it from there
+      - name: Name the APK
+        run: mv app/build/outputs/apk/release/app-release.apk "gallerymanager-$VERSION_CODE.apk"
 
       - name: Publish release
-        if: env.IS_RELEASE == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/release/*.apk
+          tag_name: build-${{ env.VERSION_CODE }}
+          name: Build ${{ env.VERSION_CODE }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          files: gallerymanager-${{ env.VERSION_CODE }}.apk

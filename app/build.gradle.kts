@@ -16,7 +16,8 @@ android {
         applicationId = "com.claudeborne.gallerymanager"
         minSdk = 33
         targetSdk = 35
-        versionCode = 11
+        // CI passes -PversionCode=<100 + run number> so every build is newer than the last; local builds keep this number
+        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 11
         versionName = "0.9.0"
     }
 
