@@ -115,6 +115,7 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
     var showInfo by remember { mutableStateOf(false) }
     var showMore by remember { mutableStateOf(false) }
     var muted by remember { mutableStateOf(Settings.muted) } // the sound switch holds for every video opened while the viewer stays open
+    LaunchedEffect(Settings.muted) { muted = Settings.muted } // and follows START MUTED when it is changed in Settings meanwhile
     var export by remember { mutableStateOf<Pair<MediaItem, Boolean>?>(null) } // the photo to resize/convert, and whether to start with location removal on
     var chrome by remember { mutableStateOf(true) } // tapping the media hides every control for a full-screen view
     val scope = rememberCoroutineScope()

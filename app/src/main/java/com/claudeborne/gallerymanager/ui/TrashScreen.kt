@@ -289,6 +289,7 @@ private fun TrashViewer(items: List<MediaItem>, startId: Long, onRestore: (Media
     val pager = rememberPagerState(items.indexOfFirst { it.id == startId }.coerceAtLeast(0)) { items.size }
     val current = items.getOrNull(pager.currentPage)
     var muted by remember { mutableStateOf(Settings.muted) }
+    LaunchedEffect(Settings.muted) { muted = Settings.muted }
     BackHandler(onBack = onClose)
     LaunchedEffect(items.isEmpty()) { if (items.isEmpty()) onClose() } // the last one was restored or deleted
     Column(Modifier.fillMaxSize().background(Color.Black)) {

@@ -51,6 +51,14 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalViewConfiguration
 import com.claudeborne.gallerymanager.data.categoryCounts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -193,6 +201,7 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
         }
     }
 
+    fun closeSearch() { searching = false; query = ""; allScope = false }
     fun go(to: File?) { path = to?.path; category = null; searching = false; query = ""; selected = emptySet() }
     fun up() { if (dir != null && root != null) go(if (dir.path == root.path) null else dir.parentFile) }
     fun done() { selected = emptySet(); refresh++; onChanged() }
@@ -203,7 +212,7 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
     BackHandler(enabled = backEnabled && !inBin && mapRoot == null && !inDupes && transfer == null && vault == null && dual == null && (selecting || searching || cat != null || dir != null)) {
         when {
             selecting -> selected = emptySet()
-            searching -> { searching = false; query = "" }
+            searching -> closeSearch()
             cat != null -> category = null
             else -> up()
         }
@@ -285,7 +294,19 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
         else -> "${entries.size} ITEMS"
     }
 
-    Column(Modifier.fillMaxSize()) {
+    var searchArea by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) } // the search controls, where a tap must not close the search
+    val slop = LocalViewConfiguration.current.touchSlop
+    Column(
+        Modifier.fillMaxSize().pointerInput(searching) {
+            if (!searching) return@pointerInput
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                val up = waitForUpOrCancellation(PointerEventPass.Initial)
+                // watches only: nothing is consumed, so whatever was tapped (a file, a button) still gets its tap
+                if (up != null && (up.position - down.position).getDistance() < slop && !searchArea.contains(down.position)) closeSearch()
+            }
+        },
+    ) {
         ScreenHeader(cat?.label ?: "FILES", count, onBack, backLabel.uppercase(), fixed = true)
         AnimatedOverlay(busy, expandEnter, shrinkExit) { WorkingLine(it, null, cb.mint) } // copy, move, zip and extract report no percentage, so the bar sweeps
 
@@ -293,10 +314,11 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
             Box(Modifier.weight(1f)) { Crumbs(root, rootLabel, dir) { go(it) } }
             IconAction(Icon.PLUS, cb.mint, "New folder") { dialog = FileDialog.NewFolder }
         }
+        Column(Modifier.onGloballyPositioned { searchArea = it.boundsInParent() }) {
         if (cat == null) {
             // on the home screen nothing sits at the right, so the field keeps the same 16dp margin as the cards; in a folder SORT and VIEW supply it
             Row(Modifier.fillMaxWidth().padding(end = if (dir == null) 16.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
-                SearchAction(searching, query, { query = it }, Modifier.weight(1f)) { searching = !searching; if (!searching) query = "" }
+                SearchAction(searching, query, { query = it }, Modifier.weight(1f)) { if (searching) closeSearch() else { searching = true; allScope = false } } // a new search starts in this folder
                 if (dir != null) {
                     SortMenu(sort, ascending) { s -> if (s == sort) ascending = !ascending else { sort = s; ascending = s == SortBy.NAME || s == SortBy.TYPE } }
                     ViewMenu(grid, { grid = it }, hidden) { hidden = !hidden }
@@ -304,6 +326,7 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
             }
         }
         if (searching && dir != null) ScopeRow(allScope) { allScope = it }
+        }
 
         Crossfade(onHome && !showResults, Modifier.weight(1f).fillMaxWidth(), tween(MOTION_MS), label = "home") { home ->
             if (home) {
@@ -604,7 +627,7 @@ private fun ScopeRow(allScope: Boolean, onScope: (Boolean) -> Unit) {
     val cb = LocalCb.current
     Row(Modifier.padding(horizontal = 8.dp)) {
         ActionText("THIS FOLDER", if (!allScope) cb.mint else cb.inkDim) { onScope(false) }
-        ActionText("ALL STORAGE", if (allScope) cb.mint else cb.inkDim) { onScope(true) }
+        ActionText("WHOLE PHONE", if (allScope) cb.mint else cb.inkDim) { onScope(true) }
     }
 }
 
@@ -674,11 +697,19 @@ internal fun GridTile(e: Entry, selected: Boolean, onClick: () -> Unit, onLongCl
         Modifier.aspectRatio(1f).background(cb.surface2).combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .border(3.dp, glide(selected, cb.mint, Color.Transparent)),
     ) {
-        Thumb(e)
-        Text(
-            e.file.name, Modifier.align(Alignment.BottomStart).fillMaxWidth().background(Color(0x99000000)).padding(horizontal = 4.dp, vertical = 2.dp),
-            maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontSize = 11.sp, color = Color.White),
-        )
+        if (e.isDir) {
+            Column(Modifier.align(Alignment.Center).padding(horizontal = 6.dp), Arrangement.spacedBy(4.dp), Alignment.CenterHorizontally) {
+                CbIcon(Icon.FOLDER, cb.mint, size = 46.dp)
+                Text(e.file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = cb.ink))
+                if (e.children >= 0) Text("${e.children} ${if (e.children == 1) "ITEM" else "ITEMS"}", style = monoStyle(cb.inkDim, 0.6.sp).copy(fontSize = 10.sp))
+            }
+        } else {
+            Thumb(e)
+            Text(
+                e.file.name, Modifier.align(Alignment.BottomStart).fillMaxWidth().background(Color(0x99000000)).padding(horizontal = 4.dp, vertical = 2.dp),
+                maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontSize = 11.sp, color = Color.White),
+            )
+        }
         SelectedMark(selected)
     }
 }
