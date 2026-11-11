@@ -70,7 +70,7 @@ fun countChildren(entries: List<Entry>): List<Entry> = entries.map { if (it.isDi
 fun storageRoots(context: Context): List<Pair<String, File>> =
     context.getSystemService(StorageManager::class.java).storageVolumes
         .filter { it.state == Environment.MEDIA_MOUNTED }
-        .mapNotNull { v -> v.directory?.let { v.getDescription(context) to it } }
+        .mapNotNull { v -> v.directory?.let { (if (v.isPrimary) "Internal Storage" else v.getDescription(context)) to it } } // Android's own name for the main one varies by phone
 
 /** The entries of [dir] with folders first, then ordered by [by]. A folder we are not allowed to read lists as empty. */
 fun listDir(dir: File, showHidden: Boolean, by: SortBy, ascending: Boolean): List<Entry> {

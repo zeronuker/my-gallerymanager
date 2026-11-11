@@ -80,7 +80,6 @@ import com.claudeborne.gallerymanager.data.ScanResult
 import com.claudeborne.gallerymanager.data.TileRect
 import com.claudeborne.gallerymanager.data.fileType
 import com.claudeborne.gallerymanager.data.extKey
-import com.claudeborne.gallerymanager.data.largestFiles
 import com.claudeborne.gallerymanager.data.moveToBin
 import com.claudeborne.gallerymanager.data.scanTree
 import com.claudeborne.gallerymanager.data.squarify
@@ -109,13 +108,12 @@ private fun ago(ms: Long): String {
 }
 
 /**
- * What uses the space in [start]: a treemap one folder level at a time (tap a folder to zoom in), a legend of the file types, and a list of
- * the largest files. [onChanged] fires after something was deleted so the library follows.
+ * What uses the space in [start]: a treemap one folder level at a time (tap a folder to zoom in), and a list of the file types. [onChanged] fires after something was deleted so the library follows.
  */
 @Composable
 internal fun StorageMapScreen(
     start: File, rootLabel: String, backEnabled: Boolean,
-    onClose: () -> Unit, onBrowse: (File) -> Unit, onOpen: (File) -> Unit, onChanged: () -> Unit,
+    onClose: () -> Unit, onOpen: (File) -> Unit, onChanged: () -> Unit,
 ) {
     val cb = LocalCb.current
     val context = LocalContext.current
@@ -127,7 +125,7 @@ internal fun StorageMapScreen(
     var progress by remember { mutableIntStateOf(0) }
     var reload by remember { mutableIntStateOf(0) } // raised by RESCAN, and after something was deleted
     var zoom by rememberSaveable { mutableStateOf(emptyList<String>()) } // folders below the start, deepest last
-    var view by rememberSaveable { mutableIntStateOf(0) } // 0 the map, 1 the file types, 2 the largest files
+    var view by rememberSaveable { mutableIntStateOf(0) } // 0 the map, 1 the file types
     var picked by remember { mutableStateOf<MapNode?>(null) }
     var erase by remember { mutableStateOf<MapNode?>(null) }
 
@@ -179,8 +177,6 @@ internal fun StorageMapScreen(
         Row(Modifier.fillMaxWidth()) {
             ActionText("MAP", if (view == 0) cb.mint else cb.inkDim) { view = 0; picked = null }
             ActionText("TYPES", if (view == 1) cb.mint else cb.inkDim) { view = 1; picked = null }
-            ActionText("LARGEST", if (view == 2) cb.mint else cb.inkDim) { view = 2; picked = null }
-            ActionText("BROWSE HERE", cb.inkDim) { onBrowse(current.file) }
         }
         // when the map was made, and a way to make it again; while it is being redone the old map stays and a bar sweeps
         Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -196,32 +192,24 @@ internal fun StorageMapScreen(
         Visible(scanning, Modifier.padding(horizontal = 16.dp), expandEnter, shrinkExit) { ProgressBar(null) }
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            // the map, its zoomed folders, the file types and the LARGEST list fade into one another
+            // the map, its zoomed folders and the file types fade into one another
             Crossfade(if (view == 0) current else view, Modifier.fillMaxSize(), animationSpec = tween(MOTION_MS), label = "map") { target ->
                 when (target) {
                     is MapNode -> Treemap(target, picked) { n, inside ->
                         // a folder zooms in (through the folder tiles it sat in, if any); a file is picked
                         if (n.isDir) { zoom = zoom + inside.map { it.file.path } + n.file.path; picked = null } else picked = if (picked === n) null else n
                     }
-                    1 -> TypesList(result)
-                    else -> {
-                        val top = remember(result) { largestFiles(result.root) }
-                        LazyColumn(Modifier.fillMaxSize()) {
-                            items(top, key = { it.file.path }) { n ->
-                                ListRow(Entry(n.file, false, n.size, n.modified, 0), picked === n, onClick = { picked = if (picked === n) null else n }, onLongClick = {}, path = n.file.parent)
-                            }
-                        }
-                    }
+                    else -> TypesList(result)
                 }
             }
 
             // the card floats over the bottom of the map, so picking a tile does not make the map reflow
             AnimatedOverlay(picked, barEnter, barExit, Modifier.align(Alignment.BottomCenter)) { n ->
-            val base = if (view == 2) result.root.size else current.size
+            val base = current.size
             Column(Modifier.fillMaxWidth().background(cb.surface1).padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(n.file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = cb.ink))
                 Text(
-                    "${Formatter.formatShortFileSize(context, n.size).uppercase()} · ${if (base > 0) n.size * 100 / base else 0}% OF ${if (view == 2) "ALL" else "THIS FOLDER"} · ${dateText(n.modified)}",
+                    "${Formatter.formatShortFileSize(context, n.size).uppercase()} · ${if (base > 0) n.size * 100 / base else 0}% OF THIS FOLDER · ${dateText(n.modified)}",
                     style = monoStyle(cb.inkDim, 0.6.sp),
                 )
                 Text(n.file.parent.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis, style = monoStyle(cb.inkDim, 0.6.sp))

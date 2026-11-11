@@ -51,6 +51,13 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -381,7 +388,7 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
             1 -> TrashView(trash, backEnabled, onBack = { inBin = false }, onChanged = { refresh++; onChanged() })
             2 -> lastMap?.let { start ->
                 val label = roots.firstOrNull { it.second.path == start }?.first ?: File(start).name
-                StorageMapScreen(File(start), label, backEnabled, onClose = { mapRoot = null }, onBrowse = { go(it); mapRoot = null }, onOpen = ::open, onChanged = { refresh++; onChanged() })
+                StorageMapScreen(File(start), label, backEnabled, onClose = { mapRoot = null }, onOpen = ::open, onChanged = { refresh++; onChanged() })
             }
             3 -> lastTransfer?.let { files -> androidx.compose.runtime.key(files) { TransferScreen(files, backEnabled, onClose = { finished -> transfer = null; if (finished) selected = emptySet() }, onPick = ::pickToSend) } } // a new list starts the screen afresh, on the send page
             4 -> lastDual?.let { DualPaneScreen(it, roots, backEnabled, onClose = { dualPath = null }, onChanged = { refresh++; onChanged() }, onOpen = ::open) }
@@ -505,7 +512,7 @@ private fun StorageCard(label: String, folder: File, onClick: () -> Unit) {
     val total = stat.totalBytes
     val used = total - stat.availableBytes
     Column(
-        Modifier.padding(horizontal = 16.dp).fillMaxWidth().clickable(onClick = onClick).doubleChamferFrame(cb).padding(18.dp),
+        Modifier.padding(horizontal = 16.dp).fillMaxWidth().raisedCard(cb.grad).clickable(onClick = onClick).padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(label, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = cb.ink))
@@ -517,7 +524,7 @@ private fun StorageCard(label: String, folder: File, onClick: () -> Unit) {
         var shown by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) { shown = true }
         val fill by animateFloatAsState(if (shown && total > 0) (used.toFloat() / total).coerceIn(0f, 1f) else 0f, tween(700), label = "usage")
-        Box(Modifier.fillMaxWidth().height(6.dp).background(cb.surface2)) {
+        Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(cb.surface2)) {
             Box(Modifier.fillMaxWidth(fill).fillMaxHeight().background(cb.grad))
         }
     }
@@ -528,7 +535,7 @@ private fun StorageCard(label: String, folder: File, onClick: () -> Unit) {
 private fun CategoryCard(cat: Category, count: Int?, modifier: Modifier, onClick: () -> Unit) {
     val cb = LocalCb.current
     Row(
-        modifier.background(cb.surface1).border(1.dp, cb.line).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 14.dp),
+        modifier.raisedCard().clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 14.dp),
         Arrangement.spacedBy(12.dp), Alignment.CenterVertically,
     ) {
         CbIcon(cat.icon, cb.mint, size = 26.dp)
@@ -541,14 +548,34 @@ private fun CategoryCard(cat: Category, count: Int?, modifier: Modifier, onClick
     }
 }
 
-/** A tool: its icon on a small card, with its name under the card, like an app icon. */
+/** A tool: a card as wide as its column, with its icon above its name. */
 @Composable
 private fun ToolTile(icon: Icon, title: String, modifier: Modifier, onClick: () -> Unit) {
     val cb = LocalCb.current
-    Column(modifier.clickable(onClick = onClick).padding(vertical = 4.dp), Arrangement.spacedBy(7.dp), Alignment.CenterHorizontally) {
-        Box(Modifier.size(64.dp).background(cb.surface1).border(1.dp, cb.line), Alignment.Center) { CbIcon(icon, cb.mint, size = 30.dp) }
+    Column(
+        modifier.heightIn(min = 92.dp).raisedCard().clickable(onClick = onClick).padding(horizontal = 4.dp, vertical = 14.dp),
+        Arrangement.spacedBy(8.dp, Alignment.CenterVertically), Alignment.CenterHorizontally,
+    ) {
+        CbIcon(icon, cb.mint, size = 28.dp)
         Text(title, maxLines = 1, style = monoStyle(cb.ink, 1.2.sp))
     }
+}
+
+/**
+ * A card that looks slightly raised: rounded corners, a soft shadow underneath and a faint light edge along the top. [line] is a brush for
+ * the border (the storage card's gradient); without it the border is the usual thin line.
+ */
+@Composable
+private fun Modifier.raisedCard(line: Brush? = null): Modifier {
+    val cb = LocalCb.current
+    val shape = RoundedCornerShape(12.dp)
+    return shadow(4.dp, shape, ambientColor = Color.Black, spotColor = Color.Black)
+        .background(cb.surface1, shape)
+        .then(if (line != null) Modifier.border(1.5.dp, line, shape) else Modifier.border(1.dp, cb.line, shape))
+        .drawWithContent {
+            drawContent()
+            drawLine(Color.White.copy(alpha = 0.07f), Offset(12.dp.toPx(), 1.dp.toPx()), Offset(size.width - 12.dp.toPx(), 1.dp.toPx()), 1.dp.toPx())
+        }
 }
 
 /** The category's name as the screen title. */
