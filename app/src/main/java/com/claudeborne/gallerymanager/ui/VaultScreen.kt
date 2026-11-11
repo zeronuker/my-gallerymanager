@@ -227,7 +227,7 @@ internal fun VaultScreen(pendingAdd: List<File>, backEnabled: Boolean, onClose: 
 
     // the recovery key is shown once; the dialog cannot be dismissed any other way
     code?.let { c ->
-        CbDialog("RECOVERY KEY", {}) {
+        CbDialog("RECOVERY KEY", {}, outsideCloses = false) {
             Text("Write this down and keep it somewhere safe. It is shown only now, and it is the only way back in if the phone's key is lost (reinstall, new phone, lock screen change).", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = cb.ink2))
             Text(c.split('-').chunked(4).joinToString("\n") { it.joinToString("-") }, Modifier.fillMaxWidth(), style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 18.sp, letterSpacing = 1.sp, color = cb.mint, textAlign = TextAlign.Center))
             Row(Modifier.fillMaxWidth(), Arrangement.End) { ActionText("I WROTE IT DOWN", cb.mint) { code = null } }

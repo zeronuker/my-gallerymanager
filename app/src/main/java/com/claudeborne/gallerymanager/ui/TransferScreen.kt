@@ -270,7 +270,7 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
     // another device (the LocalSend app, or one like it) wants to send files: nothing is saved until the user says yes
     val incoming = remember(tick) { LocalSend.pending }
     incoming?.let { p ->
-        CbDialog("INCOMING FILES", { p.answer.complete(false) }, subtitle = "${p.alias} · ${p.from}") {
+        CbDialog("INCOMING FILES", { p.answer.complete(false) }, subtitle = "${p.alias} · ${p.from}", outsideCloses = false) {
             Text(
                 "${p.count} ${if (p.count == 1) "file" else "files"} · ${Formatter.formatShortFileSize(context, p.bytes)}",
                 style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = cb.ink2),
@@ -304,7 +304,7 @@ internal fun TransferScreen(files: List<Pair<File, String>>, backEnabled: Boolea
 /** The end of a transfer, as in the web apps' result dialog: a mint line when it all worked, an amber one when it did not. */
 @Composable
 private fun ResultDialog(text: String, ok: Boolean, onOk: () -> Unit) {
-    CbDialog("TRANSFER", onOk, subtitle = if (ok) "DONE" else "NOT COMPLETE") {
+    CbDialog("TRANSFER", onOk, subtitle = if (ok) "DONE" else "NOT COMPLETE", outsideCloses = false) {
         Text(text, style = TextStyle(fontFamily = Inter, fontSize = 14.sp, color = if (ok) DarkCb.mint else Warn))
         Row(Modifier.fillMaxWidth(), Arrangement.End) { ActionText("OK", DarkCb.mint, onOk) }
     }

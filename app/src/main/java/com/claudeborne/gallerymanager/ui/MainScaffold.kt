@@ -29,6 +29,9 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -119,7 +122,8 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     BackHandler(enabled = viewerId != null) { closeViewer() }
     BackHandler(enabled = showSettings) { showSettings = false } // last: Settings can open over the viewer, so Back closes it first
 
-    Box(Modifier.fillMaxSize()) {
+    val focusManager = LocalFocusManager.current
+    Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } }) { // a tap that nothing else took: the text field loses focus and the keyboard closes
         val headerInfo = remember { HeaderInfo() }
         Column(Modifier.fillMaxSize().cbGrid(cb).statusBarsPadding()) {
             CompositionLocalProvider(LocalHeaderInfo provides headerInfo) {

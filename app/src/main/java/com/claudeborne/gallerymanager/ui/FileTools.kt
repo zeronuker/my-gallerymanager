@@ -22,6 +22,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -151,23 +154,30 @@ fun FileToolDialogs(tools: FileTools) {
     }
 }
 
-/** Brand dialog: chamfered double-border card over a dimmed screen. */
+/**
+ * Brand dialog: chamfered double-border card over a dimmed screen. A tap on the dimmed part closes it ([onDismiss]), unless
+ * [outsideCloses] is false: a dialog the user has to answer (an incoming transfer, a result to read) stays until its buttons are used.
+ */
 @Composable
-internal fun CbDialog(title: String, onDismiss: () -> Unit, subtitle: String? = null, content: @Composable ColumnScope.() -> Unit) {
+internal fun CbDialog(title: String, onDismiss: () -> Unit, subtitle: String? = null, outsideCloses: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false)) {
         // the card fades and grows in; the window itself fades out when it closes
         val shown = remember { MutableTransitionState(false).apply { targetState = true } }
-        AnimatedVisibility(shown, enter = popEnter) {
-            androidx.compose.runtime.CompositionLocalProvider(LocalInDialog provides true) {
-                Column(
-                    Modifier.padding(horizontal = 24.dp).fillMaxWidth().doubleChamferFrame(DarkCb, DarkCb.surface1).padding(22.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(title, style = monoStyle(DarkCb.mint, 2.6.sp))
-                        subtitle?.let { Text(it, style = monoStyle(DarkCb.inkDim, 1.sp)) }
+        // the window covers the whole screen, so the dimmed part is the dialog's own: it takes the tap, and the card keeps its taps to itself
+        Box(Modifier.fillMaxSize().clickable(remember { MutableInteractionSource() }, null) { if (outsideCloses) onDismiss() }, Alignment.Center) {
+            AnimatedVisibility(shown, enter = popEnter) {
+                androidx.compose.runtime.CompositionLocalProvider(LocalInDialog provides true) {
+                    Column(
+                        Modifier.padding(horizontal = 24.dp).fillMaxWidth().clickable(remember { MutableInteractionSource() }, null) {}
+                            .doubleChamferFrame(DarkCb, DarkCb.surface1).padding(22.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(title, style = monoStyle(DarkCb.mint, 2.6.sp))
+                            subtitle?.let { Text(it, style = monoStyle(DarkCb.inkDim, 1.sp)) }
+                        }
+                        content()
                     }
-                    content()
                 }
             }
         }
