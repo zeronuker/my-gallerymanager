@@ -171,6 +171,7 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
     var ascending by rememberSaveable { mutableStateOf(true) }
     var hidden by rememberSaveable { mutableStateOf(false) }
     var grid by rememberSaveable { mutableStateOf(false) }
+    var catGrid by rememberSaveable { mutableStateOf(false) } // categories keep their own list or grid, apart from folders
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var allScope by rememberSaveable { mutableStateOf(false) } // search every storage volume instead of the open folder
@@ -316,7 +317,16 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
             }
         },
     ) {
-        ScreenHeader(cat?.label ?: "FILES", count, onBack, backLabel.uppercase(), fixed = true)
+        // sort and view sit at the right of the back-link row: in a folder both, in a category only the view
+        val trailing: (@Composable () -> Unit)? = when {
+            cat != null -> ({ ViewMenu(catGrid, { catGrid = it }) })
+            dir != null -> ({
+                SortMenu(sort, ascending) { s -> if (s == sort) ascending = !ascending else { sort = s; ascending = s == SortBy.NAME || s == SortBy.TYPE } }
+                ViewMenu(grid, { grid = it }, hidden) { hidden = !hidden }
+            })
+            else -> null
+        }
+        ScreenHeader(cat?.label ?: "FILES", count, onBack, backLabel.uppercase(), fixed = true, trailing = trailing)
         AnimatedOverlay(busy, expandEnter, shrinkExit) { WorkingLine(it, null, cb.mint) } // copy, move, zip and extract report no percentage, so the bar sweeps
 
         // the path row slides away while searching, and the scope row slides in
@@ -328,13 +338,8 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
         }
         Column(Modifier.onGloballyPositioned { searchArea = it.boundsInParent() }) {
         if (cat == null) {
-            // on the home screen nothing sits at the right, so the field keeps the same 16dp margin as the cards; in a folder SORT and VIEW supply it
-            Row(Modifier.fillMaxWidth().padding(end = if (dir == null) 16.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(end = 16.dp), verticalAlignment = Alignment.CenterVertically) { // the same 16dp margin as the cards
                 SearchAction(searching, query, { query = it }, Modifier.weight(1f)) { if (searching) closeSearch() else { searching = true; allScope = false } } // a new search starts in this folder
-                if (dir != null) {
-                    SortMenu(sort, ascending) { s -> if (s == sort) ascending = !ascending else { sort = s; ascending = s == SortBy.NAME || s == SortBy.TYPE } }
-                    ViewMenu(grid, { grid = it }, hidden) { hidden = !hidden }
-                }
             }
         }
         Visible(searching && dir != null, enter = expandEnter, exit = shrinkExit) { ScopeRow(allScope) { allScope = it } }
@@ -345,7 +350,7 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
                 HomeList(roots, counts, onFolder = { go(it) }, onCategory = { category = it }, onBin = { inBin = true }, onMap = { mapRoot = roots.first().second.path }, onDupes = { inDupes = true }, onTransfer = { transfer = emptyList() }, onVault = { vault = emptyList() }, onDual = { dualPath = roots.first().second.path })
             } else {
                 FileList(
-                    entries, grid && cat == null && !showResults, selected, showPath = showResults || cat != null,
+                    entries, (if (cat != null) catGrid else grid) && !showResults, selected, showPath = showResults || cat != null,
                     empty = if (showResults) "NO MATCHES" else "EMPTY FOLDER", onTap = ::tap, onLong = ::longPress,
                 )
             }

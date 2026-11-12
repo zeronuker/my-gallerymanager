@@ -137,7 +137,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
             CompositionLocalProvider(LocalHeaderInfo provides headerInfo) {
                 // the header stays put while the pages swipe under it; a Files tool that draws its own header takes its place
                 Visible(!(mainPager.currentPage == 1 && filesDeep), enter = expandEnter, exit = shrinkExit) {
-                    HeaderBar(headerInfo.title, headerInfo.count, headerInfo.onBack, headerInfo.backLabel)
+                    HeaderBar(headerInfo.title, headerInfo.count, headerInfo.onBack, headerInfo.backLabel, headerInfo.trailing)
                 }
                 Box(Modifier.weight(1f)) {
                     HorizontalPager(mainPager, Modifier.fillMaxSize(), userScrollEnabled = !(mainPager.currentPage == 1 && filesDeep)) { page ->
@@ -239,7 +239,7 @@ private fun SlidingLine(pager: PagerState, count: Int) {
 }
 
 private fun tabStyle(k: Float, mint: Color, dim: Color) = TextStyle(
-    fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.2.sp, textAlign = TextAlign.Center,
+    fontFamily = JetBrainsMono, fontSize = 14.sp, letterSpacing = 2.2.sp, textAlign = TextAlign.Center,
     fontWeight = if (k > 0.5f) FontWeight.Bold else FontWeight.Normal, color = lerp(dim, mint, k),
 )
 

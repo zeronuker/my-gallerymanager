@@ -86,12 +86,11 @@ internal fun DuplicatesScreen(roots: List<File>, backEnabled: Boolean, onClose: 
     }
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("DUPES", count, onClose, "FILES")
+        ScreenHeader("DUPES", count, onClose, "FILES", trailing = if (list?.isNotEmpty() == true) ({ ViewMenu(grid, { grid = it }) }) else null)
         if (list == null) {
             Box(Modifier.weight(1f).fillMaxWidth(), Alignment.Center) { LoadingPane(status) } // the scan reports a message, not a percentage, so the bar sweeps
             return@Column
         }
-        if (list.isNotEmpty()) Row(Modifier.fillMaxWidth(), Arrangement.End) { ViewMenu(grid, { grid = it }) }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (list.isEmpty()) {
                 Text("NO DUPLICATES FOUND", Modifier.align(Alignment.Center), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))

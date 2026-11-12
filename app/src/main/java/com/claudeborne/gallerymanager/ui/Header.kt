@@ -79,6 +79,7 @@ class HeaderInfo {
     var count by mutableStateOf("")
     var onBack by mutableStateOf<(() -> Unit)?>(null)
     var backLabel by mutableStateOf("")
+    var trailing by mutableStateOf<(@Composable () -> Unit)?>(null)
 }
 
 val LocalHeaderInfo = compositionLocalOf<HeaderInfo?> { null }
@@ -89,26 +90,28 @@ val LocalPageActive = compositionLocalOf { true }
 /**
  * A screen's header. With [fixed] (the main pages) nothing is drawn here: the title, count and back link go to the one header that stays
  * put above the swiping pages. Without it (a Files tool, Trash, Settings) the screen draws its own.
+ * [trailing] (view, sort, empty trash...) sits at the right end of the back-link row, so it only shows while there is a back link.
  */
 @Composable
-fun ScreenHeader(title: String, count: String, onBack: (() -> Unit)? = null, backLabel: String = "", fixed: Boolean = false) {
+fun ScreenHeader(title: String, count: String, onBack: (() -> Unit)? = null, backLabel: String = "", fixed: Boolean = false, trailing: (@Composable () -> Unit)? = null) {
     val info = LocalHeaderInfo.current
     val active = LocalPageActive.current
     if (fixed && info != null) {
-        SideEffect { if (active) { info.title = title; info.count = count; info.onBack = onBack; info.backLabel = backLabel } }
+        SideEffect { if (active) { info.title = title; info.count = count; info.onBack = onBack; info.backLabel = backLabel; info.trailing = trailing } }
         return
     }
-    HeaderBar(title, count, onBack, backLabel)
+    HeaderBar(title, count, onBack, backLabel, trailing)
 }
 
 /** Brand banner on the left; screen title with its count underneath on the right. An [onBack] adds a back link on the left, under the banner. */
 @Composable
-fun HeaderBar(title: String, count: String, onBack: (() -> Unit)?, backLabel: String) {
+fun HeaderBar(title: String, count: String, onBack: (() -> Unit)?, backLabel: String, trailing: (@Composable () -> Unit)? = null) {
     val cb = LocalCb.current
-    // the back link slides away when there is nothing to go back to; it keeps its last words and action while it does
+    // the back link slides away when there is nothing to go back to; it keeps its last words, action and buttons while it does
     var lastLabel by remember { mutableStateOf(backLabel) }
     var lastBack by remember { mutableStateOf(onBack) }
-    if (onBack != null) { lastLabel = backLabel; lastBack = onBack }
+    var lastTrailing by remember { mutableStateOf(trailing) }
+    if (onBack != null) { lastLabel = backLabel; lastBack = onBack; lastTrailing = trailing }
     Column {
         Row(Modifier.fillMaxWidth().padding(end = 16.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             BrandBanner()
@@ -126,10 +129,14 @@ fun HeaderBar(title: String, count: String, onBack: (() -> Unit)?, backLabel: St
             }
         }
         Visible(onBack != null, enter = expandEnter, exit = shrinkExit) {
-            Text(
-                "← $lastLabel", Modifier.clickable { lastBack?.invoke() }.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 2.dp),
-                style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.6.sp, color = cb.mint),
-            )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "← $lastLabel", Modifier.clickable { lastBack?.invoke() }.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 2.dp),
+                    style = TextStyle(fontFamily = JetBrainsMono, fontSize = 14.sp, letterSpacing = 2.6.sp, color = cb.mint),
+                )
+                Box(Modifier.weight(1f))
+                lastTrailing?.invoke()
+            }
         }
     }
 }

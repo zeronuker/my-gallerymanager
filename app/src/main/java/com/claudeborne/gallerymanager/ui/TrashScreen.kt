@@ -133,16 +133,14 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
 
     Box(Modifier.fillMaxSize()) { // a full-screen look at one item draws over the list
         Column(Modifier.fillMaxSize()) {
-            ScreenHeader("TRASH", if (chosen.isEmpty()) "${rows.size} ITEMS" else "${chosen.size} SELECTED", onBack, "FILES")
-            Text("Items are removed for good after about 30 days.", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = TextStyle(fontFamily = Inter, fontSize = 12.sp, color = cb.inkDim))
-            Row(Modifier.fillMaxWidth(), Arrangement.End, Alignment.CenterVertically) {
+            ScreenHeader("TRASH", if (chosen.isEmpty()) "${rows.size} ITEMS" else "${chosen.size} SELECTED", onBack, "FILES", trailing = {
                 AnimatedVisibility(rows.isNotEmpty(), enter = fadeIn(tween(MOTION_FAST_MS)), exit = fadeOut(tween(MOTION_FAST_MS))) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         ViewMenu(grid, { grid = it })
-                        ActionText("EMPTY TRASH", RED) { erase = rows }
+                        IconAction(Icon.TRASH, RED, "Empty trash") { erase = rows }
                     }
                 }
-            }
+            })
             Crossfade(if (!loaded && rows.isEmpty()) 0 else if (rows.isEmpty()) 1 else if (grid) 3 else 2, Modifier.weight(1f).fillMaxWidth(), animationSpec = tween(MOTION_MS), label = "trash") { state ->
                 if (state == 0) {
                     LoadingPane("LOADING THE TRASH")
