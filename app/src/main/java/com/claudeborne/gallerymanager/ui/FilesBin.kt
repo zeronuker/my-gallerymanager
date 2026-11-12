@@ -58,7 +58,7 @@ internal fun BinDetail(item: BinItem, entry: Entry, onClose: () -> Unit, onResto
     val file = item.file
     Column(Modifier.fillMaxSize().background(cb.surface0).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("← BACK", Modifier.clickable(onClick = onClose), style = monoStyle(cb.mint, 2.6.sp))
+            Text("← BACK", Modifier.clickable(onClick = onClose), style = monoStyle(cb.mint, 2.6.sp).copy(fontSize = 14.sp))
         }
         Text(file.name, Modifier.padding(horizontal = 16.dp), maxLines = 2, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = cb.ink))
         Box(Modifier.weight(1f).fillMaxWidth().padding(16.dp).background(Color.Black), Alignment.Center) {

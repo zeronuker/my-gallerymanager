@@ -315,7 +315,7 @@ private fun TrashViewer(items: List<MediaItem>, startId: Long, onRestore: (Media
     LaunchedEffect(items.isEmpty()) { if (items.isEmpty()) onClose() } // the last one was restored or deleted
     Column(Modifier.fillMaxSize().background(Color.Black)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("← BACK", Modifier.clickable(onClick = onClose), style = monoStyle(DarkCb.mint, 2.6.sp))
+            Text("← BACK", Modifier.clickable(onClick = onClose), style = monoStyle(DarkCb.mint, 2.6.sp).copy(fontSize = 14.sp))
             Box(Modifier.weight(1f))
             current?.let {
                 val left = daysLeft(it)

@@ -153,7 +153,7 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
                 .statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("← BACK", Modifier.clickable(onClick = onClose), style = monoStyle(DarkCb.mint, 2.6.sp))
+            Text("← BACK", Modifier.clickable(onClick = onClose), style = monoStyle(DarkCb.mint, 2.6.sp).copy(fontSize = 14.sp))
             Box(Modifier.weight(1f))
         } }
 
