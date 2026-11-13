@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -182,7 +184,8 @@ fun PhotosScreen(
 /** One action in the selection bar; they share the width evenly so six fit on a phone. */
 @Composable
 private fun RowScope.BarAction(label: String, color: Color, onClick: () -> Unit) {
-    Box(Modifier.weight(1f).clickable(onClick = onClick).padding(vertical = 10.dp), Alignment.Center) {
+    val tick = rememberTick()
+    Box(Modifier.weight(1f).pressScale(0.9f).clickable { tick(); onClick() }.padding(vertical = 10.dp), Alignment.Center) {
         Crossfade(label, animationSpec = tween(MOTION_FAST_MS), label = "barLabel") { l -> Text(l, style = monoStyle(color, 1.2.sp).copy(textAlign = TextAlign.Center)) }
     }
 }
@@ -204,8 +207,10 @@ internal fun BoxScope.SelectedMark(selected: Boolean) {
 @Composable
 private fun Tile(item: MediaItem, selected: Boolean, onClick: () -> Unit) {
     val cb = LocalCb.current
+    // a selected tile settles a little smaller, with a spring, so the choice feels physical; a pressed one squishes under the finger
+    val inset by animateFloatAsState(if (selected) 0.91f else 1f, cbSpring(), label = "tileSelect")
     Box(
-        Modifier.aspectRatio(1f).background(cb.surface2).clickable(onClick = onClick)
+        Modifier.graphicsLayer { scaleX = inset; scaleY = inset }.pressScale(0.95f).aspectRatio(1f).background(cb.surface2).clickable(onClick = onClick)
             .border(3.dp, glide(selected, cb.mint, Color.Transparent)),
     ) {
         AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)

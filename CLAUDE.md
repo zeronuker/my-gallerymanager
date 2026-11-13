@@ -23,3 +23,13 @@ Nothing in the app may snap instantly unless it logically has to. When you add o
 - **Allowed to be instant**: anything that must track the finger or apply live (drag, pinch-zoom, crop handles, slider drags), and pager swipes (already animated).
 
 Before finishing any UI change, check each new composable against this list and verify the transitions on the emulator.
+
+# Flair rule (depth and feel, `ui/Flair.kt`)
+
+The brand stays; it just must not feel flat. Reuse the helpers in `ui/Flair.kt`, never hand-roll:
+
+- **Springs** for things that arrive (`cbSpring()`; already wired into `ui/Motion.kt`). Things that leave stay short fades.
+- **Press feedback**: every tappable tile, tab, bar action and button uses `pressScale()` and gives a tick (`rememberTick()`); a long press that starts a selection uses `rememberThump()`.
+- **Depth**: filled frames get the glow and top sheen from `doubleChamferFrame`; the one primary button glows (`cbGlow`); bars use `topSheen`; screens use `cbGrid`, which now carries the ambient mint/violet glow.
+- **Glass**: dialogs blur the screen behind them (`CbDialog`).
+- Only brand colours at lower opacity; no new hex colours.

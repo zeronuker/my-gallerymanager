@@ -86,7 +86,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     var showSettings by rememberSaveable { mutableStateOf(false) } // settings, shown over the tabs
     val settingsPos = remember { Animatable(0f) } // how much of the Settings window shows, 0 closed to 1 open; it follows the finger while the bar is dragged
     val settingsVisible by remember { derivedStateOf { settingsPos.value > 0f } }
-    LaunchedEffect(showSettings) { settingsPos.animateTo(if (showSettings) 1f else 0f, tween(if (showSettings) MOTION_MS else MOTION_FAST_MS)) }
+    LaunchedEffect(showSettings) { settingsPos.animateTo(if (showSettings) 1f else 0f, if (showSettings) cbSpring<Float>(bouncy = false) else tween(MOTION_FAST_MS)) }
     var openAlbum by rememberSaveable { mutableStateOf<Long?>(null) }
     var viewerFrom by rememberSaveable { mutableIntStateOf(FROM_LIBRARY) }
     var viewerId by rememberSaveable {
@@ -174,7 +174,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
                 MainTabBar(mainPager) { i ->
                     showSettings = false
                     if (i == 0) openAlbum = null
-                    scope.launch { mainPager.animateScrollToPage(i) }
+                    scope.launch { mainPager.animateScrollToPage(i, animationSpec = cbSpring<Float>(bouncy = false)) }
                 }
             }
         }
@@ -233,7 +233,9 @@ private fun SlidingLine(pager: PagerState, count: Int) {
     Box(
         Modifier.fillMaxWidth().height(2.dp).background(cb.line).drawBehind {
             val w = size.width / count
-            drawRect(cb.grad, Offset((pager.currentPage + pager.currentPageOffsetFraction).coerceIn(0f, count - 1f) * w, 0f), Size(w, size.height))
+            val x = (pager.currentPage + pager.currentPageOffsetFraction).coerceIn(0f, count - 1f) * w
+            drawRect(cb.mint.copy(alpha = 0.22f), Offset(x - w * 0.15f, -4.dp.toPx()), Size(w * 1.3f, size.height + 8.dp.toPx())) // a faint glow around the bright part
+            drawRect(cb.grad, Offset(x, 0f), Size(w, size.height))
         },
     )
 }
@@ -248,10 +250,11 @@ private fun tabStyle(k: Float, mint: Color, dim: Color) = TextStyle(
 private fun SubTabs(pager: PagerState) {
     val cb = LocalCb.current
     val scope = rememberCoroutineScope()
+    val tick = rememberTick()
     Column {
         Row(Modifier.fillMaxWidth()) {
             galleryTabs.forEachIndexed { i, label ->
-                Text(label, Modifier.weight(1f).clickable { scope.launch { pager.animateScrollToPage(i) } }.padding(vertical = 10.dp), style = tabStyle(pager.near(i), cb.mint, cb.inkDim))
+                Text(label, Modifier.weight(1f).pressScale(0.92f).clickable { if (pager.currentPage != i) tick(); scope.launch { pager.animateScrollToPage(i, animationSpec = cbSpring<Float>(bouncy = false)) } }.padding(vertical = 13.dp), style = tabStyle(pager.near(i), cb.mint, cb.inkDim))
             }
         }
         SlidingLine(pager, galleryTabs.size)
@@ -262,11 +265,13 @@ private fun SubTabs(pager: PagerState) {
 @Composable
 private fun MainTabBar(pager: PagerState, onSelect: (Int) -> Unit) {
     val cb = LocalCb.current
-    Column(Modifier.fillMaxWidth().background(cb.surface1).navigationBarsPadding()) {
+    val tick = rememberTick()
+    // the bar floats over a soft mint glow along its top edge and has a light sheen, so it reads as a raised glass strip
+    Column(Modifier.fillMaxWidth().background(cb.surface1).topSheen(if (cb.isDark) 0.07f else 0.5f).navigationBarsPadding()) {
         SlidingLine(pager, mainTabs.size)
         Row(Modifier.fillMaxWidth()) {
             mainTabs.forEachIndexed { i, label ->
-                Box(Modifier.weight(1f).height(50.dp).clickable { onSelect(i) }, Alignment.Center) { Text(label, style = tabStyle(pager.near(i), cb.mint, cb.inkDim)) }
+                Box(Modifier.weight(1f).height(56.dp).pressScale(0.9f).clickable { if (pager.currentPage != i) tick(); onSelect(i) }, Alignment.Center) { Text(label, style = tabStyle(pager.near(i), cb.mint, cb.inkDim)) }
             }
         }
     }

@@ -163,6 +163,16 @@ internal fun CbDialog(title: String, onDismiss: () -> Unit, subtitle: String? = 
     Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false)) {
         // the card fades and grows in; the window itself fades out when it closes
         val shown = remember { MutableTransitionState(false).apply { targetState = true } }
+        // frosted glass: the screen behind the dialog blurs (Android 12+; where the phone has blur switched off, only the dim shows)
+        val window = (androidx.compose.ui.platform.LocalView.current.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window
+        val blur by androidx.compose.animation.core.animateFloatAsState(if (shown.targetState) 28f else 0f, androidx.compose.animation.core.tween(MOTION_MS), label = "blur")
+        androidx.compose.runtime.SideEffect {
+            window?.let { w ->
+                w.addFlags(android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND or android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                w.setDimAmount(0.42f)
+                w.attributes = w.attributes.apply { blurBehindRadius = blur.toInt() }
+            }
+        }
         // the window covers the whole screen, so the dimmed part is the dialog's own: it takes the tap, and the card keeps its taps to itself
         Box(Modifier.fillMaxSize().clickable(remember { MutableInteractionSource() }, null) { if (outsideCloses) onDismiss() }, Alignment.Center) {
             AnimatedVisibility(shown, enter = popEnter) {

@@ -55,32 +55,33 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 // Every transition in the app comes from here, so timings stay the same everywhere (see CLAUDE.md, "Animation rule").
+// Things that arrive use springs (cbSpring, in Flair.kt) so they settle like real objects; things that leave stay quick fades.
 
 const val MOTION_MS = 260 // the web apps' sheets
 const val MOTION_FAST_MS = 180 // and their pop-outs
 
 /** Full-screen overlays (viewer, editors, Settings, Files tools): rise a little while fading. */
-val overlayEnter: EnterTransition = fadeIn(tween(MOTION_MS)) + slideInVertically(tween(MOTION_MS)) { it / 14 }
+val overlayEnter: EnterTransition = fadeIn(tween(MOTION_MS)) + slideInVertically(cbSpring(bouncy = false)) { it / 14 }
 val overlayExit: ExitTransition = fadeOut(tween(MOTION_FAST_MS)) + slideOutVertically(tween(MOTION_FAST_MS)) { it / 14 }
 
 /** Drill-in screens inside a tab (a Files tool, an album): slide from the right while fading. */
-val pushEnter: EnterTransition = fadeIn(tween(MOTION_MS)) + slideInHorizontally(tween(MOTION_MS)) { it / 8 }
+val pushEnter: EnterTransition = fadeIn(tween(MOTION_MS)) + slideInHorizontally(cbSpring(bouncy = false)) { it / 8 }
 val pushExit: ExitTransition = fadeOut(tween(MOTION_FAST_MS)) + slideOutHorizontally(tween(MOTION_FAST_MS)) { it / 8 }
 
 /** Bars at the bottom (selection bars, paste bar, video controls). */
-val barEnter: EnterTransition = fadeIn(tween(MOTION_FAST_MS)) + slideInVertically(tween(MOTION_FAST_MS)) { it }
+val barEnter: EnterTransition = fadeIn(tween(MOTION_FAST_MS)) + slideInVertically(cbSpring()) { it }
 val barExit: ExitTransition = fadeOut(tween(MOTION_FAST_MS)) + slideOutVertically(tween(MOTION_FAST_MS)) { it }
 
 /** Bars at the top (viewer top row). */
-val topBarEnter: EnterTransition = fadeIn(tween(MOTION_FAST_MS)) + slideInVertically(tween(MOTION_FAST_MS)) { -it }
+val topBarEnter: EnterTransition = fadeIn(tween(MOTION_FAST_MS)) + slideInVertically(cbSpring()) { -it }
 val topBarExit: ExitTransition = fadeOut(tween(MOTION_FAST_MS)) + slideOutVertically(tween(MOTION_FAST_MS)) { -it }
 
 /** Banners that push the content below them down (a working line under a header). */
 val expandEnter: EnterTransition = fadeIn(tween(MOTION_FAST_MS)) + expandVertically(tween(MOTION_FAST_MS))
 val shrinkExit: ExitTransition = fadeOut(tween(MOTION_FAST_MS)) + shrinkVertically(tween(MOTION_FAST_MS))
 
-/** Menus, cards and small pop-ups. */
-val popEnter: EnterTransition = fadeIn(tween(MOTION_FAST_MS)) + scaleIn(tween(MOTION_FAST_MS), initialScale = 0.92f)
+/** Menus, cards and small pop-ups: they pop in with a little spring overshoot. */
+val popEnter: EnterTransition = fadeIn(tween(MOTION_FAST_MS)) + scaleIn(cbSpring(), initialScale = 0.86f)
 val popExit: ExitTransition = fadeOut(tween(MOTION_FAST_MS)) + scaleOut(tween(MOTION_FAST_MS), targetScale = 0.92f)
 
 /**

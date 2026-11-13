@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -51,10 +52,12 @@ fun BrandButton(
     val edge by animateColorAsState(if (pressed && enabled) cb.mint else if (danger) red.copy(alpha = 0.6f) else cb.lineStrong, tween(MOTION_FAST_MS), label = "edge")
     val ink = glide(enabled, if (primary) cb.surface0 else if (danger) red else cb.ink, cb.inkDim)
     val filled = primary && enabled // a primary that cannot be used yet is drawn as a quiet outlined button, so its words stay readable
-    val framed = if (filled) modifier.background(cb.grad) else modifier.border(1.dp, edge)
+    val tick = rememberTick()
+    // the primary button glows mint under itself (the one bright thing on the screen); every button squishes under the finger and gives a tick
+    val framed = if (filled) modifier.pressScale().cbGlow(cb.mint, RectangleShape, 10.dp, if (cb.isDark) 0.6f else 0.35f).background(cb.grad) else modifier.pressScale().border(1.dp, edge)
     Text(
         label,
-        (if (enabled) framed.clickable(press, null, onClick = onClick) else framed).padding(horizontal = 20.dp, vertical = 12.dp),
+        (if (enabled) framed.clickable(press, null) { tick(); onClick() } else framed).padding(horizontal = 20.dp, vertical = 12.dp),
         style = monoStyle(ink, 2.2.sp).copy(fontWeight = if (primary) FontWeight.Bold else FontWeight.Normal, textAlign = TextAlign.Center),
     )
 }
@@ -103,8 +106,9 @@ fun IconBrandButton(label: String, icon: Icon, modifier: Modifier = Modifier, pr
     val cb = LocalCb.current
     val red = Color(0xFFFF6B6B)
     val ink = if (primary) cb.surface0 else if (danger) red else cb.ink
-    val framed = if (primary) modifier.background(cb.grad) else modifier.border(1.dp, if (danger) red.copy(alpha = 0.6f) else cb.lineStrong)
-    Row(framed.clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp), Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), Alignment.CenterVertically) {
+    val tick = rememberTick()
+    val framed = if (primary) modifier.pressScale().cbGlow(cb.mint, RectangleShape, 10.dp, if (cb.isDark) 0.6f else 0.35f).background(cb.grad) else modifier.pressScale().border(1.dp, if (danger) red.copy(alpha = 0.6f) else cb.lineStrong)
+    Row(framed.clickable { tick(); onClick() }.padding(horizontal = 16.dp, vertical = 12.dp), Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), Alignment.CenterVertically) {
         CbIcon(icon, ink, size = 18.dp)
         Text(label, style = monoStyle(ink, 2.2.sp).copy(fontWeight = if (primary) FontWeight.Bold else FontWeight.Normal))
     }

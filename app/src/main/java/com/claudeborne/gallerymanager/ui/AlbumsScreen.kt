@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -121,12 +122,26 @@ internal fun chamfered(w: Float, h: Float, inset: Float, leg: Float) = Path().ap
 
 /**
  * Brand card frame, as ChamferFrame in the web apps: a chamfered double line (outer 1.5dp, inner 1dp) in the brand gradient (mint, blue, violet),
- * with an optional chamfered [fill]. Content needs about 6dp of padding.
+ * with an optional chamfered [fill]. Content needs about 6dp of padding. A filled frame also gets a soft glow outside it and a light sheen on top,
+ * so cards and dialogs have depth; [glow] 0 turns that off.
  */
-internal fun Modifier.doubleChamferFrame(cb: CbColors, fill: Color? = null) = drawBehind {
+internal fun Modifier.doubleChamferFrame(cb: CbColors, fill: Color? = null, glow: Float = 1f) = drawBehind {
     val line = androidx.compose.ui.graphics.Brush.linearGradient(listOf(cb.mint, cb.blue, cb.violet), androidx.compose.ui.geometry.Offset.Zero, androidx.compose.ui.geometry.Offset(size.width, size.height))
-    if (fill != null) drawPath(chamfered(size.width, size.height, OUTER_AT * density, CUT * density), fill)
-    drawPath(chamfered(size.width, size.height, OUTER_AT * density, CUT * density), line, style = Stroke(1.5f * density, join = StrokeJoin.Miter))
+    val outer = chamfered(size.width, size.height, OUTER_AT * density, CUT * density)
+    if (fill != null && glow > 0f) {
+        // three wide, faint strokes of the same gradient stand in for a blurred halo (cheap, and it follows the chamfer)
+        val k = if (cb.isDark) 1f else 0.55f
+        drawPath(outer, line, alpha = 0.04f * glow * k, style = Stroke(16f * density, join = StrokeJoin.Round))
+        drawPath(outer, line, alpha = 0.06f * glow * k, style = Stroke(9f * density, join = StrokeJoin.Round))
+        drawPath(outer, line, alpha = 0.09f * glow * k, style = Stroke(4f * density, join = StrokeJoin.Round))
+    }
+    if (fill != null) {
+        drawPath(outer, fill)
+        if (glow > 0f) clipPath(outer) { // a light sheen on the upper part of the card, like glass catching light
+            drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.07f * glow), Color.Transparent), 0f, size.height * 0.55f))
+        }
+    }
+    drawPath(outer, line, style = Stroke(1.5f * density, join = StrokeJoin.Miter))
     drawPath(chamfered(size.width, size.height, INNER_AT * density, chamferLeg(INNER_AT) * density), line, style = Stroke(1f * density, join = StrokeJoin.Miter))
 }
 
@@ -135,9 +150,10 @@ internal fun Modifier.doubleChamferFrame(cb: CbColors, fill: Color? = null) = dr
 private fun AlbumCard(album: Album, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val cb = LocalCb.current
     val dp = LocalDensity.current.density
+    val thump = rememberThump()
     val pictureShape = remember(dp) { GenericShape { size, _ -> addPath(chamfered(size.width, size.height, 0f, chamferLeg(PICTURE_AT) * dp)) } }
     Column(
-        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick).doubleChamferFrame(cb, glide(selected, cb.surface2, Color.Transparent)).padding(PICTURE_AT.dp),
+        Modifier.pressScale(0.96f).combinedClickable(onClick = onClick, onLongClick = { thump(); onLongClick() }).doubleChamferFrame(cb, glide(selected, cb.surface2, Color.Transparent)).padding(PICTURE_AT.dp),
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(pictureShape).background(cb.surface2), Alignment.Center) {
             if (album.cover != null) AsyncImage(album.cover.uri, album.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)

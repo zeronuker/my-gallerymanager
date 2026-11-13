@@ -781,14 +781,15 @@ internal class BarItem(val label: String, val color: Color, val onClick: () -> U
 @Composable
 internal fun ActionBar(actions: List<BarItem>) {
     val rows = if (actions.size > 6) actions.chunked((actions.size + 1) / 2) else listOf(actions)
-    Column(Modifier.fillMaxWidth().background(LocalCb.current.surface1).padding(vertical = 4.dp)) {
+    Column(Modifier.fillMaxWidth().background(LocalCb.current.surface1).topSheen(if (LocalCb.current.isDark) 0.07f else 0.5f).padding(vertical = 4.dp)) {
         rows.forEach { row -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { row.forEach { BarAction(it.label, it.color, it.onClick) } } }
     }
 }
 
 @Composable
 private fun RowScope.BarAction(label: String, color: Color, onClick: () -> Unit) {
-    Box(Modifier.weight(1f).clickable(onClick = onClick).padding(vertical = 10.dp), Alignment.Center) {
+    val tick = rememberTick()
+    Box(Modifier.weight(1f).pressScale(0.9f).clickable { tick(); onClick() }.padding(vertical = 10.dp), Alignment.Center) {
         // ALL and DESELECT ALL swap with a fade
         Crossfade(label, animationSpec = tween(MOTION_FAST_MS), label = "barLabel") { l -> Text(l, style = monoStyle(color, 0.6.sp).copy(textAlign = TextAlign.Center)) }
     }

@@ -91,8 +91,8 @@ private val CbTypography = Typography(
     labelSmall = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.6.sp),
 )
 
-/** Blueprint grid on surface-0, the brand's signature background. */
-fun Modifier.cbGrid(cb: CbColors): Modifier = background(cb.surface0).drawBehind {
+/** Blueprint grid on surface-0, the brand's signature background, with a soft mint and violet glow behind it for depth. */
+fun Modifier.cbGrid(cb: CbColors): Modifier = background(cb.surface0).ambientGlow(cb).drawBehind {
     val step = 32.dp.toPx()
     var x = 0f
     while (x < size.width) {

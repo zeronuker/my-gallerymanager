@@ -113,7 +113,7 @@ fun HeaderBar(title: String, count: String, onBack: (() -> Unit)?, backLabel: St
     var lastTrailing by remember { mutableStateOf(trailing) }
     if (onBack != null) { lastLabel = backLabel; lastBack = onBack; lastTrailing = trailing }
     Column {
-        Row(Modifier.fillMaxWidth().padding(end = 16.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             BrandBanner()
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
                 AnimatedContent(title, transitionSpec = { fadeIn(tween(MOTION_FAST_MS)) togetherWith fadeOut(tween(MOTION_FAST_MS)) }, label = "title") { text ->
