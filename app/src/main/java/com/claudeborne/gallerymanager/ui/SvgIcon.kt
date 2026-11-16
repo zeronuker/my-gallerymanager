@@ -126,6 +126,11 @@ private val ICONS: Map<String, String> = mapOf(
     "waiting" to "<circle cx=\"12\" cy=\"12\" r=\"9\" stroke-dasharray=\"2 3\"/>",
     "folder" to "<path d=\"M3 7v12h18V9h-9l-2-3H4z\"/>",
     "chevronDown" to "<path d=\"M6 9l6 6 6-6\"/>",
+    // Settings tabs
+    "setGeneral" to "<rect x=\"3.5\" y=\"5\" width=\"17\" height=\"14\"/><circle cx=\"9\" cy=\"10\" r=\"1.6\"/><path d=\"M4 17l5-4.5 4 3.5 3-2.5 4 3.5\"/>",
+    "setShelf" to "<rect x=\"3.5\" y=\"4\" width=\"17\" height=\"16\"/><path d=\"M6.5 9v6M8 9v6\"/>",
+    "setPrivacy" to "<rect x=\"5\" y=\"10.5\" width=\"14\" height=\"9.5\"/><path d=\"M8 10.5V8a4 4 0 0 1 8 0v2.5\"/>",
+    "setAbout" to "<circle cx=\"12\" cy=\"12\" r=\"8.5\"/><path d=\"M12 11v5.5M12 7.8v.4\"/>",
 )
 
 private sealed interface Shape { val attrs: Map<String, String> }
