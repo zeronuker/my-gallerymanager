@@ -174,7 +174,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
                 MainTabBar(mainPager) { i ->
                     showSettings = false
                     if (i == 0) openAlbum = null
-                    scope.launch { mainPager.animateScrollToPage(i) }
+                    scope.launch { mainPager.animateScrollToPage(i, animationSpec = glideSpring()) }
                 }
             }
         }
@@ -251,7 +251,7 @@ private fun SubTabs(pager: PagerState) {
     Column {
         Row(Modifier.fillMaxWidth()) {
             galleryTabs.forEachIndexed { i, label ->
-                Text(label, Modifier.weight(1f).clickable { scope.launch { pager.animateScrollToPage(i) } }.padding(vertical = 10.dp), style = tabStyle(pager.near(i), cb.mint, cb.inkDim))
+                Text(label, Modifier.weight(1f).pressClickable(0.94f) { scope.launch { pager.animateScrollToPage(i, animationSpec = glideSpring()) } }.padding(vertical = 10.dp), style = tabStyle(pager.near(i), cb.mint, cb.inkDim))
             }
         }
         SlidingLine(pager, galleryTabs.size)
@@ -262,11 +262,11 @@ private fun SubTabs(pager: PagerState) {
 @Composable
 private fun MainTabBar(pager: PagerState, onSelect: (Int) -> Unit) {
     val cb = LocalCb.current
-    Column(Modifier.fillMaxWidth().background(cb.surface1).navigationBarsPadding()) {
+    Column(Modifier.fillMaxWidth().softBar(cb.surface1).navigationBarsPadding()) {
         SlidingLine(pager, mainTabs.size)
         Row(Modifier.fillMaxWidth()) {
             mainTabs.forEachIndexed { i, label ->
-                Box(Modifier.weight(1f).height(50.dp).clickable { onSelect(i) }, Alignment.Center) { Text(label, style = tabStyle(pager.near(i), cb.mint, cb.inkDim)) }
+                Box(Modifier.weight(1f).height(50.dp).pressClickable(0.94f) { onSelect(i) }, Alignment.Center) { Text(label, style = tabStyle(pager.near(i), cb.mint, cb.inkDim)) }
             }
         }
     }

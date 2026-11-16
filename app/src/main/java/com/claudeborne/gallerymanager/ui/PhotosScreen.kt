@@ -151,7 +151,7 @@ fun PhotosScreen(
         }
 
         AnimatedVisibility(selecting, enter = barEnter, exit = barExit) {
-            Row(Modifier.fillMaxWidth().background(cb.surface1).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().softBar(cb.surface1).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 BarAction(if (chosen.size == items.size) "DESELECT ALL" else "ALL", cb.inkDim) { selected = if (chosen.size == items.size) emptySet() else items.map { it.id }.toSet() }
                 BarAction("SHARE", cb.mint) { share(context, chosen) }
                 BarAction("COPY", cb.mint) { tools.copy(chosen) { selected = emptySet() } }
@@ -182,7 +182,7 @@ fun PhotosScreen(
 /** One action in the selection bar; they share the width evenly so six fit on a phone. */
 @Composable
 private fun RowScope.BarAction(label: String, color: Color, onClick: () -> Unit) {
-    Box(Modifier.weight(1f).clickable(onClick = onClick).padding(vertical = 10.dp), Alignment.Center) {
+    Box(Modifier.weight(1f).pressClickable(0.92f, onClick).padding(vertical = 10.dp), Alignment.Center) {
         Crossfade(label, animationSpec = tween(MOTION_FAST_MS), label = "barLabel") { l -> Text(l, style = monoStyle(color, 1.2.sp).copy(textAlign = TextAlign.Center)) }
     }
 }
@@ -205,7 +205,7 @@ internal fun BoxScope.SelectedMark(selected: Boolean) {
 private fun Tile(item: MediaItem, selected: Boolean, onClick: () -> Unit) {
     val cb = LocalCb.current
     Box(
-        Modifier.aspectRatio(1f).background(cb.surface2).clickable(onClick = onClick)
+        Modifier.aspectRatio(1f).pressClickable(onClick = onClick).background(cb.surface2)
             .border(3.dp, glide(selected, cb.mint, Color.Transparent)),
     ) {
         AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)

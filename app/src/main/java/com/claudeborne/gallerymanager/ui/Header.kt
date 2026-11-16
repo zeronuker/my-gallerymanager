@@ -123,9 +123,7 @@ fun HeaderBar(title: String, count: String, onBack: (() -> Unit)?, backLabel: St
                     )
                 }
                 // the count fades when it changes (ITEMS to SELECTED, a scan finishing, a speed appearing)
-                AnimatedContent(count, transitionSpec = { fadeIn(tween(MOTION_FAST_MS)) togetherWith fadeOut(tween(MOTION_FAST_MS)) }, label = "count") { text ->
-                    Text(text, style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 1.sp, color = cb.inkDim))
-                }
+                RollingCount(count, TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 1.sp, color = cb.inkDim))
             }
         }
         Visible(onBack != null, enter = expandEnter, exit = shrinkExit) {

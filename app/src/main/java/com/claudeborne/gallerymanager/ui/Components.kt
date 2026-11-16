@@ -51,7 +51,8 @@ fun BrandButton(
     val edge by animateColorAsState(if (pressed && enabled) cb.mint else if (danger) red.copy(alpha = 0.6f) else cb.lineStrong, tween(MOTION_FAST_MS), label = "edge")
     val ink = glide(enabled, if (primary) cb.surface0 else if (danger) red else cb.ink, cb.inkDim)
     val filled = primary && enabled // a primary that cannot be used yet is drawn as a quiet outlined button, so its words stay readable
-    val framed = if (filled) modifier.background(cb.grad) else modifier.border(1.dp, edge)
+    val base = modifier.pressScale(press)
+    val framed = if (filled) base.background(cb.grad) else base.border(1.dp, edge)
     Text(
         label,
         (if (enabled) framed.clickable(press, null, onClick = onClick) else framed).padding(horizontal = 20.dp, vertical = 12.dp),
@@ -103,8 +104,10 @@ fun IconBrandButton(label: String, icon: Icon, modifier: Modifier = Modifier, pr
     val cb = LocalCb.current
     val red = Color(0xFFFF6B6B)
     val ink = if (primary) cb.surface0 else if (danger) red else cb.ink
-    val framed = if (primary) modifier.background(cb.grad) else modifier.border(1.dp, if (danger) red.copy(alpha = 0.6f) else cb.lineStrong)
-    Row(framed.clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp), Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), Alignment.CenterVertically) {
+    val press = remember { MutableInteractionSource() }
+    val base = modifier.pressScale(press)
+    val framed = if (primary) base.background(cb.grad) else base.border(1.dp, if (danger) red.copy(alpha = 0.6f) else cb.lineStrong)
+    Row(framed.clickable(press, null, onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp), Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), Alignment.CenterVertically) {
         CbIcon(icon, ink, size = 18.dp)
         Text(label, style = monoStyle(ink, 2.2.sp).copy(fontWeight = if (primary) FontWeight.Bold else FontWeight.Normal))
     }
