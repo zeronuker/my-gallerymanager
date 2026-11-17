@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -152,7 +154,10 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
                         if (selected.isNotEmpty()) toggle(row.key)
                         else if (row is BinRow) binDetail = row.key else if (row is MediaRow) mediaView = row.item.id
                     }
-                    if (state == 3) LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    val gridState = rememberLazyGridState()
+                    val listState = rememberLazyListState()
+                    Box(Modifier.fillMaxSize()) {
+                    if (state == 3) LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize(), gridState, horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         items(rows, key = { it.key }) { row ->
                             Box(Modifier.animateItem()) {
                                 when (row) {
@@ -164,7 +169,7 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
                                 }
                             }
                         }
-                    } else LazyColumn(Modifier.fillMaxSize()) {
+                    } else LazyColumn(Modifier.fillMaxSize(), listState) {
                         items(rows, key = { it.key }) { row ->
                             Box(Modifier.animateItem()) {
                             when (row) {
@@ -179,6 +184,8 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
                             }
                             }
                         }
+                    }
+                    if (state == 3) DragScrollBar(gridState, Modifier.align(Alignment.TopEnd)) else DragScrollBar(listState, Modifier.align(Alignment.TopEnd))
                     }
                 }
             }
@@ -196,7 +203,7 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
             BinDetail(row.item, row.entry, onClose = { binDetail = null }, onRestore = { restore(listOf(row)) }, onDelete = { erase = listOf(row) })
         }
         AnimatedOverlay(mediaView) { id ->
-            TrashViewer(media, id, onRestore = { askAndroid(listOf(it), restore = true) }, onDelete = { askAndroid(listOf(it), restore = false) }, onClose = { mediaView = null })
+            TrashViewer(rows.filterIsInstance<MediaRow>().map { it.item }, id, onRestore = { askAndroid(listOf(it), restore = true) }, onDelete = { askAndroid(listOf(it), restore = false) }, onClose = { mediaView = null })
         }
     }
 

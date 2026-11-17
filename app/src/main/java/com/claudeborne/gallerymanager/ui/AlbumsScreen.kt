@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -116,7 +117,9 @@ fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools,
 
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("ALBUMS", if (selecting) "${selected.size} SELECTED" else "${buckets.size} ALBUMS", fixed = true) // Favorites is not counted
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
+        val listState = rememberLazyListState()
+        Box(Modifier.weight(1f)) {
+        LazyColumn(Modifier.fillMaxSize(), listState, contentPadding = PaddingValues(bottom = 16.dp)) {
             if (recent.isNotEmpty()) {
                 item(key = "h-recent") { SectionLabel("RECENT") }
                 item(key = "recent") {
@@ -133,6 +136,8 @@ fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools,
             items(listAlbums, key = { it.id }) { a ->
                 Box(Modifier.animateItem()) { AlbumRow(a, a.id in selected, now, seed, onClick = { if (selecting) toggle(a.id) else onOpen(a.id) }, onLongClick = { toggle(a.id) }) }
             }
+        }
+        DragScrollBar(listState, Modifier.align(Alignment.TopEnd))
         }
         AnimatedVisibility(selecting, enter = barEnter, exit = barExit) { ActionBar(
             buildList {

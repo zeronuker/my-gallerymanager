@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -163,7 +164,8 @@ internal fun VaultScreen(pendingAdd: List<File>, backEnabled: Boolean, onClose: 
                 Stage.OPEN -> if (rows.isEmpty()) {
                     Text("THE SAFE FOLDER IS EMPTY", Modifier.align(Alignment.Center), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
                 } else {
-                    LazyColumn(Modifier.fillMaxSize()) {
+                    val listState = rememberLazyListState()
+                    LazyColumn(Modifier.fillMaxSize(), listState) {
                         items(rows, key = { it.name }) { r ->
                             val picked = r.name in selected
                             VaultRowView(
@@ -184,6 +186,7 @@ internal fun VaultScreen(pendingAdd: List<File>, backEnabled: Boolean, onClose: 
                             )
                         }
                     }
+                    DragScrollBar(listState, Modifier.align(Alignment.TopEnd))
                 }
             } }
         }

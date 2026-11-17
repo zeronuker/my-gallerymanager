@@ -68,7 +68,6 @@ fun ExportDialog(item: MediaItem, stripLocation: Boolean, onClose: () -> Unit, o
         if (format != OutFormat.PNG) EditSlider("QUALITY", quality, 50f..100f, "${quality.roundToInt()}", { quality = it }, {}) { quality = Settings.exportQuality.toFloat() }
 
         if (hasGps) Chip(if (strip) "✓ LOCATION WILL BE REMOVED" else "REMOVE LOCATION", strip, color = DarkCb.ink) { strip = !strip }
-        else Text("NO LOCATION IN THIS PHOTO", style = monoStyle(DarkCb.inkDim, 1.2.sp))
 
         // the AI upscale reports how far it is; the plain resize does not, so its bar sweeps
         AnimatedVisibility(saving, enter = expandEnter, exit = shrinkExit) { ProgressBar(if (ai) progress else null) }

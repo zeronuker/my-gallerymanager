@@ -128,10 +128,11 @@ fun PhotosScreen(
             return@Column
         }
 
+        Box(Modifier.weight(1f)) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(cols),
             state = gridState,
-            modifier = Modifier.weight(1f).pinchToResize(cols) { cols = it }
+            modifier = Modifier.fillMaxSize().pinchToResize(cols) { cols = it }
                 .dragToSelect(gridState, order, { selected }, { selected = it }) { haptic.performHapticFeedback(HapticFeedbackType.LongPress) },
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -148,6 +149,8 @@ fun PhotosScreen(
                     Box(Modifier.animateItem()) { Tile(item, item.id in selected, onClick = { if (selecting) toggle(item.id) else onOpen(item) }) }
                 }
             }
+        }
+        DragScrollBar(gridState, Modifier.align(Alignment.TopEnd))
         }
 
         AnimatedVisibility(selecting, enter = barEnter, exit = barExit) {

@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -152,7 +153,9 @@ internal fun Picker(
                             }
                             val list = entries
                             if (list == null) LoadingPane("LOADING")
-                            else LazyColumn(Modifier.fillMaxSize()) {
+                            else Box(Modifier.fillMaxSize()) {
+                            val listState = rememberLazyListState()
+                            LazyColumn(Modifier.fillMaxSize(), listState) {
                                 if (!pickFiles) item(key = "new") { PickRow("+ NEW FOLDER", null, accent = true, chevron = false, onClick = { naming = true }) }
                                 items(list, key = { it.file.path }) { e ->
                                     val on = e.file.path in selected
@@ -161,6 +164,8 @@ internal fun Picker(
                                     else FileRow(e, on, tick)
                                 }
                                 if (list.isEmpty()) item { Text(if (pickFiles) "EMPTY FOLDER" else "NO FOLDERS HERE", Modifier.padding(vertical = 16.dp), style = monoStyle(cb.inkDim, 2.sp)) }
+                            }
+                            DragScrollBar(listState, Modifier.align(Alignment.TopEnd))
                             }
                         }
                     }

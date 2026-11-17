@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.animation.core.LinearEasing
@@ -648,7 +649,9 @@ private fun Progress(rows: List<TransferHub.Item>, header: @Composable () -> Uni
     }
     val closed = remember { mutableStateMapOf<String, Boolean>() } // folders the user folded shut
     fun size(n: Long) = Formatter.formatShortFileSize(context, n).uppercase()
-    LazyColumn(Modifier.fillMaxSize()) {
+    val listState = rememberLazyListState()
+    Box(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), listState) {
         item { header() }
         groups.forEach { (key, files) ->
             if (!key.startsWith("file|")) {
@@ -686,6 +689,8 @@ private fun Progress(rows: List<TransferHub.Item>, header: @Composable () -> Uni
                 FileRow(files[0], files[0].name, Modifier.animateItem().appear().padding(horizontal = 16.dp, vertical = 6.dp), ::size)
             }
         }
+    }
+    DragScrollBar(listState, Modifier.align(Alignment.TopEnd))
     }
 }
 

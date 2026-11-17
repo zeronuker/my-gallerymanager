@@ -47,6 +47,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Text
@@ -251,7 +252,9 @@ private fun TypesList(result: ScanResult) {
     val context = LocalContext.current
     val rows = remember(result) { result.extBytes.entries.sortedByDescending { it.value } }
     val total = result.root.size.coerceAtLeast(1)
-    LazyColumn(Modifier.fillMaxSize()) {
+    val listState = rememberLazyListState()
+    Box(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), listState) {
         items(rows, key = { it.key }) { e ->
             val count = result.extCount[e.key] ?: 0
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp)) {
@@ -266,6 +269,8 @@ private fun TypesList(result: ScanResult) {
                 ProgressBar((e.value.toDouble() / total).toFloat(), Modifier.padding(top = 5.dp), color = extColor(e.key), track = cb.line)
             }
         }
+    }
+    DragScrollBar(listState, Modifier.align(Alignment.TopEnd))
     }
 }
 

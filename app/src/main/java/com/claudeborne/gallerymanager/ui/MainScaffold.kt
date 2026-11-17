@@ -89,6 +89,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     LaunchedEffect(showSettings) { settingsPos.animateTo(if (showSettings) 1f else 0f, tween(if (showSettings) MOTION_MS else MOTION_FAST_MS)) }
     var openAlbum by rememberSaveable { mutableStateOf<Long?>(null) }
     var viewerFrom by rememberSaveable { mutableIntStateOf(FROM_LIBRARY) }
+    var filesList by remember { mutableStateOf<List<MediaItem>?>(null) } // what the Files screen was showing when it opened the viewer
     var viewerId by rememberSaveable {
         // MediaStore uris map to a library item; anything else (file manager, downloads) gets a single-item viewer
         mutableStateOf(openUri?.let { u -> (if (u.authority == "media") runCatching { ContentUris.parseId(u) }.getOrNull() else null) ?: EXTERNAL_ID })
@@ -121,7 +122,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
         viewerFrom == FROM_IMAGES -> images
         viewerFrom == FROM_VIDEOS -> videos
         viewerFrom == FROM_ALBUM -> inAlbum
-        else -> items
+        else -> filesList?.let { l -> val live = items.mapTo(HashSet()) { it.id }; l.filter { it.id in live } } ?: items // trashed items drop out
     }
     fun openFrom(from: Int) = { m: MediaItem -> viewerFrom = from; viewerId = m.id }
     val closeViewer = { viewerId = null; if (openUri != null) (context as? Activity)?.finish() }
@@ -166,7 +167,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
                             }
                         } else {
                             CompositionLocalProvider(LocalPageActive provides (mainPager.currentPage == 1)) {
-                                FilesScreen(items, trash, backEnabled = viewerId == null && editing == null && collage == null && join == null && !showSettings, onChanged, onDeep = { filesDeep = it }, onOpenMedia = openFrom(FROM_LIBRARY), openPicker = { pickerRequest = it })
+                                FilesScreen(items, trash, backEnabled = viewerId == null && editing == null && collage == null && join == null && !showSettings, onChanged, onDeep = { filesDeep = it }, onOpenMedia = { m, list -> filesList = list; viewerFrom = FROM_LIBRARY; viewerId = m.id }, openPicker = { pickerRequest = it })
                             }
                         }
                     }

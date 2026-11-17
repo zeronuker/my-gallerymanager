@@ -42,6 +42,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -145,7 +147,7 @@ private sealed interface FileDialog {
 
 /** The Files tab: a home screen (categories, bin, storage), folder browsing, search, and the file actions. */
 @Composable
-internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: Boolean, onChanged: () -> Unit, onDeep: (Boolean) -> Unit, onOpenMedia: (MediaItem) -> Unit, openPicker: (PickerRequest) -> Unit) {
+internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backEnabled: Boolean, onChanged: () -> Unit, onDeep: (Boolean) -> Unit, onOpenMedia: (MediaItem, List<MediaItem>) -> Unit, openPicker: (PickerRequest) -> Unit) {
     val cb = LocalCb.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -233,7 +235,9 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
     fun open(file: File) {
         val key = rootOf(file)?.let { file.relativeTo(it).path.replace('\\', '/') }
         val media = key?.let { byPath[it] }
-        if (media != null) onOpenMedia(media) else openWithApp(context, file)
+        // the viewer swipes through the photos and videos of the list on screen, in the order shown; a file from another screen (map, dual pane...) opens alone
+        val shown = entries.filter { !it.isDir }.mapNotNull { e -> rootOf(e.file)?.let { r -> byPath[e.file.relativeTo(r).path.replace('\\', '/')] } }
+        if (media != null) onOpenMedia(media, if (media in shown) shown else listOf(media)) else openWithApp(context, file)
     }
     fun tap(e: Entry) {
         when {
@@ -697,12 +701,20 @@ private fun FileList(entries: List<Entry>, grid: Boolean, selected: Set<String>,
             Text(empty, style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, letterSpacing = 2.sp, color = cb.inkDim))
         }
     } else Crossfade(grid, animationSpec = tween(MOTION_FAST_MS), label = "listGrid") { asGrid -> if (asGrid) {
-        LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            items(entries, key = { it.file.path }) { e -> Box(Modifier.animateItem()) { GridTile(e, e.file.path in selected, { onTap(e) }, { onLong(e) }) } }
+        val gridState = rememberLazyGridState()
+        Box(Modifier.fillMaxSize()) {
+            LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize(), gridState, horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                items(entries, key = { it.file.path }) { e -> Box(Modifier.animateItem()) { GridTile(e, e.file.path in selected, { onTap(e) }, { onLong(e) }) } }
+            }
+            DragScrollBar(gridState, Modifier.align(Alignment.TopEnd))
         }
     } else {
-        LazyColumn(Modifier.fillMaxSize()) {
-            items(entries, key = { it.file.path }) { e -> Box(Modifier.animateItem()) { ListRow(e, e.file.path in selected, { onTap(e) }, { onLong(e) }, path = if (showPath) e.file.parent else null) } }
+        val listState = rememberLazyListState()
+        Box(Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.fillMaxSize(), listState) {
+                items(entries, key = { it.file.path }) { e -> Box(Modifier.animateItem()) { ListRow(e, e.file.path in selected, { onTap(e) }, { onLong(e) }, path = if (showPath) e.file.parent else null) } }
+            }
+            DragScrollBar(listState, Modifier.align(Alignment.TopEnd))
         }
     } }
 }

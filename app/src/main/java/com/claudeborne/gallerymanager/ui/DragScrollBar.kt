@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.systemGestureExclusion
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,6 +37,16 @@ import kotlin.math.roundToInt
 
 private const val SHOW_MS = 1200L
 private val MIN_THUMB = 40.dp
+
+/** [DragScrollBar] for a lazy list; place it in a Box over the list. */
+@Composable
+internal fun DragScrollBar(state: LazyListState, modifier: Modifier = Modifier) =
+    DragScrollBar(state.layoutInfo.totalItemsCount, state.firstVisibleItemIndex, state.layoutInfo.visibleItemsInfo.size, { state.scrollToItem(it) }, modifier)
+
+/** [DragScrollBar] for a lazy grid; place it in a Box over the grid. */
+@Composable
+internal fun DragScrollBar(state: LazyGridState, modifier: Modifier = Modifier) =
+    DragScrollBar(state.layoutInfo.totalItemsCount, state.firstVisibleItemIndex, state.layoutInfo.visibleItemsInfo.size, { state.scrollToItem(it) }, modifier)
 
 /**
  * A scroll bar for a lazy list or grid: a thin mint bar on the right edge that fades in while the list moves and can be dragged to jump.

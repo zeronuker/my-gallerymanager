@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -180,9 +181,11 @@ private fun Pane(p: PaneState, isActive: Boolean, roots: List<Pair<String, File>
             if (p.entries.isEmpty()) {
                 Text("EMPTY FOLDER", Modifier.align(Alignment.Center), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, letterSpacing = 2.sp, color = cb.inkDim))
             } else {
-                LazyColumn(Modifier.fillMaxSize()) {
+                val listState = rememberLazyListState()
+                LazyColumn(Modifier.fillMaxSize(), listState) {
                     items(p.entries, key = { it.file.path }) { e -> Box(Modifier.animateItem()) { ListRow(e, e.file.path in p.selected, { onTap(e) }, { onLong(e) }) } }
                 }
+                DragScrollBar(listState, Modifier.align(Alignment.TopEnd))
             }
         }
     }
