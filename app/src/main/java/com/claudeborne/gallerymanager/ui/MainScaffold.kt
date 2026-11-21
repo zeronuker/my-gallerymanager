@@ -7,6 +7,22 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.scaleIn
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -134,13 +150,19 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     val focusManager = LocalFocusManager.current
     Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } }) { // a tap that nothing else took: the text field loses focus and the keyboard closes
         val headerInfo = remember { HeaderInfo() }
+        val pillHost = remember { PillHost() }
+        val glass = rememberGlassState()
+        // the pill floats over the tabs, so lists scroll behind it and leave room at their end; a Files tool (map, dual pane...) keeps a strip of its own instead
+        val pillRoom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + PillGap + PillHeight + 12.dp
+        val toolOpen = mainPager.currentPage == 1 && filesDeep
+        val toolRoom by animateDpAsState(if (toolOpen) pillRoom else 0.dp, tween(MOTION_MS), label = "toolRoom")
         Column(Modifier.fillMaxSize().cbGrid(cb).statusBarsPadding()) {
-            CompositionLocalProvider(LocalHeaderInfo provides headerInfo) {
+            CompositionLocalProvider(LocalHeaderInfo provides headerInfo, LocalPillHost provides pillHost, LocalPillInset provides (if (toolOpen) 0.dp else pillRoom)) {
                 // the header stays put while the pages swipe under it; a Files tool that draws its own header takes its place
                 Visible(!(mainPager.currentPage == 1 && filesDeep), enter = expandEnter, exit = shrinkExit) {
                     HeaderBar(headerInfo.title, headerInfo.count, headerInfo.onBack, headerInfo.backLabel, headerInfo.trailing)
                 }
-                Box(Modifier.weight(1f)) {
+                Box(Modifier.weight(1f).padding(bottom = toolRoom).glassSource(glass)) {
                     HorizontalPager(mainPager, Modifier.fillMaxSize(), userScrollEnabled = !(mainPager.currentPage == 1 && filesDeep)) { page ->
                         if (page == 0) {
                             Column(Modifier.fillMaxSize()) {
@@ -172,12 +194,12 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
                         }
                     }
                 }
-                MainTabBar(mainPager) { i ->
-                    showSettings = false
-                    if (i == 0) openAlbum = null
-                    scope.launch { mainPager.animateScrollToPage(i, animationSpec = glideSpring()) }
-                }
             }
+        }
+        FloatingPill(mainPager, pillHost.actions, glass, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = PillGap)) { i ->
+            showSettings = false
+            if (i == 0) openAlbum = null
+            scope.launch { mainPager.animateScrollToPage(i, animationSpec = glideSpring()) }
         }
 
         AnimatedOverlay(viewerId) { id ->
@@ -259,15 +281,47 @@ private fun SubTabs(pager: PagerState) {
     }
 }
 
-/** Gallery / Files at the bottom; the line on top of the bar slides with the swipe. */
+/**
+ * Gallery / Files as a floating frosted capsule over the bottom of the tabs; the mint highlight slides with the swipe. While a screen has selection
+ * [actions] it turns into them (stretching to fit) and back again when the selection ends.
+ */
 @Composable
-private fun MainTabBar(pager: PagerState, onSelect: (Int) -> Unit) {
+private fun FloatingPill(pager: PagerState, actions: List<BarItem>?, glass: GlassState, modifier: Modifier, onSelect: (Int) -> Unit) {
     val cb = LocalCb.current
-    Column(Modifier.fillMaxWidth().softBar(cb.surface1).navigationBarsPadding()) {
-        SlidingLine(pager, mainTabs.size)
-        Row(Modifier.fillMaxWidth()) {
-            mainTabs.forEachIndexed { i, label ->
-                Box(Modifier.weight(1f).height(50.dp).pressClickable(0.94f) { onSelect(i) }, Alignment.Center) { Text(label, style = tabStyle(pager.near(i), cb.mint, cb.inkDim)) }
+    var last by remember { mutableStateOf(actions ?: emptyList()) }
+    if (actions != null) last = actions // kept while the pill shrinks back, so the labels do not vanish first
+    GlassPill(glass, modifier) {
+        AnimatedContent(
+            actions != null,
+            transitionSpec = {
+                (fadeIn(tween(MOTION_MS)) + scaleIn(spring(0.7f, 400f), initialScale = 0.92f)) togetherWith fadeOut(tween(MOTION_FAST_MS)) using SizeTransform(clip = false) { _, _ -> spring(0.75f, 380f) }
+            },
+            label = "pill",
+        ) { acting ->
+            if (acting) {
+                val maxWidth = LocalConfiguration.current.screenWidthDp.dp - 32.dp
+                Row(Modifier.height(PillHeight).widthIn(max = maxWidth).horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    last.forEach { a ->
+                        Box(Modifier.height(PillHeight).pressClickable(0.9f, a.onClick).padding(horizontal = 14.dp), Alignment.Center) {
+                            Crossfade(a.label, animationSpec = tween(MOTION_FAST_MS), label = "pillLabel") { l -> Text(l, style = monoStyle(a.color, 0.6.sp)) }
+                        }
+                    }
+                }
+            } else {
+                Box(Modifier.width(232.dp).height(PillHeight).padding(4.dp)) {
+                    Box(
+                        Modifier.fillMaxHeight().fillMaxWidth(1f / mainTabs.size)
+                            .graphicsLayer { translationX = (pager.currentPage + pager.currentPageOffsetFraction).coerceIn(0f, mainTabs.size - 1f) * size.width }
+                            .clip(RoundedCornerShape(50)).background(cb.mint.copy(alpha = 0.14f)),
+                    )
+                    Row(Modifier.fillMaxSize()) {
+                        mainTabs.forEachIndexed { i, label ->
+                            Box(Modifier.weight(1f).fillMaxHeight().pressClickable(0.94f) { onSelect(i) }, Alignment.Center) {
+                                Text(label, style = tabStyle(pager.near(i), cb.mint, cb.inkDim).copy(fontSize = 12.sp, letterSpacing = 1.8.sp))
+                            }
+                        }
+                    }
+                }
             }
         }
     }

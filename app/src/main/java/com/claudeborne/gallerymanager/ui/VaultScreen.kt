@@ -190,7 +190,7 @@ internal fun VaultScreen(pendingAdd: List<File>, backEnabled: Boolean, onClose: 
                 }
             } }
         }
-        AnimatedVisibility(stage == Stage.OPEN && selected.isNotEmpty(), enter = barEnter, exit = barExit) {
+        if (stage == Stage.OPEN && selected.isNotEmpty()) {
             ActionBar(
                 listOf(
                     BarItem(if (rows.all { it.name in selected }) "DESELECT ALL" else "ALL", cb.inkDim) { selected = if (rows.all { it.name in selected }) emptySet() else rows.map { it.name }.toSet() },

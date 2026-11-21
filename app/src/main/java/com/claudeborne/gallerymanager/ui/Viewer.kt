@@ -49,6 +49,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -139,8 +140,9 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
     // the picture fills the whole screen and the bars float over it, so showing or hiding them never moves or resizes the picture
     var barPx by remember { mutableIntStateOf(0) }
     val barHeight = with(LocalDensity.current) { barPx.toDp() }
+    val glass = rememberGlassState()
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        HorizontalPager(pager, Modifier.fillMaxSize(), key = { items.getOrNull(it)?.id ?: it }) { page ->
+        HorizontalPager(pager, Modifier.fillMaxSize().glassSource(glass), key = { items.getOrNull(it)?.id ?: it }) { page ->
             val item = items.getOrNull(page) ?: return@HorizontalPager
             // a tap while Info or More is open closes that panel and nothing else; otherwise it shows or hides the controls
             val onTap = { if (showInfo || showMore) { showInfo = false; showMore = false } else chrome = !chrome }
@@ -184,9 +186,9 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
                 ) { showMore = false }
             }
 
-            AnimatedVisibility(chrome, enter = barEnter, exit = barExit) { Row(
-                Modifier.fillMaxWidth().onSizeChanged { barPx = it.height }.background(Color(0xF20A1020)).navigationBarsPadding().padding(vertical = 14.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+            AnimatedVisibility(chrome, enter = barEnter, exit = barExit) { Box(Modifier.fillMaxWidth().onSizeChanged { barPx = it.height }.navigationBarsPadding().padding(top = 8.dp, bottom = PillGap), Alignment.Center) { GlassPill(glass, tint = Color(0xB30A1020)) { Row(
+                Modifier.height(PillHeight).padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconAction(Icon.SHARE, DarkCb.mint, "Share", enabled = current != null) {
                     current?.let { shareMedia(context, listOf(it)) }
@@ -208,7 +210,7 @@ fun Viewer(items: List<MediaItem>, startId: Long, tools: FileTools, favorites: F
                 IconAction(Icon.INFO, DarkCb.mint, "Info", enabled = current != null) { showInfo = !showInfo; showMore = false }
                 // file tools: rename, move and copy for everything; resize, set as and print for photos
                 IconAction(Icon.MORE, DarkCb.mint, "More", enabled = current != null) { showMore = !showMore; showInfo = false }
-            } }
+            } } } }
         }
     }
 }

@@ -189,7 +189,7 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
                     }
                 }
             }
-            AnimatedVisibility(chosen.isNotEmpty(), enter = barEnter, exit = barExit) {
+            if (chosen.isNotEmpty()) {
                 ActionBar(
                     listOf(
                         BarItem(if (chosen.size == rows.size) "DESELECT ALL" else "ALL", cb.inkDim) { selected = if (chosen.size == rows.size) emptySet() else rows.map { it.key }.toSet() },
@@ -335,9 +335,7 @@ private fun TrashViewer(items: List<MediaItem>, startId: Long, onRestore: (Media
                 if (item.isVideo) VideoPage(item, active = pager.settledPage == page, chrome = true, onTap = {}, muted = muted, onMuted = { muted = it }) else ZoomableImage(item, onTap = {})
             }
         }
-        Row(Modifier.fillMaxWidth().background(Color(0xFF0A1020)).padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-            SvgIconButton("restore", DarkCb.mint, "Restore") { current?.let(onRestore) }
-            SvgIconButton("deleteForever", Color(0xFFFF6B6B), "Delete forever") { confirmDelete = true }
-        }
     }
+    // restore and delete take over the floating pill, as the selection actions do
+    ActionBar(listOf(BarItem("RESTORE", DarkCb.mint) { current?.let(onRestore) }, BarItem("DELETE FOREVER", Color(0xFFFF6B6B)) { confirmDelete = true }))
 }

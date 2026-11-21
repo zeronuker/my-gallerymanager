@@ -113,7 +113,7 @@ fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools,
         val gridState = rememberLazyGridState()
         Box(Modifier.weight(1f)) {
             LazyVerticalGrid(
-                GridCells.Fixed(3), Modifier.fillMaxSize(), gridState, contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 16.dp),
+                GridCells.Fixed(3), Modifier.fillMaxSize(), gridState, contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 16.dp + LocalPillInset.current),
                 horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 if (camera != null) item(key = "camera", span = { GridItemSpan(maxLineSpan) }) {
@@ -129,7 +129,7 @@ fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools,
             }
             DragScrollBar(gridState, Modifier.align(Alignment.TopEnd))
         }
-        AnimatedVisibility(selecting, enter = barEnter, exit = barExit) { ActionBar(
+        if (selecting) ActionBar(
             buildList {
                 val everyAlbum = buckets.all { it.id in selected } // Favorites is a view, not an album to pick
                 add(BarItem(if (everyAlbum) "DESELECT ALL" else "ALL", cb.inkDim) { selected = if (everyAlbum) emptySet() else buckets.map { it.id }.toSet() })
@@ -142,7 +142,7 @@ fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools,
                     trashLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
                 })
             },
-        ) }
+        )
     }
 }
 

@@ -71,6 +71,7 @@ import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalViewConfiguration
 import com.claudeborne.gallerymanager.data.categoryCounts
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -360,7 +361,7 @@ internal fun FilesScreen(library: List<MediaItem>, trash: List<MediaItem>, backE
             }
         }
 
-        AnimatedVisibility(selecting, enter = barEnter, exit = barExit) {
+        if (selecting) {
             ActionBar(
                 buildList {
                     add(BarItem(if (chosen.size == entries.size) "DESELECT ALL" else "ALL", cb.inkDim) { selected = if (chosen.size == entries.size) emptySet() else entries.map { it.file.path }.toSet() })
@@ -488,7 +489,7 @@ private fun HomeList(roots: List<Pair<String, File>>, counts: Map<Category, Int>
         Triple(Icon.MAP, "STORAGE MAP", onMap), Triple(Icon.DUPLICATES, "DUPLICATES", onDupes), Triple(Icon.TRASH, "TRASH", onBin),
     )
     val seen = remember { HashSet<String>() } // what has already faded in, so scrolling a card back into view does not replay it
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp + LocalPillInset.current), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(roots, key = { it.second.path }) { (label, folder) ->
             val first = remember { seen.add("storage-${folder.path}") }
             Box(Modifier.appear(0, first)) { StorageCard(label, folder) { onFolder(folder) } }
@@ -703,7 +704,7 @@ private fun FileList(entries: List<Entry>, grid: Boolean, selected: Set<String>,
     } else Crossfade(grid, animationSpec = tween(MOTION_FAST_MS), label = "listGrid") { asGrid -> if (asGrid) {
         val gridState = rememberLazyGridState()
         Box(Modifier.fillMaxSize()) {
-            LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize(), gridState, horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize(), gridState, contentPadding = PaddingValues(bottom = LocalPillInset.current), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 items(entries, key = { it.file.path }) { e -> Box(Modifier.animateItem()) { GridTile(e, e.file.path in selected, { onTap(e) }, { onLong(e) }) } }
             }
             DragScrollBar(gridState, Modifier.align(Alignment.TopEnd))
@@ -711,7 +712,7 @@ private fun FileList(entries: List<Entry>, grid: Boolean, selected: Set<String>,
     } else {
         val listState = rememberLazyListState()
         Box(Modifier.fillMaxSize()) {
-            LazyColumn(Modifier.fillMaxSize(), listState) {
+            LazyColumn(Modifier.fillMaxSize(), listState, contentPadding = PaddingValues(bottom = LocalPillInset.current)) {
                 items(entries, key = { it.file.path }) { e -> Box(Modifier.animateItem()) { ListRow(e, e.file.path in selected, { onTap(e) }, { onLong(e) }, path = if (showPath) e.file.parent else null) } }
             }
             DragScrollBar(listState, Modifier.align(Alignment.TopEnd))
@@ -789,9 +790,19 @@ internal fun Thumb(e: Entry) {
 
 internal class BarItem(val label: String, val color: Color, val onClick: () -> Unit)
 
-/** The bottom action bar; more than six actions would not fit one row on a phone, so they split over two. */
+/**
+ * The selection actions. Inside the tabs they appear in the floating pill (this draws nothing itself and the pill replaces its tabs while this is shown);
+ * anywhere else it is a bar; more than six actions would not fit one row on a phone, so they split over two.
+ */
 @Composable
 internal fun ActionBar(actions: List<BarItem>) {
+    val host = LocalPillHost.current
+    if (host != null) {
+        val key = remember { Any() }
+        DisposableEffect(key) { onDispose { host.remove(key) } }
+        SideEffect { host.set(key, actions) }
+        return
+    }
     val rows = if (actions.size > 6) actions.chunked((actions.size + 1) / 2) else listOf(actions)
     Column(Modifier.fillMaxWidth().background(LocalCb.current.surface1).padding(vertical = 4.dp)) {
         rows.forEach { row -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { row.forEach { BarAction(it.label, it.color, it.onClick) } } }

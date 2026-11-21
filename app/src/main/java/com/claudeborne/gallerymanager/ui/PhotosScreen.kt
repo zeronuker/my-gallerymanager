@@ -32,6 +32,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.Text
@@ -132,6 +133,7 @@ fun PhotosScreen(
         LazyVerticalGrid(
             columns = GridCells.Fixed(cols),
             state = gridState,
+            contentPadding = PaddingValues(bottom = LocalPillInset.current),
             modifier = Modifier.fillMaxSize().pinchToResize(cols) { cols = it }
                 .dragToSelect(gridState, order, { selected }, { selected = it }) { haptic.performHapticFeedback(HapticFeedbackType.LongPress) },
             horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -153,40 +155,32 @@ fun PhotosScreen(
         DragScrollBar(gridState, Modifier.align(Alignment.TopEnd))
         }
 
-        AnimatedVisibility(selecting, enter = barEnter, exit = barExit) {
-            Row(Modifier.fillMaxWidth().softBar(cb.surface1).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                BarAction(if (chosen.size == items.size) "DESELECT ALL" else "ALL", cb.inkDim) { selected = if (chosen.size == items.size) emptySet() else items.map { it.id }.toSet() }
-                BarAction("SHARE", cb.mint) { share(context, chosen) }
-                BarAction("COPY", cb.mint) { tools.copy(chosen) { selected = emptySet() } }
-                BarAction("MOVE", cb.mint) { tools.move(chosen) { selected = emptySet() } }
-                if (chosen.all { it.isVideo }) BarAction("JOIN", cb.mint) { // only videos selected: put them one after another
+        if (selecting) ActionBar(
+            buildList {
+                add(BarItem(if (chosen.size == items.size) "DESELECT ALL" else "ALL", cb.inkDim) { selected = if (chosen.size == items.size) emptySet() else items.map { it.id }.toSet() })
+                add(BarItem("SHARE", cb.mint) { share(context, chosen) })
+                add(BarItem("COPY", cb.mint) { tools.copy(chosen) { selected = emptySet() } })
+                add(BarItem("MOVE", cb.mint) { tools.move(chosen) { selected = emptySet() } })
+                if (chosen.all { it.isVideo }) add(BarItem("JOIN", cb.mint) { // only videos selected: put them one after another
                     when {
                         chosen.size < 2 -> Toast.makeText(context, "Select at least 2 videos", Toast.LENGTH_SHORT).show()
                         chosen.size > 10 -> { Toast.makeText(context, "A join holds up to 10 clips; using the first 10", Toast.LENGTH_SHORT).show(); onJoin(chosen.take(10)) }
                         else -> onJoin(chosen)
                     }
-                } else BarAction("COLLAGE", cb.mint) {
+                }) else add(BarItem("COLLAGE", cb.mint) {
                     val photos = chosen.filterNot { it.isVideo }
                     when {
                         photos.size < 2 -> Toast.makeText(context, "Select at least 2 photos", Toast.LENGTH_SHORT).show()
                         photos.size > 9 -> { Toast.makeText(context, "A collage holds up to 9 photos; using the first 9", Toast.LENGTH_SHORT).show(); onCollage(photos.take(9)) }
                         else -> onCollage(photos)
                     }
-                }
-                BarAction("TRASH", Color(0xFFFF6B6B)) {
+                })
+                add(BarItem("TRASH", Color(0xFFFF6B6B)) {
                     val request = MediaStore.createTrashRequest(context.contentResolver, chosen.map { it.uri }, true)
                     trashLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
-                }
-            }
-        }
-    }
-}
-
-/** One action in the selection bar; they share the width evenly so six fit on a phone. */
-@Composable
-private fun RowScope.BarAction(label: String, color: Color, onClick: () -> Unit) {
-    Box(Modifier.weight(1f).pressClickable(0.92f, onClick).padding(vertical = 10.dp), Alignment.Center) {
-        Crossfade(label, animationSpec = tween(MOTION_FAST_MS), label = "barLabel") { l -> Text(l, style = monoStyle(color, 1.2.sp).copy(textAlign = TextAlign.Center)) }
+                })
+            },
+        )
     }
 }
 
