@@ -173,13 +173,7 @@ internal fun TrashView(media: List<MediaItem>, backEnabled: Boolean, onBack: () 
                         items(rows, key = { it.key }) { row ->
                             Box(Modifier.animateItem()) {
                             when (row) {
-                                is BinRow -> {
-                                    val size = if (row.entry.isDir) "FOLDER" else Formatter.formatShortFileSize(context, row.entry.size).uppercase()
-                                    ListRow(
-                                        row.entry, row.key in selected, tapOf(row), { toggle(row.key) },
-                                        note = "$size · DELETED ${dateText(row.item.deletedMs)}", path = "FROM ${row.item.origin.parent.orEmpty()}",
-                                    )
-                                }
+                                is BinRow -> TrashListRow(row.entry.file.name, "${binDaysLeft(row.item).uppercase()} LEFT", row.key in selected, tapOf(row), { toggle(row.key) }) { Thumb(row.entry) }
                                 is MediaRow -> MediaTrashRow(row.item, row.key in selected, tapOf(row)) { toggle(row.key) }
                             }
                             }
@@ -281,23 +275,24 @@ private fun MediaTrashTile(item: MediaItem, selected: Boolean, onClick: () -> Un
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MediaTrashRow(item: MediaItem, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
-    val cb = LocalCb.current
-    val context = LocalContext.current
     val left = daysLeft(item)
+    TrashListRow(item.name, if (left.isEmpty()) "" else "${left.uppercase()} LEFT", selected, onClick, onLongClick) {
+        AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+    }
+}
+
+/** One trash row: the thumbnail, the file name, and how long it has left at the far right. Nothing else. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TrashListRow(name: String, left: String, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, thumb: @Composable () -> Unit) {
+    val cb = LocalCb.current
     Row(
         Modifier.fillMaxWidth().background(glide(selected, cb.surface2, Color.Transparent)).combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(Modifier.size(48.dp).background(cb.surface2).border(2.dp, glide(selected, cb.mint, Color.Transparent))) {
-            AsyncImage(item.uri, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        }
-        Column(Modifier.weight(1f)) {
-            Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = cb.ink))
-            Text(
-                Formatter.formatShortFileSize(context, item.size).uppercase() + if (left.isEmpty()) "" else " · ${left.uppercase()} LEFT",
-                maxLines = 1, style = monoStyle(cb.inkDim, 0.6.sp),
-            )
-        }
+        Box(Modifier.size(48.dp).background(cb.surface2).border(2.dp, glide(selected, cb.mint, Color.Transparent))) { thumb() }
+        Text(name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = cb.ink))
+        if (left.isNotEmpty()) Text(left, maxLines = 1, style = monoStyle(cb.inkDim, 0.6.sp))
     }
 }
 
