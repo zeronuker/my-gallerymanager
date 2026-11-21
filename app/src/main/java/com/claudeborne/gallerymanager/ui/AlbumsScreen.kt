@@ -31,10 +31,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -68,7 +69,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.claudeborne.gallerymanager.data.MediaItem
-import kotlin.random.Random
 
 /** An album: every photo and video in one folder, newest first. Favorites is a virtual album over photos that live elsewhere. */
 private class Album(val id: Long, val name: String, val items: List<MediaItem>) {
@@ -80,10 +80,9 @@ private class Album(val id: Long, val name: String, val items: List<MediaItem>) 
 private fun isCameraPath(path: String) = path.startsWith("DCIM/Camera", ignoreCase = true)
 
 /**
- * The albums tab: a RECENT row, the phone's CAMERA folder as a hero, then ALL ALBUMS, each with a stacked cover (a collage of its newest photos)
- * and a strip of random photos and videos from inside it (picked again each time the tab is opened). A long press selects albums, then the bar
- * acts on every photo and video in them, as it does for files in the Files tab.
- * Favorites leads the list when something is marked, otherwise it sits at the bottom.
+ * The albums tab: the phone's Camera folder as a hero card, then ALL ALBUMS as a three column grid of mosaic tiles (the newest photos inside each).
+ * A long press selects albums, then the bar acts on every photo and video in them, as it does for files in the Files tab.
+ * Favorites leads the grid when something is marked, otherwise it sits at the end.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -94,15 +93,9 @@ fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools,
     val buckets = remember(items) { items.groupBy { it.bucketId }.map { (id, list) -> Album(id, list.first().bucketName.ifEmpty { "Unknown" }, list) } }
     val camera = remember(buckets) { buckets.filter { b -> b.items.any { isCameraPath(it.path) } }.maxByOrNull { it.count } }
     val others = remember(buckets, camera) { buckets.filter { it !== camera } }
-    val recent = remember(others) { others.take(6) }
     val favAlbum = remember(items, favorites) { Album(FAVORITES_ID, "Favorites", items.filter { it.id in favorites }) }
     val listAlbums = remember(others, favAlbum) { if (favAlbum.count > 0) listOf(favAlbum) + others else others + favAlbum }
-    val now = remember(items) { System.currentTimeMillis() }
-
-    // a new draw of the strips each time this page comes into view
-    val active = LocalPageActive.current
-    var seed by remember { mutableIntStateOf(0) }
-    LaunchedEffect(active) { if (active) seed++ }
+    val seen = remember { HashSet<Long>() } // tiles that already faded in, so scrolling one back into view does not replay it
 
     var selected by rememberSaveable { mutableStateOf(emptySet<Long>()) }
     val selecting = selected.isNotEmpty()
@@ -117,27 +110,24 @@ fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools,
 
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("ALBUMS", if (selecting) "${selected.size} SELECTED" else "${buckets.size} ALBUMS", fixed = true) // Favorites is not counted
-        val listState = rememberLazyListState()
+        val gridState = rememberLazyGridState()
         Box(Modifier.weight(1f)) {
-        LazyColumn(Modifier.fillMaxSize(), listState, contentPadding = PaddingValues(bottom = 16.dp)) {
-            if (recent.isNotEmpty()) {
-                item(key = "h-recent") { SectionLabel("RECENT") }
-                item(key = "recent") {
-                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(recent, key = { it.id }) { a -> RecentCard(a, a.id in selected, now, onClick = { if (selecting) toggle(a.id) else onOpen(a.id) }, onLongClick = { toggle(a.id) }) }
+            LazyVerticalGrid(
+                GridCells.Fixed(3), Modifier.fillMaxSize(), gridState, contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                if (camera != null) item(key = "camera", span = { GridItemSpan(maxLineSpan) }) {
+                    CameraHero(camera, camera.id in selected, onClick = { if (selecting) toggle(camera.id) else onOpen(camera.id) }, onLongClick = { toggle(camera.id) })
+                }
+                item(key = "h-all", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("ALL ALBUMS", "${listAlbums.size - 1} ALBUMS") } // Favorites is not counted
+                itemsIndexed(listAlbums, key = { _, a -> a.id }) { i, a ->
+                    val first = remember { seen.add(a.id) }
+                    Box(Modifier.animateItem()) {
+                        AlbumTile(a, a.id in selected, 120 + i.coerceAtMost(8) * 40, first, onClick = { if (selecting) toggle(a.id) else onOpen(a.id) }, onLongClick = { toggle(a.id) })
                     }
                 }
             }
-            if (camera != null) {
-                item(key = "h-camera") { SectionLabel("CAMERA") }
-                item(key = "camera") { CameraHero(camera, camera.id in selected, now, onClick = { if (selecting) toggle(camera.id) else onOpen(camera.id) }, onLongClick = { toggle(camera.id) }) }
-            }
-            item(key = "h-all") { SectionLabel("ALL ALBUMS", "${listAlbums.size - 1} ALBUMS") } // Favorites is not counted
-            items(listAlbums, key = { it.id }) { a ->
-                Box(Modifier.animateItem()) { AlbumRow(a, a.id in selected, now, seed, onClick = { if (selecting) toggle(a.id) else onOpen(a.id) }, onLongClick = { toggle(a.id) }) }
-            }
-        }
-        DragScrollBar(listState, Modifier.align(Alignment.TopEnd))
+            DragScrollBar(gridState, Modifier.align(Alignment.TopEnd))
         }
         AnimatedVisibility(selecting, enter = barEnter, exit = barExit) { ActionBar(
             buildList {
@@ -160,7 +150,7 @@ fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools,
 @Composable
 private fun SectionLabel(text: String, trailing: String = "") {
     val cb = LocalCb.current
-    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Row(Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(text, style = monoStyle(cb.mint, 2.2.sp))
         Box(Modifier.weight(1f).height(1.dp).background(cb.lineStrong))
         if (trailing.isNotEmpty()) Text(trailing, style = monoStyle(cb.inkDim, 1.sp))
@@ -173,20 +163,6 @@ private fun chamferShape(leg: Float): Shape {
     val dp = LocalDensity.current.density
     return remember(dp, leg) { GenericShape { size, _ -> addPath(chamfered(size.width, size.height, 0f, leg * dp)) } }
 }
-
-/** "2H AGO", "3D AGO": how long ago, in the brand's short mono form. */
-private fun agoText(now: Long, ms: Long): String {
-    val min = ((now - ms) / 60000).coerceAtLeast(0)
-    return when {
-        min < 60 -> "${min.coerceAtLeast(1)}M AGO"
-        min < 60 * 24 -> "${min / 60}H AGO"
-        min < 60 * 24 * 14 -> "${min / (60 * 24)}D AGO"
-        else -> "${min / (60 * 24 * 7)}W AGO"
-    }
-}
-
-private fun updatedText(now: Long, ms: Long) = if (ms <= 0) "EMPTY" else if (now - ms < 24 * 3600_000L) "UPDATED TODAY" else "UPDATED ${agoText(now, ms)}"
-
 /** Squishes while pressed and takes taps and long presses. */
 @OptIn(ExperimentalFoundationApi::class)
 private fun Modifier.pressCombined(target: Float, onClick: () -> Unit, onLongClick: () -> Unit): Modifier = composed {
@@ -207,29 +183,28 @@ private fun Thumb(item: MediaItem?, modifier: Modifier, shape: Shape = Rectangle
     }
 }
 
-/** A card in the RECENT row: the newest picture, the name, the count, and how long ago it changed. */
+/** A 2x2 mosaic of an album's newest pictures in a chamfered tile; Favorites with nothing marked shows a heart. */
 @Composable
-private fun RecentCard(album: Album, selected: Boolean, now: Long, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun Mosaic(album: Album, modifier: Modifier) {
     val cb = LocalCb.current
-    Column(Modifier.width(104.dp).pressCombined(0.95f, onClick, onLongClick)) {
-        Box(Modifier.size(104.dp).border(3.dp, glide(selected, cb.mint, Color.Transparent))) {
-            Thumb(album.items.firstOrNull(), Modifier.fillMaxSize(), chamferShape(10f))
-            Text(agoText(now, album.newestMs), Modifier.align(Alignment.TopEnd).background(cb.mint).padding(horizontal = 6.dp, vertical = 2.dp),
-                style = TextStyle(fontFamily = JetBrainsMono, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, color = cb.surface0))
-            SelectedMark(selected)
+    Box(modifier.clip(chamferShape(8f)).background(cb.surface2), Alignment.Center) {
+        if (album.items.isEmpty()) CbIcon(Icon.HEART, cb.inkDim, size = 28.dp)
+        else Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(1.dp)) {
+                Thumb(album.items.getOrNull(0), Modifier.weight(1f).fillMaxHeight()); Thumb(album.items.getOrNull(1), Modifier.weight(1f).fillMaxHeight())
+            }
+            Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(1.dp)) {
+                Thumb(album.items.getOrNull(2), Modifier.weight(1f).fillMaxHeight()); Thumb(album.items.getOrNull(3), Modifier.weight(1f).fillMaxHeight())
+            }
         }
-        Text(album.name, Modifier.padding(top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
-            style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = cb.ink))
-        Text("${album.count} ITEMS", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 9.sp, letterSpacing = 1.sp, color = cb.inkDim))
     }
 }
 
-/** The phone's main camera folder: a wide card with a collage of its newest pictures. */
+/** The phone's main camera folder: a wide card with a mosaic of its newest pictures, the name and the count on a fade. */
 @Composable
-private fun CameraHero(album: Album, selected: Boolean, now: Long, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun CameraHero(album: Album, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val cb = LocalCb.current
-    val shape = chamferShape(10f)
-    Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(176.dp).pressCombined(0.985f, onClick, onLongClick).clip(shape).background(cb.surface2)) {
+    Box(Modifier.fillMaxWidth().height(196.dp).pressCombined(0.985f, onClick, onLongClick).clip(chamferShape(10f)).background(cb.surface2)) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             Thumb(album.items.getOrNull(0), Modifier.weight(2f).fillMaxHeight())
             Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -237,77 +212,28 @@ private fun CameraHero(album: Album, selected: Boolean, now: Long, onClick: () -
                 Thumb(album.items.getOrNull(2), Modifier.weight(1f).fillMaxWidth())
             }
         }
-        Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.3f to Color.Transparent, 1f to Color(0xE605080F))))
-        Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.Bottom) {
-            Column(Modifier.weight(1f)) {
-                Text("MAIN CAMERA", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 8.sp, letterSpacing = 2.sp, color = cb.mint))
-                Text("CAMERA", style = TextStyle(fontFamily = Tourney, fontWeight = FontWeight.Bold, fontSize = 24.sp, color = Color.White))
-                Text("${album.count} ITEMS · ${updatedText(now, album.newestMs).removePrefix("UPDATED ")}", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 9.sp, letterSpacing = 1.sp, color = Color(0xFFD5DBEA)))
-            }
-            Text("OPEN →", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 10.sp, letterSpacing = 1.5.sp, color = cb.mint))
+        Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color(0xE605080F))))
+        Column(Modifier.align(Alignment.BottomStart).padding(16.dp)) {
+            Text("Camera", style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 20.sp, color = Color.White))
+            RollingCount("${album.count} ITEMS", TextStyle(fontFamily = JetBrainsMono, fontSize = 10.sp, letterSpacing = 1.sp, color = Color(0xFFD5DBEA)))
         }
-        if (selected) Box(Modifier.matchParentSize().border(3.dp, cb.mint))
+        Box(Modifier.matchParentSize().border(3.dp, glide(selected, cb.mint, Color.Transparent)))
         SelectedMark(selected)
     }
 }
 
-/**
- * The cover: a front tile holding a 2x2 collage of the newest pictures, over two tilted ones. [fan] 1 is at rest; the back tiles tilt further
- * while the row is pressed. An album with nothing in it shows a heart (Favorites) on the front.
- */
+/** An album in ALL ALBUMS: the mosaic, then the name and the count. It squishes while pressed and fades in one after another when first shown. */
 @Composable
-private fun StackCover(album: Album, fan: Float) {
+private fun AlbumTile(album: Album, selected: Boolean, delayMs: Int, first: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val cb = LocalCb.current
-    val dp = LocalDensity.current.density
-    val tile = chamferShape(5f)
-    Box(Modifier.size(78.dp)) {
-        Thumb(album.items.getOrNull(5) ?: album.items.getOrNull(2), Modifier.matchParentSize().graphicsLayer { rotationZ = 7f * fan; translationX = 4f * dp * fan; alpha = 0.8f }, tile)
-        Thumb(album.items.getOrNull(4) ?: album.items.getOrNull(1), Modifier.matchParentSize().graphicsLayer { rotationZ = -8f * fan; translationX = -4f * dp * fan; alpha = 0.65f }, tile)
-        Box(Modifier.matchParentSize().clip(tile).background(cb.surface0), Alignment.Center) {
-            if (album.items.isEmpty()) CbIcon(Icon.HEART, cb.inkDim, size = 28.dp)
-            else Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Thumb(album.items.getOrNull(0), Modifier.weight(1f).fillMaxHeight()); Thumb(album.items.getOrNull(1), Modifier.weight(1f).fillMaxHeight())
-                }
-                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Thumb(album.items.getOrNull(2), Modifier.weight(1f).fillMaxHeight()); Thumb(album.items.getOrNull(3), Modifier.weight(1f).fillMaxHeight())
-                }
-            }
+    Column(Modifier.appear(delayMs, first).pressCombined(0.95f, onClick, onLongClick)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(1f).border(3.dp, glide(selected, cb.mint, Color.Transparent))) {
+            Mosaic(album, Modifier.fillMaxSize())
+            SelectedMark(selected)
         }
-    }
-}
-
-/** An album in ALL ALBUMS: the stacked cover, the name and count, when it last changed, and a strip of random pictures from inside it. */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun AlbumRow(album: Album, selected: Boolean, now: Long, seed: Int, onClick: () -> Unit, onLongClick: () -> Unit) {
-    val cb = LocalCb.current
-    val source = remember { MutableInteractionSource() }
-    val pressed by source.collectIsPressedAsState()
-    val fan by animateFloatAsState(if (pressed) 1.7f else 1f, spring(0.5f, 500f), label = "fan")
-    val tint by animateColorAsState(if (selected) cb.mint.copy(alpha = 0.08f) else Color.Transparent, tween(MOTION_FAST_MS), label = "rowTint")
-    val strip = remember(album.items, seed) { album.items.shuffled(Random(seed * 7919L + album.id)).take(5) }
-    val tiny = chamferShape(4f)
-    Box(Modifier.fillMaxWidth().pressScale(source, 0.98f).background(tint).combinedClickable(source, null, onClick = onClick, onLongClick = onLongClick)) {
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            StackCover(album, fan)
-            Column(Modifier.weight(1f).padding(top = 2.dp)) {
-                Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(end = 22.dp)) {
-                    Text(album.name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = if (album.count == 0) cb.inkDim else cb.ink))
-                    Text("${album.count}", Modifier.padding(start = 8.dp), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 10.sp, letterSpacing = 1.sp, color = cb.inkDim))
-                }
-                Text(updatedText(now, album.newestMs), style = TextStyle(fontFamily = JetBrainsMono, fontSize = 9.sp, letterSpacing = 1.sp, color = cb.inkDim))
-                Row(Modifier.padding(top = 9.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                    repeat(5) { i -> if (i < strip.size) Thumb(strip[i], Modifier.weight(1f).aspectRatio(1f), tiny) else Spacer(Modifier.weight(1f)) }
-                    if (album.count > 5) Box(Modifier.weight(1f).aspectRatio(1f).border(1.dp, cb.lineStrong), Alignment.Center) {
-                        Text("+${album.count - 5}", style = TextStyle(fontFamily = JetBrainsMono, fontSize = 9.sp, color = cb.inkDim))
-                    } else Spacer(Modifier.weight(1f))
-                }
-            }
-        }
-        Box(Modifier.fillMaxWidth().height(1.dp).align(Alignment.BottomCenter).background(cb.line))
-        SelectedMark(selected)
+        Text(album.name, Modifier.padding(top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            style = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = if (album.count == 0) cb.inkDim else cb.ink))
+        RollingCount("${album.count}", TextStyle(fontFamily = JetBrainsMono, fontSize = 10.sp, letterSpacing = 1.sp, color = cb.inkDim))
     }
 }
 
