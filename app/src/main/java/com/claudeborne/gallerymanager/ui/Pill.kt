@@ -24,5 +24,10 @@ internal val LocalPillHost = compositionLocalOf<PillHost?> { null }
 /** How much room a scrolling list leaves at its end so its last items can be lifted clear of the floating pill. */
 internal val LocalPillInset = compositionLocalOf { 0.dp }
 
+/** How much room a gallery list leaves at its start so its first items sit clear of the sub tabs floating over the top. */
+internal val LocalTopInset = compositionLocalOf { 0.dp }
+
+internal val TopPillHeight: Dp = 46.dp
+internal val TopPillRoom: Dp = TopPillHeight + 16.dp // the pill and its 8dp above and below
 internal val PillHeight: Dp = 52.dp
 internal val PillGap: Dp = 14.dp // between the pill and the bottom of the screen

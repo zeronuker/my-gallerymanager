@@ -165,9 +165,11 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
                 Box(Modifier.weight(1f).padding(bottom = toolRoom).glassSource(glass)) {
                     HorizontalPager(mainPager, Modifier.fillMaxSize(), userScrollEnabled = !(mainPager.currentPage == 1 && filesDeep)) { page ->
                         if (page == 0) {
-                            Column(Modifier.fillMaxSize()) {
-                                SubTabs(galleryPager)
-                                HorizontalPager(galleryPager, Modifier.weight(1f).fillMaxWidth()) { sub ->
+                            // the sub tabs float over the top of the photos, which scroll behind them (they blur through a source of their own)
+                            Box(Modifier.fillMaxSize()) {
+                                val topGlass = rememberGlassState()
+                                CompositionLocalProvider(LocalTopInset provides TopPillRoom) {
+                                HorizontalPager(galleryPager, Modifier.fillMaxSize().glassSource(topGlass)) { sub ->
                                     CompositionLocalProvider(LocalPageActive provides (mainPager.currentPage == 0 && galleryPager.currentPage == sub)) {
                                         when {
                                             sub == 0 -> PhotosScreen(images, "IMAGES", tools, onChanged, onCollage = { collage = it }, onJoin = { join = it }, gridState = imagesGrid, empty = "NO IMAGES", onOpen = openFrom(FROM_IMAGES))
@@ -186,6 +188,8 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
                                         }
                                     }
                                 }
+                                }
+                                SubTabs(galleryPager, topGlass, Modifier.align(Alignment.TopCenter))
                             }
                         } else {
                             CompositionLocalProvider(LocalPageActive provides (mainPager.currentPage == 1)) {
@@ -249,35 +253,37 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
 /** How much [i] is the tab on show: 1 at its own page, 0 a page away, and in between while swiping, so lines and colours follow the finger. */
 private fun PagerState.near(i: Int): Float = (1f - abs(currentPage + currentPageOffsetFraction - i)).coerceIn(0f, 1f)
 
-/** The 2dp line along the tabs: the bright part is one tab wide and slides with the pager. */
-@Composable
-private fun SlidingLine(pager: PagerState, count: Int) {
-    val cb = LocalCb.current
-    Box(
-        Modifier.fillMaxWidth().height(2.dp).background(cb.line).drawBehind {
-            val w = size.width / count
-            drawRect(cb.grad, Offset((pager.currentPage + pager.currentPageOffsetFraction).coerceIn(0f, count - 1f) * w, 0f), Size(w, size.height))
-        },
-    )
-}
-
 private fun tabStyle(k: Float, mint: Color, dim: Color) = TextStyle(
     fontFamily = JetBrainsMono, fontSize = 14.sp, letterSpacing = 2.2.sp, textAlign = TextAlign.Center,
     fontWeight = if (k > 0.5f) FontWeight.Bold else FontWeight.Normal, color = lerp(dim, mint, k),
 )
 
-/** Images / Videos / Albums, under the header; tapping one slides to it, and swiping the page does the same. */
+/** Equal tabs with a mint highlight that slides with the pager; tapping one calls [onSelect]. */
 @Composable
-private fun SubTabs(pager: PagerState) {
+private fun PillTabs(pager: PagerState, labels: List<String>, modifier: Modifier, onSelect: (Int) -> Unit) {
     val cb = LocalCb.current
-    val scope = rememberCoroutineScope()
-    Column {
-        Row(Modifier.fillMaxWidth()) {
-            galleryTabs.forEachIndexed { i, label ->
-                Text(label, Modifier.weight(1f).pressClickable(0.94f) { scope.launch { pager.animateScrollToPage(i, animationSpec = glideSpring()) } }.padding(vertical = 10.dp), style = tabStyle(pager.near(i), cb.mint, cb.inkDim))
+    Box(modifier.padding(4.dp)) {
+        Box(
+            Modifier.fillMaxHeight().fillMaxWidth(1f / labels.size)
+                .graphicsLayer { translationX = (pager.currentPage + pager.currentPageOffsetFraction).coerceIn(0f, labels.size - 1f) * size.width }
+                .clip(RoundedCornerShape(50)).background(cb.mint.copy(alpha = 0.14f)),
+        )
+        Row(Modifier.fillMaxSize()) {
+            labels.forEachIndexed { i, label ->
+                Box(Modifier.weight(1f).fillMaxHeight().pressClickable(0.94f) { onSelect(i) }, Alignment.Center) {
+                    Text(label, style = tabStyle(pager.near(i), cb.mint, cb.inkDim).copy(fontSize = 12.sp, letterSpacing = 1.8.sp))
+                }
             }
         }
-        SlidingLine(pager, galleryTabs.size)
+    }
+}
+
+/** Images / Videos / Albums as a frosted capsule across the top of the photos; tapping one slides to it, and swiping the page does the same. */
+@Composable
+private fun SubTabs(pager: PagerState, glass: GlassState, modifier: Modifier) {
+    val scope = rememberCoroutineScope()
+    GlassPill(glass, modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()) {
+        PillTabs(pager, galleryTabs, Modifier.fillMaxWidth().height(TopPillHeight)) { i -> scope.launch { pager.animateScrollToPage(i, animationSpec = glideSpring()) } }
     }
 }
 
@@ -308,20 +314,7 @@ private fun FloatingPill(pager: PagerState, actions: List<BarItem>?, glass: Glas
                     }
                 }
             } else {
-                Box(Modifier.width(232.dp).height(PillHeight).padding(4.dp)) {
-                    Box(
-                        Modifier.fillMaxHeight().fillMaxWidth(1f / mainTabs.size)
-                            .graphicsLayer { translationX = (pager.currentPage + pager.currentPageOffsetFraction).coerceIn(0f, mainTabs.size - 1f) * size.width }
-                            .clip(RoundedCornerShape(50)).background(cb.mint.copy(alpha = 0.14f)),
-                    )
-                    Row(Modifier.fillMaxSize()) {
-                        mainTabs.forEachIndexed { i, label ->
-                            Box(Modifier.weight(1f).fillMaxHeight().pressClickable(0.94f) { onSelect(i) }, Alignment.Center) {
-                                Text(label, style = tabStyle(pager.near(i), cb.mint, cb.inkDim).copy(fontSize = 12.sp, letterSpacing = 1.8.sp))
-                            }
-                        }
-                    }
-                }
+                PillTabs(pager, mainTabs, Modifier.width(232.dp).height(PillHeight), onSelect)
             }
         }
     }

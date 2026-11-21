@@ -113,7 +113,7 @@ fun AlbumsScreen(items: List<MediaItem>, favorites: Set<Long>, tools: FileTools,
         val gridState = rememberLazyGridState()
         Box(Modifier.weight(1f)) {
             LazyVerticalGrid(
-                GridCells.Fixed(3), Modifier.fillMaxSize(), gridState, contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 16.dp + LocalPillInset.current),
+                GridCells.Fixed(3), Modifier.fillMaxSize(), gridState, contentPadding = PaddingValues(start = 16.dp, top = 4.dp + LocalTopInset.current, end = 16.dp, bottom = 16.dp + LocalPillInset.current),
                 horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 if (camera != null) item(key = "camera", span = { GridItemSpan(maxLineSpan) }) {

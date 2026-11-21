@@ -133,7 +133,7 @@ fun PhotosScreen(
         LazyVerticalGrid(
             columns = GridCells.Fixed(cols),
             state = gridState,
-            contentPadding = PaddingValues(bottom = LocalPillInset.current),
+            contentPadding = PaddingValues(top = LocalTopInset.current, bottom = LocalPillInset.current),
             modifier = Modifier.fillMaxSize().pinchToResize(cols) { cols = it }
                 .dragToSelect(gridState, order, { selected }, { selected = it }) { haptic.performHapticFeedback(HapticFeedbackType.LongPress) },
             horizontalArrangement = Arrangement.spacedBy(2.dp),
