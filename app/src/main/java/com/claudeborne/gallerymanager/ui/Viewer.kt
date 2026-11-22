@@ -95,6 +95,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.MediaItem as PlayerItem
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -442,11 +443,12 @@ internal fun VideoPage(item: MediaItem, active: Boolean, chrome: Boolean, onTap:
 
 /** Timeline with elapsed/total time, and the buttons underneath it. */
 @Composable
-private fun VideoControls(player: Player, onSkip: (Long) -> Unit, muted: Boolean, onMuted: (Boolean) -> Unit) {
+private fun VideoControls(player: ExoPlayer, onSkip: (Long) -> Unit, muted: Boolean, onMuted: (Boolean) -> Unit) {
     var playing by remember { mutableStateOf(player.isPlaying) }
     var pos by remember { mutableLongStateOf(0L) }
     var dur by remember { mutableLongStateOf(0L) }
     var drag by remember { mutableStateOf<Float?>(null) }
+    var resumeAfterDrag by remember { mutableStateOf(false) }
     DisposableEffect(player) {
         val listener = object : Player.Listener { override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying } }
         player.addListener(listener)
@@ -463,8 +465,22 @@ private fun VideoControls(player: Player, onSkip: (Long) -> Unit, muted: Boolean
     Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xCC000000)))).padding(horizontal = 16.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Slider(
             value = drag ?: if (dur > 0) pos.toFloat() / dur else 0f,
-            onValueChange = { drag = it },
-            onValueChangeFinished = { drag?.let { player.seekTo((it * dur).toLong()) }; drag = null },
+            // scrub live: pause and seek to the nearest keyframe (cheap) while dragging, then land exactly on release
+            onValueChange = {
+                if (drag == null) {
+                    resumeAfterDrag = player.isPlaying
+                    player.pause()
+                    player.setSeekParameters(SeekParameters.CLOSEST_SYNC)
+                }
+                drag = it
+                player.seekTo((it * dur).toLong())
+            },
+            onValueChangeFinished = {
+                player.setSeekParameters(SeekParameters.EXACT)
+                drag?.let { player.seekTo((it * dur).toLong()) }
+                drag = null
+                if (resumeAfterDrag) player.play()
+            },
             colors = SliderDefaults.colors(thumbColor = DarkCb.mint, activeTrackColor = DarkCb.mint, inactiveTrackColor = Color(0x3DFFFFFF)),
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
