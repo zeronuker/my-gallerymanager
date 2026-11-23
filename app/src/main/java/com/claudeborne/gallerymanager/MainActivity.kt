@@ -29,6 +29,8 @@ import com.claudeborne.gallerymanager.ui.LockOverlay
 import com.claudeborne.gallerymanager.ui.GalleryRoot
 import com.claudeborne.gallerymanager.ui.SplashScreen
 
+private const val REVIEW = "com.android.camera.action.REVIEW"
+
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,11 +41,12 @@ class MainActivity : FragmentActivity() {
                 if (Settings.lock) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
             }
             ClaudeBorneTheme {
-                val viewUri = intent.takeIf { it.action == Intent.ACTION_VIEW }?.data
+                val review = intent.action == REVIEW // from the camera app: page through the camera roll
+                val viewUri = intent.takeIf { it.action == Intent.ACTION_VIEW || review }?.data
                 var splash by rememberSaveable { mutableStateOf(viewUri == null && Settings.splash) } // no splash when another app just wants a photo shown
                 Box(Modifier.fillMaxSize()) {
                     // while locked the content stays (so nothing is lost) but is hidden from screen readers too
-                    Box(if (AppLockState.locked) Modifier.fillMaxSize().clearAndSetSemantics { } else Modifier.fillMaxSize()) { GalleryRoot(viewUri) }
+                    Box(if (AppLockState.locked) Modifier.fillMaxSize().clearAndSetSemantics { } else Modifier.fillMaxSize()) { GalleryRoot(viewUri, fromCamera = review) }
                     AnimatedVisibility(splash, enter = EnterTransition.None, exit = fadeOut(tween(MOTION_MS))) { SplashScreen { splash = false } }
                     LockOverlay()
                     UpdateDialog()

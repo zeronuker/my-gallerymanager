@@ -54,7 +54,7 @@ private val mediaPermissions = arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Ma
 private val requestedPermissions = mediaPermissions + Manifest.permission.ACCESS_MEDIA_LOCATION
 
 @Composable
-fun GalleryRoot(openUri: Uri? = null) {
+fun GalleryRoot(openUri: Uri? = null, fromCamera: Boolean = false) {
     val context = LocalContext.current
     fun granted() = mediaPermissions.all { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
 
@@ -104,7 +104,7 @@ fun GalleryRoot(openUri: Uri? = null) {
                 },
             )
             1 -> Box(Modifier.fillMaxSize().cbGrid(LocalCb.current), Alignment.Center) { LoadingPane("LOADING YOUR LIBRARY") }
-            else -> items?.let { MainScaffold(it, trash, openUri) { reload++ } }
+            else -> items?.let { MainScaffold(it, trash, openUri, fromCamera) { reload++ } }
         }
     }
 }

@@ -90,10 +90,11 @@ private const val FROM_IMAGES = 0
 private const val FROM_VIDEOS = 1
 private const val FROM_ALBUM = 2
 private const val FROM_LIBRARY = 3 // Files, or another app opening one file
+private const val FROM_CAMERA = 4 // the camera app opened its latest shot: swipe through DCIM/Camera
 
 /** [openUri] is set when another app opened a photo/video with us ("Open with"); closing the viewer then returns to that app. */
 @Composable
-fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, onChanged: () -> Unit) {
+fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, fromCamera: Boolean = false, onChanged: () -> Unit) {
     val cb = LocalCb.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -104,7 +105,7 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
     val settingsVisible by remember { derivedStateOf { settingsPos.value > 0f } }
     LaunchedEffect(showSettings) { settingsPos.animateTo(if (showSettings) 1f else 0f, tween(if (showSettings) MOTION_MS else MOTION_FAST_MS)) }
     var openAlbum by rememberSaveable { mutableStateOf<Long?>(null) }
-    var viewerFrom by rememberSaveable { mutableIntStateOf(FROM_LIBRARY) }
+    var viewerFrom by rememberSaveable { mutableIntStateOf(if (fromCamera) FROM_CAMERA else FROM_LIBRARY) }
     var filesList by remember { mutableStateOf<List<MediaItem>?>(null) } // what the Files screen was showing when it opened the viewer
     var viewerId by rememberSaveable {
         // MediaStore uris map to a library item; anything else (file manager, downloads) gets a single-item viewer
@@ -132,12 +133,14 @@ fun MainScaffold(items: List<MediaItem>, trash: List<MediaItem>, openUri: Uri?, 
             else -> items.filter { it.bucketId == album }
         }
     }
+    val cameraRoll = remember(items) { items.filter { it.path.startsWith("DCIM/Camera") } } // photos and videos, newest first
     val external = remember(openUri) { openUri?.let { externalItem(context, it) } }
     val viewerItems = when {
         viewerId == EXTERNAL_ID -> listOfNotNull(external)
         viewerFrom == FROM_IMAGES -> images
         viewerFrom == FROM_VIDEOS -> videos
         viewerFrom == FROM_ALBUM -> inAlbum
+        viewerFrom == FROM_CAMERA -> cameraRoll.takeIf { r -> r.any { it.id == viewerId } } ?: items // a shot that is not in the camera folder just pages the library
         else -> filesList?.let { l -> val live = items.mapTo(HashSet()) { it.id }; l.filter { it.id in live } } ?: items // trashed items drop out
     }
     fun openFrom(from: Int) = { m: MediaItem -> viewerFrom = from; viewerId = m.id }
